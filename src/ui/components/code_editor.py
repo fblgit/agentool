@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Code editor component for displaying generated code with syntax highlighting.
 
@@ -32,7 +33,7 @@ class CodeEditor:
         }
     
     def render_code(self, code_data: Any, language: str = 'python', 
-                   editable: bool = False, show_line_numbers: bool = True):
+                   editable: bool = False, show_line_numbers: bool = True, key_suffix: str = ""):
         """
         Render code with syntax highlighting.
         
@@ -77,7 +78,7 @@ class CodeEditor:
                 "Edit code:",
                 value=code,
                 height=500,
-                key="code_editor"
+                key=f"code_editor_{key_suffix}" if key_suffix else "code_editor"
             )
             
             # Show diff if changed
@@ -92,7 +93,7 @@ class CodeEditor:
             # Add copy button
             st.button("📋 Copy to Clipboard", 
                      on_click=lambda: st.write("Code copied!"),
-                     key="copy_code")
+                     key=f"copy_code_{key_suffix}" if key_suffix else "copy_code")
         
         return code
     
@@ -111,6 +112,7 @@ class CodeEditor:
         with col1:
             st.markdown(f"**Name:** `{spec_data.get('name', 'Unknown')}`")
             st.markdown(f"**Type:** {spec_data.get('type', 'Unknown')}")
+            st.markdown(f"**Category:** {spec_data.get('category', 'General')}")
         
         with col2:
             dependencies = spec_data.get('dependencies', [])
@@ -118,7 +120,7 @@ class CodeEditor:
             if dependencies:
                 with st.expander("View Dependencies"):
                     for dep in dependencies:
-                        st.markdown(f"- {dep}")
+                        st.markdown(f"- `{dep}`")
         
         # Description
         st.markdown("**Description:**")
@@ -220,16 +222,30 @@ class CodeEditor:
                     st.markdown(f"  - Old: `{orig_line}`")
                     st.markdown(f"  + New: `{mod_line}`")
     
-    def create_file_viewer(self, files: Dict[str, str]):
+    def create_file_viewer(self, files: Dict[str, str], show_metrics: bool = True):
         """
         Create a file viewer for multiple code files.
         
         Args:
             files: Dictionary of filename to code content
+            show_metrics: Whether to show code metrics
         """
         if not files:
             st.info("No files to display")
             return
+        
+        # Show overall metrics if requested
+        if show_metrics and len(files) > 1:
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                total_files = len(files)
+                st.metric("Total Files", total_files)
+            with col2:
+                total_loc = sum(content.count('\n') for content in files.values())
+                st.metric("Total Lines", total_loc)
+            with col3:
+                total_size = sum(len(content) for content in files.values())
+                st.metric("Total Size", f"{total_size:,} bytes")
         
         # File selector
         selected_file = st.selectbox(
@@ -247,16 +263,26 @@ class CodeEditor:
             self.render_code(
                 files[selected_file],
                 language=language,
-                show_line_numbers=True
+                show_line_numbers=True,
+                key_suffix=selected_file.replace('.', '_').replace('/', '_')
             )
             
-            # Export button
-            st.download_button(
-                label=f"Download {selected_file}",
-                data=files[selected_file],
-                file_name=selected_file,
-                mime="text/plain"
-            )
+            # Export buttons
+            col1, col2 = st.columns(2)
+            with col1:
+                st.download_button(
+                    label=f"💾 Download {selected_file}",
+                    data=files[selected_file],
+                    file_name=selected_file,
+                    mime="text/plain",
+                    use_container_width=True
+                )
+            
+            with col2:
+                if len(files) > 1:
+                    # TODO: Implement zip download
+                    if st.button("📦 Download All Files", use_container_width=True):
+                        st.info("Feature coming soon: Download all files as zip")
     
     def create_code_comparison(self, code1: str, code2: str, 
                              label1: str = "Original", label2: str = "Modified"):

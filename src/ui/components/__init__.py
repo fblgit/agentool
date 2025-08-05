@@ -1,14 +1,15 @@
 """UI components for the workflow interface."""
 
-from .progress_tracker import ProgressTracker, WorkflowProgressTracker
 from .artifact_viewer import ArtifactViewer
 from .code_editor import CodeEditor
-from .metrics_dashboard import MetricsDashboard
+from .phase_executor import PhaseExecutor, PhaseConfig, PhaseResult
+from .workflow_viewer import WorkflowViewer
 
 __all__ = [
-    'ProgressTracker',
-    'WorkflowProgressTracker',
     'ArtifactViewer',
     'CodeEditor',
-    'MetricsDashboard'
+    'PhaseExecutor',
+    'PhaseConfig',
+    'PhaseResult',
+    'WorkflowViewer'
 ]

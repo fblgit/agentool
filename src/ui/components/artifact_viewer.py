@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Artifact viewer component for displaying workflow artifacts.
 
@@ -7,9 +8,11 @@ the various artifacts generated during the workflow execution.
 
 import streamlit as st
 import json
-from typing import Dict, Any, List, Optional
+import asyncio
+from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime
 import pandas as pd
+from agentool.core.injector import get_injector
 
 
 class ArtifactViewer:
@@ -28,10 +31,17 @@ class ArtifactViewer:
             'specifications': {'icon': '📋', 'name': 'Specifications'},
             'implementation': {'icon': '💻', 'name': 'Implementation'},
             'evaluation': {'icon': '✅', 'name': 'Evaluation'},
+            'validation': {'icon': '✅', 'name': 'Validation'},
             'existing_tools': {'icon': '🔧', 'name': 'Existing Tools'},
             'missing_tools': {'icon': '❓', 'name': 'Missing Tools'},
-            'skeleton': {'icon': '🏗️', 'name': 'Code Skeleton'}
+            'skeleton': {'icon': '🏗️', 'name': 'Code Skeleton'},
+            'test_analysis': {'icon': '🧪', 'name': 'Test Analysis'},
+            'test_stub': {'icon': '🏗️', 'name': 'Test Stubs'},
+            'test_implementation': {'icon': '🔨', 'name': 'Test Implementation'},
+            'final': {'icon': '🎯', 'name': 'Final Output'},
+            'summary': {'icon': '📊', 'name': 'Summary'}
         }
+        self.injector = get_injector()
     
     def render(self, artifacts: Dict[str, Any]):
         """
@@ -76,12 +86,24 @@ class ArtifactViewer:
                         self._render_implementation(items)
                     elif artifact_type == 'evaluation':
                         self._render_evaluation(items)
+                    elif artifact_type == 'validation':
+                        self._render_validation(items)
                     elif artifact_type == 'existing_tools':
                         self._render_existing_tools(items)
                     elif artifact_type == 'missing_tools':
                         self._render_missing_tools(items)
                     elif artifact_type == 'skeleton':
                         self._render_skeleton(items)
+                    elif artifact_type == 'test_analysis':
+                        self._render_test_analysis(items)
+                    elif artifact_type == 'test_stub':
+                        self._render_test_stub(items)
+                    elif artifact_type == 'test_implementation':
+                        self._render_test_implementation(items)
+                    elif artifact_type == 'final':
+                        self._render_final_output(items)
+                    elif artifact_type == 'summary':
+                        self._render_summary(items)
                     else:
                         self._render_generic(items)
     
@@ -99,6 +121,8 @@ class ArtifactViewer:
                 artifact_type = 'specifications'
             elif 'implementation' in key:
                 artifact_type = 'implementation'
+            elif 'validation' in key:
+                artifact_type = 'validation'
             elif 'evaluation' in key:
                 artifact_type = 'evaluation'
             elif 'existing_tools' in key:
@@ -107,6 +131,16 @@ class ArtifactViewer:
                 artifact_type = 'missing_tools'
             elif 'skeleton' in key:
                 artifact_type = 'skeleton'
+            elif 'test_analysis' in key:
+                artifact_type = 'test_analysis'
+            elif 'test_stub' in key:
+                artifact_type = 'test_stub'
+            elif 'test_implementation' in key:
+                artifact_type = 'test_implementation'
+            elif 'final' in key:
+                artifact_type = 'final'
+            elif 'SUMMARY' in key:
+                artifact_type = 'summary'
             else:
                 artifact_type = 'other'
             
@@ -137,10 +171,54 @@ class ArtifactViewer:
         
         return filtered
     
+    def _fetch_artifact_content(self, key: str, storage_type: str) -> Tuple[bool, Any]:
+        """Fetch artifact content from storage."""
+        try:
+            if storage_type == 'storage_kv':
+                result = asyncio.run(self.injector.run('storage_kv', {
+                    'operation': 'get',
+                    'key': key
+                }))
+                
+                if hasattr(result, 'output'):
+                    data = json.loads(result.output)
+                else:
+                    data = result.data if hasattr(result, 'data') else result
+                
+                if data.get('data', {}).get('exists', False):
+                    return True, json.loads(data['data']['value'])
+                    
+            elif storage_type == 'storage_fs':
+                result = asyncio.run(self.injector.run('storage_fs', {
+                    'operation': 'read',
+                    'path': key
+                }))
+                
+                if hasattr(result, 'output'):
+                    data = json.loads(result.output)
+                else:
+                    data = result.data if hasattr(result, 'data') else result
+                
+                if data.get('data', {}).get('content'):
+                    return True, data['data']['content']
+                    
+        except Exception as e:
+            st.error(f"Error fetching artifact: {e}")
+            
+        return False, None
+    
     def _render_analysis(self, items: List[Dict[str, Any]]):
         """Render analysis artifacts."""
         for item in items:
-            data = item['data']
+            # Fetch actual content from storage
+            storage_type = item['data'].get('type', 'storage_kv')
+            success, content = self._fetch_artifact_content(item['key'], storage_type)
+            
+            if not success:
+                st.warning(f"Could not fetch content for {item['key']}")
+                continue
+            
+            data = content
             
             st.markdown(f"### {data.get('name', 'Analysis')}")
             st.markdown(f"**Description:** {data.get('description', 'N/A')}")
@@ -162,7 +240,15 @@ class ArtifactViewer:
     def _render_catalog(self, items: List[Dict[str, Any]]):
         """Render tool catalog artifacts."""
         for item in items:
-            data = item['data']
+            # Fetch actual content
+            storage_type = item['data'].get('type', 'storage_kv')
+            success, content = self._fetch_artifact_content(item['key'], storage_type)
+            
+            if not success:
+                st.warning(f"Could not fetch catalog for {item['key']}")
+                continue
+            
+            data = content
             
             if isinstance(data, list):
                 # Create DataFrame for better display
@@ -183,7 +269,15 @@ class ArtifactViewer:
     def _render_specifications(self, items: List[Dict[str, Any]]):
         """Render specification artifacts."""
         for item in items:
-            data = item['data']
+            # Fetch actual content
+            storage_type = item['data'].get('type', 'storage_kv')
+            success, content = self._fetch_artifact_content(item['key'], storage_type)
+            
+            if not success:
+                st.warning(f"Could not fetch specification for {item['key']}")
+                continue
+            
+            data = content
             spec_name = item['key'].split('/')[-1]
             
             with st.container():
@@ -214,7 +308,15 @@ class ArtifactViewer:
     def _render_implementation(self, items: List[Dict[str, Any]]):
         """Render implementation artifacts."""
         for item in items:
-            data = item['data']
+            # Fetch actual content
+            storage_type = item['data'].get('type', 'storage_kv')
+            success, content = self._fetch_artifact_content(item['key'], storage_type)
+            
+            if not success:
+                st.warning(f"Could not fetch implementation for {item['key']}")
+                continue
+            
+            data = content
             
             if isinstance(data, dict) and 'code' in data:
                 # Display code with syntax highlighting
@@ -230,7 +332,15 @@ class ArtifactViewer:
     def _render_evaluation(self, items: List[Dict[str, Any]]):
         """Render evaluation artifacts."""
         for item in items:
-            data = item['data']
+            # Fetch actual content
+            storage_type = item['data'].get('type', 'storage_kv')
+            success, content = self._fetch_artifact_content(item['key'], storage_type)
+            
+            if not success:
+                st.warning(f"Could not fetch evaluation for {item['key']}")
+                continue
+            
+            data = content
             
             if 'passed' in data:
                 if data['passed']:
@@ -256,7 +366,14 @@ class ArtifactViewer:
     def _render_existing_tools(self, items: List[Dict[str, Any]]):
         """Render existing tools artifacts."""
         for item in items:
-            data = item['data']
+            # Fetch actual content
+            storage_type = item['data'].get('type', 'storage_kv')
+            success, content = self._fetch_artifact_content(item['key'], storage_type)
+            
+            if not success:
+                continue  # Existing tools might not always be stored
+            
+            data = content
             
             if isinstance(data, list):
                 st.markdown("**Available Tools:**")
@@ -272,7 +389,15 @@ class ArtifactViewer:
     def _render_missing_tools(self, items: List[Dict[str, Any]]):
         """Render missing tools artifacts."""
         for item in items:
-            data = item['data']
+            # Fetch actual content
+            storage_type = item['data'].get('type', 'storage_kv')
+            success, content = self._fetch_artifact_content(item['key'], storage_type)
+            
+            if not success:
+                st.warning(f"Could not fetch missing tool info for {item['key']}")
+                continue
+            
+            data = content
             
             if isinstance(data, list):
                 for tool_name in data:
@@ -283,20 +408,180 @@ class ArtifactViewer:
     def _render_skeleton(self, items: List[Dict[str, Any]]):
         """Render code skeleton artifacts."""
         for item in items:
-            data = item['data']
+            # Fetch actual content
+            storage_type = item['data'].get('type', 'storage_kv')
+            success, content = self._fetch_artifact_content(item['key'], storage_type)
+            
+            if not success:
+                continue
+            
+            data = content
             
             if isinstance(data, str):
                 st.code(data, language='python')
             else:
                 st.json(data)
     
+    def _render_validation(self, items: List[Dict[str, Any]]):
+        """Render validation artifacts."""
+        for item in items:
+            # Fetch actual content
+            storage_type = item['data'].get('type', 'storage_kv')
+            success, content = self._fetch_artifact_content(item['key'], storage_type)
+            
+            if not success:
+                st.warning(f"Could not fetch validation for {item['key']}")
+                continue
+            
+            data = content
+            tool_name = item['key'].split('/')[-1]
+            
+            with st.container():
+                st.markdown(f"#### ✅ {tool_name} Validation")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    if data.get('syntax_valid'):
+                        st.success("Syntax Valid")
+                    else:
+                        st.error("Syntax Invalid")
+                
+                with col2:
+                    if data.get('ready_for_deployment'):
+                        st.success("Ready for Deployment")
+                    else:
+                        st.warning("Needs Attention")
+                
+                if data.get('issues'):
+                    st.warning(f"Issues Found ({len(data['issues'])})")
+                    for issue in data['issues'][:3]:
+                        st.markdown(f"- {issue}")
+                    if len(data['issues']) > 3:
+                        st.text(f"... and {len(data['issues']) - 3} more")
+                
+                if data.get('fixes_applied'):
+                    st.info(f"Fixes Applied ({len(data['fixes_applied'])})")
+                    for fix in data['fixes_applied'][:3]:
+                        st.markdown(f"- {fix}")
+                
+                st.divider()
+    
+    def _render_test_analysis(self, items: List[Dict[str, Any]]):
+        """Render test analysis artifacts."""
+        for item in items:
+            # Fetch actual content
+            storage_type = item['data'].get('type', 'storage_kv')
+            success, content = self._fetch_artifact_content(item['key'], storage_type)
+            
+            if not success:
+                continue
+            
+            data = content
+            tool_name = item['key'].split('/')[-1]
+            
+            st.markdown(f"#### 🧪 Test Analysis: {tool_name}")
+            
+            if data.get('test_strategy'):
+                st.markdown("**Test Strategy:**")
+                st.info(data['test_strategy'])
+            
+            if data.get('test_cases'):
+                st.markdown("**Planned Test Cases:**")
+                for test_case in data.get('test_cases', [])[:5]:
+                    st.markdown(f"- {test_case}")
+    
+    def _render_test_stub(self, items: List[Dict[str, Any]]):
+        """Render test stub artifacts."""
+        for item in items:
+            # Fetch actual content
+            storage_type = item['data'].get('type', 'storage_kv')
+            success, content = self._fetch_artifact_content(item['key'], storage_type)
+            
+            if not success:
+                continue
+            
+            data = content
+            if storage_type == 'storage_fs':
+                # This is the actual test stub code
+                st.markdown(f"#### Test Stub: {item['key'].split('/')[-1]}")
+                st.code(data, language='python')
+            else:
+                # This is metadata about the stub
+                tool_name = item['key'].split('/')[-1]
+                st.markdown(f"#### 🏗️ Test Stub: {tool_name}")
+                if data.get('test_count'):
+                    st.metric("Test Methods", data['test_count'])
+    
+    def _render_test_implementation(self, items: List[Dict[str, Any]]):
+        """Render test implementation artifacts."""
+        for item in items:
+            # Fetch actual content
+            storage_type = item['data'].get('type', 'storage_kv')
+            success, content = self._fetch_artifact_content(item['key'], storage_type)
+            
+            if not success:
+                continue
+            
+            data = content
+            if storage_type == 'storage_fs':
+                # This is the actual test implementation
+                st.markdown(f"#### Test Implementation: {item['key'].split('/')[-1]}")
+                st.code(data, language='python')
+            else:
+                # This is metadata about the implementation
+                tool_name = item['key'].split('/')[-1]
+                st.markdown(f"#### 🔨 Test Implementation: {tool_name}")
+                
+                if data.get('coverage_achieved'):
+                    st.markdown("**Coverage:**")
+                    coverage = data['coverage_achieved']
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Overall", f"{coverage.get('overall', 0)}%")
+                    with col2:
+                        st.metric("Functions", f"{coverage.get('functions', 0)}%")
+                    with col3:
+                        st.metric("Edge Cases", f"{coverage.get('edge_cases', 0)}%")
+    
+    def _render_final_output(self, items: List[Dict[str, Any]]):
+        """Render final output artifacts."""
+        for item in items:
+            # This is typically a directory, so list files
+            st.markdown(f"#### 🎯 Final Output: {item['key']}")
+            st.info("Final validated and improved code is stored here")
+    
+    def _render_summary(self, items: List[Dict[str, Any]]):
+        """Render summary artifacts."""
+        for item in items:
+            # Fetch actual content
+            storage_type = item['data'].get('type', 'storage_fs')
+            success, content = self._fetch_artifact_content(item['key'], storage_type)
+            
+            if not success:
+                continue
+            
+            st.markdown(f"#### 📊 Summary")
+            if item['key'].endswith('.md'):
+                # Render markdown
+                st.markdown(content)
+            else:
+                # Render as text
+                st.text(content)
+    
     def _render_generic(self, items: List[Dict[str, Any]]):
         """Generic renderer for unknown artifact types."""
         for item in items:
             st.markdown(f"**{item['key']}**")
             
-            if isinstance(item['data'], str):
-                st.text_area("", value=item['data'], height=200, disabled=True)
+            # Try to fetch content
+            storage_type = item['data'].get('type', 'storage_kv')
+            success, content = self._fetch_artifact_content(item['key'], storage_type)
+            
+            if success:
+                if isinstance(content, str):
+                    st.text_area("", value=content, height=200, disabled=True)
+                else:
+                    st.json(content)
             else:
                 st.json(item['data'])
     
