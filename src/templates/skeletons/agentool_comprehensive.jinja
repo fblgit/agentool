@@ -1,0 +1,234 @@
+"""
+{{ tool_name }} AgenTool - [Brief description of what this tool does].
+
+This AgenTool provides [detailed explanation of functionality and purpose].
+It integrates with [list of dependencies] to [explain integration approach].
+
+Key Features:
+- [Feature 1]: [Brief description]
+- [Feature 2]: [Brief description]
+- [Feature 3]: [Brief description]
+
+Usage Example:
+    >>> from agentoolkit.{{ tool_name }} import create_{{ tool_name }}_agent
+    >>> from agentool.core.injector import get_injector
+    >>> 
+    >>> # Create and register the agent
+    >>> agent = create_{{ tool_name }}_agent()
+    >>> 
+    >>> # Use through injector
+    >>> injector = get_injector()
+    >>> result = await injector.run('{{ tool_name }}', {
+    ...     "operation": "example_operation",
+    ...     "param": "value"
+    ... })
+"""
+
+import json
+from typing import Dict, Any, List, Optional, Literal
+from pydantic import BaseModel, Field, validator
+from pydantic_ai import RunContext
+
+from agentool import create_agentool
+from agentool.base import BaseOperationInput
+from agentool.core.registry import RoutingConfig
+from agentool.core.injector import get_injector
+
+
+class {{ tool_name|capitalize }}Input(BaseOperationInput):
+    """Input schema for {{ tool_name }} operations."""
+    operation: Literal['operation1', 'operation2', 'operation3'] = Field(
+        description="The operation to perform"
+    )
+    
+    # Add operation-specific fields here
+    # Example:
+    # key: Optional[str] = Field(None, description="Unique identifier")
+    # value: Optional[Any] = Field(None, description="Value to store")
+    
+    # Add validators if needed
+    # @validator('field_name')
+    # def validate_field(cls, v):
+    #     # Validation logic
+    #     return v
+
+
+class {{ tool_name|capitalize }}Output(BaseModel):
+    """Output schema for {{ tool_name }} operations."""
+    operation: str = Field(description="The operation that was performed")
+    success: bool = Field(description="Whether the operation succeeded")
+    message: str = Field(description="Human-readable result message")
+    data: Optional[Dict[str, Any]] = Field(None, description="Operation-specific data")
+
+
+# Global state management (if needed)
+# _state: Dict[str, Any] = {}
+
+
+async def {{ tool_name }}_operation1(ctx: RunContext[Any], **kwargs) -> {{ tool_name|capitalize }}Output:
+    """
+    Perform operation1.
+    
+    This function [detailed explanation of what operation1 does].
+    
+    Args:
+        ctx: Runtime context
+        **kwargs: Operation-specific parameters
+        
+    Returns:
+        {{ tool_name|capitalize }}Output with operation results
+        
+    Raises:
+        ValueError: If [condition]
+        RuntimeError: If [condition]
+    """
+    injector = get_injector()
+    
+    try:
+        # Implementation logic here
+        
+        # Example: Use other agentools
+        # result = await injector.run('storage_kv', {
+        #     'operation': 'get',
+        #     'key': 'some_key'
+        # })
+        
+        # Log the operation
+        await injector.run('logging', {
+            'operation': 'log',
+            'level': 'INFO',
+            'logger_name': '{{ tool_name }}',
+            'message': 'Operation1 executed successfully',
+            'data': {'param': 'value'}
+        })
+        
+        # Track metrics
+        await injector.run('metrics', {
+            'operation': 'increment',
+            'name': 'agentool.{{ tool_name }}.operation1.count'
+        })
+        
+        return {{ tool_name|capitalize }}Output(
+            operation="operation1",
+            success=True,
+            message="Operation1 completed successfully",
+            data={"result": "value"}
+        )
+        
+    except Exception as e:
+        # Log error
+        await injector.run('logging', {
+            'operation': 'log',
+            'level': 'ERROR',
+            'logger_name': '{{ tool_name }}',
+            'message': 'Operation1 failed',
+            'data': {'error': str(e)}
+        })
+        
+        # Track error metric
+        await injector.run('metrics', {
+            'operation': 'increment',
+            'name': 'agentool.{{ tool_name }}.operation1.errors'
+        })
+        
+        raise
+
+
+async def {{ tool_name }}_operation2(ctx: RunContext[Any], **kwargs) -> {{ tool_name|capitalize }}Output:
+    """
+    Perform operation2.
+    
+    Args:
+        ctx: Runtime context
+        **kwargs: Operation-specific parameters
+        
+    Returns:
+        {{ tool_name|capitalize }}Output with operation results
+    """
+    # Implementation for operation2
+    return {{ tool_name|capitalize }}Output(
+        operation="operation2",
+        success=True,
+        message="Operation2 completed",
+        data={}
+    )
+
+
+async def {{ tool_name }}_operation3(ctx: RunContext[Any], **kwargs) -> {{ tool_name|capitalize }}Output:
+    """
+    Perform operation3.
+    
+    Args:
+        ctx: Runtime context
+        **kwargs: Operation-specific parameters
+        
+    Returns:
+        {{ tool_name|capitalize }}Output with operation results
+    """
+    # Implementation for operation3
+    return {{ tool_name|capitalize }}Output(
+        operation="operation3",
+        success=True,
+        message="Operation3 completed",
+        data={}
+    )
+
+
+# Routing configuration
+{{ tool_name }}_routing = RoutingConfig(
+    operation_field='operation',
+    operation_map={
+        'operation1': ('{{ tool_name }}_operation1', lambda x: {
+            # Map input fields to function parameters
+            # 'param1': x.field1,
+            # 'param2': x.field2
+        }),
+        'operation2': ('{{ tool_name }}_operation2', lambda x: {
+            # Map input fields to function parameters
+        }),
+        'operation3': ('{{ tool_name }}_operation3', lambda x: {
+            # Map input fields to function parameters
+        }),
+    }
+)
+
+
+def create_{{ tool_name }}_agent():
+    """
+    Create and return the {{ tool_name }} AgenTool.
+    
+    Returns:
+        Agent configured for {{ tool_name }} operations
+    """
+    return create_agentool(
+        name='{{ tool_name }}',
+        input_schema={{ tool_name|capitalize }}Input,
+        routing_config={{ tool_name }}_routing,
+        tools=[{{ tool_name }}_operation1, {{ tool_name }}_operation2, {{ tool_name }}_operation3],
+        output_type={{ tool_name|capitalize }}Output,
+        system_prompt="[System prompt describing the agent's role and capabilities]",
+        description="[One-line description of what this agent does]",
+        version="1.0.0",
+        tags=["tag1", "tag2", "tag3"],
+        dependencies=["storage_kv", "logging", "metrics"],  # List actual dependencies
+        examples=[
+            {
+                "description": "Example of operation1",
+                "input": {
+                    "operation": "operation1",
+                    # Add example input fields
+                },
+                "output": {
+                    "operation": "operation1",
+                    "success": True,
+                    "message": "Operation1 completed successfully",
+                    "data": {"result": "value"}
+                }
+            },
+            # Add more examples for other operations
+        ]
+    )
+
+
+# Create the agent instance
+agent = create_{{ tool_name }}_agent()

@@ -1,0 +1,80 @@
+Metadata-Version: 2.4
+Name: agentool
+Version: 1.0.0
+Summary: Deterministic Tool Execution Framework for pydantic-ai with comprehensive toolkits
+Author-email: AgenTool Framework <contact@agentool.dev>
+Maintainer-email: AgenTool Framework <contact@agentool.dev>
+License: MIT
+Project-URL: Homepage, https://github.com/agentool/agentool
+Project-URL: Documentation, https://agentool.readthedocs.io
+Project-URL: Repository, https://github.com/agentool/agentool.git
+Project-URL: Changelog, https://github.com/agentool/agentool/blob/main/CHANGELOG.md
+Project-URL: Bug Tracker, https://github.com/agentool/agentool/issues
+Keywords: ai,agents,tools,pydantic,deterministic,llm,toolkit
+Classifier: Development Status :: 4 - Beta
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Topic :: Software Development :: Libraries :: Python Modules
+Classifier: Topic :: Scientific/Engineering :: Artificial Intelligence
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+Requires-Dist: pydantic>=2.0
+Requires-Dist: pydantic-ai>=0.0.1
+Requires-Dist: typing-extensions>=4.0.0
+Requires-Dist: jinja2>=3.1.0
+Requires-Dist: pyyaml>=6.0
+Provides-Extra: storage
+Requires-Dist: aiofiles>=23.0.0; extra == "storage"
+Requires-Dist: asyncpg>=0.27.0; extra == "storage"
+Requires-Dist: pgvector>=0.2.0; extra == "storage"
+Provides-Extra: auth
+Requires-Dist: passlib[bcrypt]>=1.7.4; extra == "auth"
+Requires-Dist: python-jose[cryptography]>=3.3.0; extra == "auth"
+Provides-Extra: crypto
+Requires-Dist: cryptography>=41.0.0; extra == "crypto"
+Provides-Extra: http
+Requires-Dist: httpx>=0.24.0; extra == "http"
+Provides-Extra: templates
+Requires-Dist: jinja2>=3.1.0; extra == "templates"
+Provides-Extra: rag
+Requires-Dist: openai>=1.0.0; extra == "rag"
+Requires-Dist: tiktoken>=0.5.0; extra == "rag"
+Requires-Dist: numpy>=1.24.0; extra == "rag"
+Provides-Extra: graph
+Requires-Dist: pydantic-graph>=0.1.0; extra == "graph"
+Provides-Extra: observability
+Requires-Dist: logfire>=0.51.0; extra == "observability"
+Provides-Extra: ui
+Requires-Dist: streamlit>=1.29.0; extra == "ui"
+Requires-Dist: pandas>=2.0.0; extra == "ui"
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0.0; extra == "dev"
+Requires-Dist: pytest-asyncio>=0.21.0; extra == "dev"
+Requires-Dist: pytest-cov>=4.0.0; extra == "dev"
+Requires-Dist: pytest-mock>=3.10.0; extra == "dev"
+Requires-Dist: pytest-xdist>=3.0.0; extra == "dev"
+Requires-Dist: dirty-equals>=0.6.0; extra == "dev"
+Requires-Dist: inline-snapshot>=0.7.0; extra == "dev"
+Requires-Dist: pytest-recording>=0.13.0; extra == "dev"
+Provides-Extra: lint
+Requires-Dist: ruff>=0.6.9; extra == "lint"
+Requires-Dist: mypy>=1.11.2; extra == "lint"
+Requires-Dist: pyright>=1.1.390; extra == "lint"
+Requires-Dist: codespell>=2.3.0; extra == "lint"
+Provides-Extra: all
+Requires-Dist: agentool[auth,crypto,graph,http,observability,rag,storage,templates,ui]; extra == "all"
+
+# AgenTools - Based on Pydantic-AI
+
+Extends Pydantic-AI with AgenTool component.
+Includes a vast collection of AgenToolkits.
+Introduces Workflow AgenToolkits that uses LLM Agent.
+Enables multi-layer agentic for deterministic flows.
+
+AgenTools also includes a complete pydantic-graph workflow pipeline for generating new agentools and their respective integration tests.

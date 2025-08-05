@@ -1,0 +1,72 @@
+Complete the test implementation for the AgenTool: {{ tool_name }}
+
+## Test Stub to Complete
+{{ test_stub }}
+
+## Test Analysis
+{{ test_analysis }}
+
+## Final Code Being Tested
+{{ final_code }}
+
+## Specification
+{{ specification }}
+
+## All Specifications
+{{ all_specifications }}
+
+## Existing Tools
+{{ existing_tools }}
+
+## Test Skeleton Template  
+{{ skeleton }}
+
+Transform the test stub into a fully implemented test suite by:
+
+1. **Replace All TODOs**
+   - Implement complete test logic for each placeholder
+   - Remove all TODO comments after implementation
+   - Ensure each test is self-contained and complete
+
+2. **Implement Test Logic**
+   For each test method:
+   - **Arrange**: Set up test data, mocks, and prerequisites
+   - **Act**: Execute the operation being tested
+   - **Assert**: Verify results, side effects, and mock interactions
+
+3. **Real Dependency Testing**
+   - Use actual agent instances created in setup_method
+   - Test real integrations with dependent tools
+   - Verify actual state changes in global stores
+   - No mocks - test actual behavior and side effects
+
+4. **Test Data**
+   - Use test data from the analysis
+   - Create realistic input values
+   - Include edge cases and invalid data
+   - Ensure data matches the schemas
+
+5. **Assertions**
+   - Verify all expected outputs
+   - Check data types and structures
+   - Validate error messages
+   - Assert on real data and state changes
+
+6. **Error Testing**
+   - Use pytest.raises() for exception testing
+   - Verify specific error types and messages
+   - Test error recovery and cleanup
+
+7. **Async Handling**
+   - Properly await all async operations
+   - Use asyncio.run() for async test execution
+   - Handle async context managers correctly
+
+CRITICAL REQUIREMENTS:
+- Every test must be complete and runnable
+- No placeholders, TODOs, or pass statements
+- Follow the exact patterns from the test stub structure
+- Include both positive and negative test cases
+- Ensure proper JSON parsing for results
+- Handle both direct results and results with .output attribute
+- Test all operations defined in the specification

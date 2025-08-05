@@ -1,0 +1,63 @@
+Create a well-structured test stub for the AgenTool: {{ tool_name }}
+
+## Test Analysis
+{{ test_analysis }}
+
+## Final Code to Test
+{{ final_code }}
+
+## Specification
+{{ specification }}
+
+## All Specifications
+{{ all_specifications }}
+
+## Existing Tools
+{{ existing_tools }}
+
+## Test Skeleton Template
+{{ skeleton }}
+
+## Reference Test Structure
+{{ reference_test }}
+
+Using the test analysis and following the exact pattern from the reference test structure, create a complete test stub that includes:
+
+1. **Imports Section**
+   - Import all necessary testing libraries (pytest, asyncio, json, etc.)
+   - Import the tool being tested
+   - Import agentool core components (injector, registry)
+   - Import any mock libraries needed
+
+2. **Test Class Definition**
+   - Name: `Test{ToolName}` (e.g., TestSessionManager)
+   - Include class-level docstring
+
+3. **Setup and Teardown Methods**
+   - `setup_method(self)`: Clear registry, injector, and any global state
+   - Initialize the agent being tested
+   - Reset any mocks or test data
+
+4. **Test Method Stubs**
+   - Create one test method for each test case in the analysis
+   - Use descriptive names: `test_{operation}_{scenario}`
+   - Include method docstring explaining what the test validates
+   - Add TODO comment with specific implementation guidance
+   - Include basic structure with Arrange/Act/Assert comments
+
+5. **Helper Methods**
+   - Add any helper methods for common operations
+   - NO mock helpers - we use real integrations
+
+6. **No-Mocks Implementation**
+   - Import actual agent creation functions
+   - Clear global state stores in setup_method
+   - Create real agent instances in dependency order
+
+IMPORTANT:
+- Follow the EXACT structure and patterns from test_session.py
+- Each test method should have a clear TODO indicating what to implement
+- The stub must be syntactically valid Python that can be imported
+- Use the async def run_test() inner function pattern
+- Include `asyncio.run(run_test())` at the end of each test
+- NO mocks - only real agent instances and actual integrations

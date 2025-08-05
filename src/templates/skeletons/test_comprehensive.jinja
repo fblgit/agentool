@@ -1,0 +1,92 @@
+"""
+Tests for {{ tool_name }} toolkit.
+
+This module tests all functionality of the {{ tool_name }} toolkit
+including all operations, error handling, and integration with dependencies.
+"""
+
+import json
+import asyncio
+import time
+import pytest
+
+from agentool.core.injector import get_injector
+from agentool.core.registry import AgenToolRegistry
+
+
+class Test{{ tool_name.title().replace('_', '') }}:
+    """Test suite for {{ tool_name }} toolkit."""
+    
+    def setup_method(self):
+        """Clear registry and injector before each test."""
+        AgenToolRegistry.clear()
+        get_injector().clear()
+        
+        # Import and create the agents
+        # TODO: Import the specific agent module and any global state
+        # from agentoolkit.xxx.{{ tool_name }} import create_{{ tool_name }}_agent, _global_state_if_any
+        
+        # Clear global storage
+        # TODO: Clear any global state stores
+        # _global_state.clear()
+        
+        # Create agents (dependencies first)
+        # TODO: Create all required agents in dependency order
+        # dependency_agent = create_dependency_agent()
+        # {{ tool_name }}_agent = create_{{ tool_name }}_agent()
+    
+    # TODO: Add test methods for each operation
+    # Follow the exact pattern from test_session.py:
+    
+    def test_operation_success(self):
+        """Test successful operation execution."""
+        
+        async def run_test():
+            injector = get_injector()
+            
+            # TODO: Execute the actual operation
+            # result = await injector.run('{{ tool_name }}', {
+            #     "operation": "operation_name",
+            #     # ... operation parameters
+            # })
+            
+            # if hasattr(result, 'output'):
+            #     data = json.loads(result.output)
+            # else:
+            #     data = result
+            
+            # TODO: Add assertions to verify the operation succeeded
+            # assert "success" not in data  # Following test_session.py pattern
+            # assert data["operation"] == "operation_name"
+            # assert data["data"]["field"] == expected_value
+            
+            pass  # TODO: Remove this when implementing
+        
+        asyncio.run(run_test())
+    
+    def test_operation_error_handling(self):
+        """Test error handling for invalid inputs."""
+        
+        async def run_test():
+            injector = get_injector()
+            
+            # TODO: Test with invalid input
+            # with pytest.raises(Exception) as exc_info:
+            #     await injector.run('{{ tool_name }}', {
+            #         "operation": "operation_name",
+            #         # ... invalid parameters
+            #     })
+            
+            # assert "expected error message" in str(exc_info.value)
+            
+            pass  # TODO: Remove this when implementing
+        
+        asyncio.run(run_test())
+    
+    # TODO: Add more test methods following the pattern above
+    # Each test should:
+    # - Use async def run_test() inner function
+    # - Call real operations with injector.run()
+    # - Parse results with hasattr pattern
+    # - Test real integrations, no mocks
+    # - Clear/verify global state as needed
