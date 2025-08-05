@@ -6,6 +6,7 @@ the multi-phase AgenTool generation workflow using pydantic_graph.
 
 import uuid
 import json
+import os
 from datetime import datetime
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, List, Union
@@ -17,7 +18,7 @@ import logfire
 # configure logfire
 def scrubbing_callback(m: logfire.ScrubMatch):
     return m.value
-logfire.configure(token='pylf_v1_us_JB00y1jZVbhWVV3vLPgqG045Pg1vNVk8q6lQ0rV0Z5mj', scrubbing=logfire.ScrubbingOptions(callback=scrubbing_callback))
+logfire.configure(token=os.environ.get('LOGFIRE_API_KEY'), scrubbing=logfire.ScrubbingOptions(callback=scrubbing_callback))
 logfire.instrument_pydantic_ai()
 
 
