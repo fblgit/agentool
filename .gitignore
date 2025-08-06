@@ -22,3 +22,4 @@ node_modules/
 uv.lock
 generated/**
 logs/**
+src/agentool.egg-info/**

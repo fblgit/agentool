@@ -72,6 +72,7 @@ observability = [
 ui = [
     "streamlit>=1.29.0",  # UI components
     "pandas>=2.0.0",  # Data manipulation for UI
+    "streamlit-mermaid==0.3.0",
 ]
 
 # Development dependencies
