@@ -54,16 +54,12 @@ class TestHttp:
                     "follow_redirects": True
                 })
                 
-                if hasattr(result, 'output'):
-                    data = json.loads(result.output)
-                else:
-                    data = result
-                
-                # No longer checking success field - function now throws exceptions on failure
-                assert data["operation"] == "get"
-                assert data["data"]["status_code"] == 200
-                assert data["data"]["body"]["result"] == "success"
-                assert data["data"]["body"]["data"] == [1, 2, 3]
+                # http returns typed HttpOutput
+                assert result.success is True
+                assert result.operation == "get"
+                assert result.data["status_code"] == 200
+                assert result.data["body"]["result"] == "success"
+                assert result.data["body"]["data"] == [1, 2, 3]
         
         asyncio.run(run_test())
     
@@ -98,12 +94,8 @@ class TestHttp:
                 assert "page=1" in request.full_url
                 assert "limit=10" in request.full_url
                 
-                if hasattr(result, 'output'):
-                    data = json.loads(result.output)
-                else:
-                    data = result
-                
-                # No longer checking success field - function now throws exceptions on failure
+                # http returns typed HttpOutput
+                assert result.success is True
         
         asyncio.run(run_test())
     
@@ -141,14 +133,10 @@ class TestHttp:
                 assert body["email"] == "john@example.com"
                 assert request.headers["Content-type"] == "application/json"
                 
-                if hasattr(result, 'output'):
-                    data = json.loads(result.output)
-                else:
-                    data = result
-                
-                # No longer checking success field - function now throws exceptions on failure
-                assert data["data"]["status_code"] == 201
-                assert data["data"]["body"]["id"] == 123
+                # http returns typed HttpOutput
+                assert result.success is True
+                assert result.data["status_code"] == 201
+                assert result.data["body"]["id"] == 123
         
         asyncio.run(run_test())
     
@@ -183,12 +171,8 @@ class TestHttp:
                 request = call_args[0][0]
                 assert request.headers["Authorization"] == "Bearer secret_token_123"
                 
-                if hasattr(result, 'output'):
-                    data = json.loads(result.output)
-                else:
-                    data = result
-                
-                # No longer checking success field - function now throws exceptions on failure
+                # http returns typed HttpOutput
+                assert result.success is True
         
         asyncio.run(run_test())
     
@@ -227,12 +211,8 @@ class TestHttp:
                 expected = "Basic " + base64.b64encode(b"admin:secret123").decode()
                 assert request.headers["Authorization"] == expected
                 
-                if hasattr(result, 'output'):
-                    data = json.loads(result.output)
-                else:
-                    data = result
-                
-                # No longer checking success field - function now throws exceptions on failure
+                # http returns typed HttpOutput
+                assert result.success is True
         
         asyncio.run(run_test())
     
@@ -266,13 +246,9 @@ class TestHttp:
                 request = call_args[0][0]
                 assert request.get_method() == "PUT"
                 
-                if hasattr(result, 'output'):
-                    data = json.loads(result.output)
-                else:
-                    data = result
-                
-                # No longer checking success field - function now throws exceptions on failure
-                assert data["operation"] == "put"
+                # http returns typed HttpOutput
+                assert result.success is True
+                assert result.operation == "put"
         
         asyncio.run(run_test())
     
@@ -305,14 +281,10 @@ class TestHttp:
                 request = call_args[0][0]
                 assert request.get_method() == "DELETE"
                 
-                if hasattr(result, 'output'):
-                    data = json.loads(result.output)
-                else:
-                    data = result
-                
-                # No longer checking success field - function now throws exceptions on failure
-                assert data["operation"] == "delete"
-                assert data["data"]["status_code"] == 204
+                # http returns typed HttpOutput
+                assert result.success is True
+                assert result.operation == "delete"
+                assert result.data["status_code"] == 204
         
         asyncio.run(run_test())
     
@@ -346,13 +318,9 @@ class TestHttp:
                 request = call_args[0][0]
                 assert request.get_method() == "PATCH"
                 
-                if hasattr(result, 'output'):
-                    data = json.loads(result.output)
-                else:
-                    data = result
-                
-                # No longer checking success field - function now throws exceptions on failure
-                assert data["operation"] == "patch"
+                # http returns typed HttpOutput
+                assert result.success is True
+                assert result.operation == "patch"
         
         asyncio.run(run_test())
     
@@ -387,14 +355,10 @@ class TestHttp:
                 request = call_args[0][0]
                 assert request.get_method() == "HEAD"
                 
-                if hasattr(result, 'output'):
-                    data = json.loads(result.output)
-                else:
-                    data = result
-                
-                # No longer checking success field - function now throws exceptions on failure
-                assert data["operation"] == "head"
-                assert "Content-Type" in data["data"]["headers"]
+                # http returns typed HttpOutput
+                assert result.success is True
+                assert result.operation == "head"
+                assert "Content-Type" in result.data["headers"]
         
         asyncio.run(run_test())
     
@@ -428,15 +392,11 @@ class TestHttp:
                 request = call_args[0][0]
                 assert request.get_method() == "OPTIONS"
                 
-                if hasattr(result, 'output'):
-                    data = json.loads(result.output)
-                else:
-                    data = result
-                
-                # No longer checking success field - function now throws exceptions on failure
-                assert data["operation"] == "options"
-                assert "GET" in data["data"]["allowed_methods"]
-                assert "POST" in data["data"]["allowed_methods"]
+                # http returns typed HttpOutput
+                assert result.success is True
+                assert result.operation == "options"
+                assert "GET" in result.data["allowed_methods"]
+                assert "POST" in result.data["allowed_methods"]
         
         asyncio.run(run_test())
     
@@ -557,11 +517,7 @@ class TestHttp:
                 assert "username=john" in body
                 assert "age=25" in body
                 
-                if hasattr(result, 'output'):
-                    data = json.loads(result.output)
-                else:
-                    data = result
-                
-                # No longer checking success field - function now throws exceptions on failure
+                # http returns typed HttpOutput
+                assert result.success is True
         
         asyncio.run(run_test())

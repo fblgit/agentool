@@ -47,16 +47,12 @@ class TestStorageKv:
                 "namespace": namespace
             })
             
-            if hasattr(set_result, 'output'):
-                set_data = json.loads(set_result.output)
-            else:
-                set_data = set_result
-            
-            assert "operation" in set_data
-            assert set_data["operation"] == "set"
-            assert set_data["key"] == key
-            assert set_data["namespace"] == namespace
-            assert set_data["data"]["stored"] is True
+            # storage_kv returns typed StorageKvOutput
+            assert set_result.success is True
+            assert set_result.operation == "set"
+            assert set_result.key == key
+            assert set_result.namespace == namespace
+            assert set_result.data["stored"] is True
             
             # Test get
             get_result = await injector.run('storage_kv', {
@@ -65,15 +61,11 @@ class TestStorageKv:
                 "namespace": namespace
             })
             
-            if hasattr(get_result, 'output'):
-                get_data = json.loads(get_result.output)
-            else:
-                get_data = get_result
-            
-            assert "operation" in get_data
-            assert get_data["operation"] == "get"
-            assert get_data["data"]["exists"] is True
-            assert get_data["data"]["value"] == value
+            # storage_kv returns typed StorageKvOutput
+            assert get_result.success is True
+            assert get_result.operation == "get"
+            assert get_result.data["exists"] is True
+            assert get_result.data["value"] == value
         
         asyncio.run(run_test())
     
@@ -96,13 +88,9 @@ class TestStorageKv:
                 "ttl": ttl
             })
             
-            if hasattr(set_result, 'output'):
-                set_data = json.loads(set_result.output)
-            else:
-                set_data = set_result
-            
-            assert "operation" in set_data
-            assert set_data["data"]["ttl"] == ttl
+            # storage_kv returns typed StorageKvOutput
+            assert set_result.success is True
+            assert set_result.data["ttl"] == ttl
             
             # Get immediately (should exist)
             get_result = await injector.run('storage_kv', {
@@ -111,30 +99,25 @@ class TestStorageKv:
                 "namespace": namespace
             })
             
-            if hasattr(get_result, 'output'):
-                get_data = json.loads(get_result.output)
-            else:
-                get_data = get_result
-            
-            assert "operation" in get_data
-            assert get_data["data"]["exists"] is True
-            assert get_data["data"]["ttl_remaining"] is not None
-            assert get_data["data"]["ttl_remaining"] <= ttl
+            # storage_kv returns typed StorageKvOutput
+            assert get_result.success is True
+            assert get_result.data["exists"] is True
+            assert get_result.data["ttl_remaining"] is not None
+            assert get_result.data["ttl_remaining"] <= ttl
             
             # Wait for expiration
             await asyncio.sleep(1.1)
             
-            # Get after expiration (should raise KeyError)
-            try:
-                get_expired_result = await injector.run('storage_kv', {
-                    "operation": "get",
-                    "key": key,
-                    "namespace": namespace
-                })
-                assert False, "Expected KeyError for expired key"
-            except KeyError as e:
-                assert key in str(e)
-                assert "expired" in str(e)
+            # Get after expiration (should return success=False)
+            get_expired_result = await injector.run('storage_kv', {
+                "operation": "get",
+                "key": key,
+                "namespace": namespace
+            })
+            # storage_kv returns typed StorageKvOutput with success=False
+            assert get_expired_result.success is False
+            assert key in get_expired_result.message
+            assert "expired" in get_expired_result.message
         
         asyncio.run(run_test())
     
@@ -162,12 +145,9 @@ class TestStorageKv:
                 "namespace": namespace
             })
             
-            if hasattr(exists_result, 'output'):
-                exists_data = json.loads(exists_result.output)
-            else:
-                exists_data = exists_result
-            
-            assert exists_data["data"]["exists"] is True
+            # storage_kv returns typed StorageKvOutput
+            assert exists_result.success is True
+            assert exists_result.data["exists"] is True
             
             # Delete the key
             delete_result = await injector.run('storage_kv', {
@@ -176,14 +156,11 @@ class TestStorageKv:
                 "namespace": namespace
             })
             
-            if hasattr(delete_result, 'output'):
-                delete_data = json.loads(delete_result.output)
-            else:
-                delete_data = delete_result
-            
-            assert "operation" in delete_data
-            assert delete_data["data"]["deleted"] is True
-            assert delete_data["data"]["existed"] is True
+            # storage_kv returns typed StorageKvOutput
+            assert delete_result.success is True
+            assert delete_result.operation == "delete"
+            assert delete_result.data["deleted"] is True
+            assert delete_result.data["existed"] is True
             
             # Verify it no longer exists
             exists_result = await injector.run('storage_kv', {
@@ -192,12 +169,9 @@ class TestStorageKv:
                 "namespace": namespace
             })
             
-            if hasattr(exists_result, 'output'):
-                exists_data = json.loads(exists_result.output)
-            else:
-                exists_data = exists_result
-            
-            assert exists_data["data"]["exists"] is False
+            # storage_kv returns typed StorageKvOutput
+            assert exists_result.success is True
+            assert exists_result.data["exists"] is False
         
         asyncio.run(run_test())
     
@@ -231,14 +205,11 @@ class TestStorageKv:
                 "namespace": namespace
             })
             
-            if hasattr(keys_result, 'output'):
-                keys_data = json.loads(keys_result.output)
-            else:
-                keys_data = keys_result
-            
-            assert "operation" in keys_data
-            assert keys_data["data"]["count"] == len(test_keys)
-            assert set(keys_data["data"]["keys"]) == set(test_keys.keys())
+            # storage_kv returns typed StorageKvOutput
+            assert keys_result.success is True
+            assert keys_result.operation == "keys"
+            assert keys_result.data["count"] == len(test_keys)
+            assert set(keys_result.data["keys"]) == set(test_keys.keys())
             
             # Test pattern matching for user keys
             user_keys_result = await injector.run('storage_kv', {
@@ -247,16 +218,12 @@ class TestStorageKv:
                 "pattern": "user:*"
             })
             
-            if hasattr(user_keys_result, 'output'):
-                user_keys_data = json.loads(user_keys_result.output)
-            else:
-                user_keys_data = user_keys_result
-            
-            assert "operation" in user_keys_data
-            assert user_keys_data["data"]["count"] == 2
-            assert "user:1" in user_keys_data["data"]["keys"]
-            assert "user:2" in user_keys_data["data"]["keys"]
-            assert "config:timeout" not in user_keys_data["data"]["keys"]
+            # storage_kv returns typed StorageKvOutput
+            assert user_keys_result.success is True
+            assert user_keys_result.data["count"] == 2
+            assert "user:1" in user_keys_result.data["keys"]
+            assert "user:2" in user_keys_result.data["keys"]
+            assert "config:timeout" not in user_keys_result.data["keys"]
         
         asyncio.run(run_test())
     
@@ -288,12 +255,9 @@ class TestStorageKv:
                 "namespace": namespace
             })
             
-            if hasattr(keys_result, 'output'):
-                keys_data = json.loads(keys_result.output)
-            else:
-                keys_data = keys_result
-            
-            assert keys_data["data"]["count"] == len(test_data)
+            # storage_kv returns typed StorageKvOutput
+            assert keys_result.success is True
+            assert keys_result.data["count"] == len(test_data)
             
             # Clear the namespace
             clear_result = await injector.run('storage_kv', {
@@ -301,13 +265,10 @@ class TestStorageKv:
                 "namespace": namespace
             })
             
-            if hasattr(clear_result, 'output'):
-                clear_data = json.loads(clear_result.output)
-            else:
-                clear_data = clear_result
-            
-            assert "operation" in clear_data
-            assert clear_data["data"]["cleared_count"] == len(test_data)
+            # storage_kv returns typed StorageKvOutput
+            assert clear_result.success is True
+            assert clear_result.operation == "clear"
+            assert clear_result.data["cleared_count"] == len(test_data)
             
             # Verify namespace is empty
             keys_result = await injector.run('storage_kv', {
@@ -315,12 +276,9 @@ class TestStorageKv:
                 "namespace": namespace
             })
             
-            if hasattr(keys_result, 'output'):
-                keys_data = json.loads(keys_result.output)
-            else:
-                keys_data = keys_result
-            
-            assert keys_data["data"]["count"] == 0
+            # storage_kv returns typed StorageKvOutput
+            assert keys_result.success is True
+            assert keys_result.data["count"] == 0
         
         asyncio.run(run_test())
     
@@ -349,13 +307,10 @@ class TestStorageKv:
                 "ttl": 1
             })
             
-            if hasattr(expire_result, 'output'):
-                expire_data = json.loads(expire_result.output)
-            else:
-                expire_data = expire_result
-            
-            assert "operation" in expire_data
-            assert expire_data["data"]["ttl_set"] == 1
+            # storage_kv returns typed StorageKvOutput
+            assert expire_result.success is True
+            assert expire_result.operation == "expire"
+            assert expire_result.data["ttl_set"] == 1
             
             # Check TTL
             ttl_result = await injector.run('storage_kv', {
@@ -364,29 +319,25 @@ class TestStorageKv:
                 "namespace": namespace
             })
             
-            if hasattr(ttl_result, 'output'):
-                ttl_data = json.loads(ttl_result.output)
-            else:
-                ttl_data = ttl_result
-            
-            assert "operation" in ttl_data
-            assert ttl_data["data"]["has_expiry"] is True
-            assert ttl_data["data"]["ttl"] <= 1
+            # storage_kv returns typed StorageKvOutput
+            assert ttl_result.success is True
+            assert ttl_result.operation == "ttl"
+            assert ttl_result.data["has_expiry"] is True
+            assert ttl_result.data["ttl"] <= 1
             
             # Wait for expiration
             await asyncio.sleep(1.1)
             
-            # Key should be expired (should raise KeyError)
-            try:
-                get_result = await injector.run('storage_kv', {
-                    "operation": "get",
-                    "key": key,
-                    "namespace": namespace
-                })
-                assert False, "Expected KeyError for expired key"
-            except KeyError as e:
-                assert key in str(e)
-                assert "expired" in str(e)
+            # Key should be expired (should return success=False)
+            get_result = await injector.run('storage_kv', {
+                "operation": "get",
+                "key": key,
+                "namespace": namespace
+            })
+            # storage_kv returns typed StorageKvOutput with success=False
+            assert get_result.success is False
+            assert key in get_result.message
+            assert "expired" in get_result.message
         
         asyncio.run(run_test())
     
@@ -424,14 +375,11 @@ class TestStorageKv:
                 "namespace": namespace
             })
             
-            if hasattr(ttl_result, 'output'):
-                ttl_data = json.loads(ttl_result.output)
-            else:
-                ttl_data = ttl_result
-            
-            assert "operation" in ttl_data
-            assert ttl_data["data"]["ttl"] > 0
-            assert ttl_data["data"]["has_expiry"] is True
+            # storage_kv returns typed StorageKvOutput
+            assert ttl_result.success is True
+            assert ttl_result.operation == "ttl"
+            assert ttl_result.data["ttl"] > 0
+            assert ttl_result.data["has_expiry"] is True
             
             # Check TTL for key without TTL
             no_ttl_result = await injector.run('storage_kv', {
@@ -440,14 +388,11 @@ class TestStorageKv:
                 "namespace": namespace
             })
             
-            if hasattr(no_ttl_result, 'output'):
-                no_ttl_data = json.loads(no_ttl_result.output)
-            else:
-                no_ttl_data = no_ttl_result
-            
-            assert "operation" in no_ttl_data
-            assert no_ttl_data["data"]["ttl"] == -1  # No expiry
-            assert no_ttl_data["data"]["has_expiry"] is False
+            # storage_kv returns typed StorageKvOutput
+            assert no_ttl_result.success is True
+            assert no_ttl_result.operation == "ttl"
+            assert no_ttl_result.data["ttl"] == -1  # No expiry
+            assert no_ttl_result.data["has_expiry"] is False
             
             # Check TTL for nonexistent key
             missing_ttl_result = await injector.run('storage_kv', {
@@ -456,14 +401,11 @@ class TestStorageKv:
                 "namespace": namespace
             })
             
-            if hasattr(missing_ttl_result, 'output'):
-                missing_ttl_data = json.loads(missing_ttl_result.output)
-            else:
-                missing_ttl_data = missing_ttl_result
-            
-            assert "operation" in missing_ttl_data
-            assert missing_ttl_data["data"]["ttl"] == -2  # Key doesn't exist
-            assert missing_ttl_data["data"]["exists"] is False
+            # storage_kv returns typed StorageKvOutput
+            assert missing_ttl_result.success is True  # TTL query always succeeds
+            assert missing_ttl_result.operation == "ttl"
+            assert missing_ttl_result.data["ttl"] == -2  # Key doesn't exist
+            assert missing_ttl_result.data["exists"] is False
         
         asyncio.run(run_test())
     
@@ -500,12 +442,9 @@ class TestStorageKv:
                 "namespace": namespace1
             })
             
-            if hasattr(get1_result, 'output'):
-                get1_data = json.loads(get1_result.output)
-            else:
-                get1_data = get1_result
-            
-            assert get1_data["data"]["value"] == value1
+            # storage_kv returns typed StorageKvOutput
+            assert get1_result.success is True
+            assert get1_result.data["value"] == value1
             
             # Get from namespace2
             get2_result = await injector.run('storage_kv', {
@@ -514,12 +453,9 @@ class TestStorageKv:
                 "namespace": namespace2
             })
             
-            if hasattr(get2_result, 'output'):
-                get2_data = json.loads(get2_result.output)
-            else:
-                get2_data = get2_result
-            
-            assert get2_data["data"]["value"] == value2
+            # storage_kv returns typed StorageKvOutput
+            assert get2_result.success is True
+            assert get2_result.data["value"] == value2
             
             # Delete from namespace1
             await injector.run('storage_kv', {
@@ -535,13 +471,10 @@ class TestStorageKv:
                 "namespace": namespace2
             })
             
-            if hasattr(get2_after_delete, 'output'):
-                get2_after_data = json.loads(get2_after_delete.output)
-            else:
-                get2_after_data = get2_after_delete
-            
-            assert get2_after_data["data"]["exists"] is True
-            assert get2_after_data["data"]["value"] == value2
+            # storage_kv returns typed StorageKvOutput
+            assert get2_after_delete.success is True
+            assert get2_after_delete.data["exists"] is True
+            assert get2_after_delete.data["value"] == value2
         
         asyncio.run(run_test())
     
@@ -582,12 +515,9 @@ class TestStorageKv:
                     "namespace": namespace
                 })
                 
-                if hasattr(set_result, 'output'):
-                    set_data = json.loads(set_result.output)
-                else:
-                    set_data = set_result
-                
-                assert "operation" in set_data
+                # storage_kv returns typed StorageKvOutput
+                assert set_result.success is True
+                assert set_result.operation == "set"
             
             # Retrieve and verify all data types
             for key, expected_value in test_data.items():
@@ -597,14 +527,11 @@ class TestStorageKv:
                     "namespace": namespace
                 })
                 
-                if hasattr(get_result, 'output'):
-                    get_data = json.loads(get_result.output)
-                else:
-                    get_data = get_result
-                
-                assert "operation" in get_data
-                assert get_data["data"]["exists"] is True
-                assert get_data["data"]["value"] == expected_value
+                # storage_kv returns typed StorageKvOutput
+                assert get_result.success is True
+                assert get_result.operation == "get"
+                assert get_result.data["exists"] is True
+                assert get_result.data["value"] == expected_value
         
         asyncio.run(run_test())
     
@@ -615,17 +542,16 @@ class TestStorageKv:
             injector = get_injector()
             namespace = "test"
             
-            # Test getting non-existent key (should raise KeyError)
-            try:
-                get_result = await injector.run('storage_kv', {
-                    "operation": "get",
-                    "key": "nonexistent",
-                    "namespace": namespace
-                })
-                assert False, "Expected KeyError for non-existent key"
-            except KeyError as e:
-                assert "nonexistent" in str(e)
-                assert "not found" in str(e)
+            # Test getting non-existent key (should return success=False)
+            get_result = await injector.run('storage_kv', {
+                "operation": "get",
+                "key": "nonexistent",
+                "namespace": namespace
+            })
+            # storage_kv returns typed StorageKvOutput with success=False
+            assert get_result.success is False
+            assert "nonexistent" in get_result.message
+            assert "not found" in get_result.message
             
             # Test deleting non-existent key (should be idempotent)
             delete_result = await injector.run('storage_kv', {
@@ -634,15 +560,12 @@ class TestStorageKv:
                 "namespace": namespace
             })
             
-            if hasattr(delete_result, 'output'):
-                delete_data = json.loads(delete_result.output)
-            else:
-                delete_data = delete_result
+            # storage_kv returns typed StorageKvOutput
+            assert delete_result.success is True  # Idempotent
+            assert delete_result.operation == "delete"
+            assert delete_result.data["existed"] is False
             
-            assert "operation" in delete_data  # Idempotent
-            assert delete_data["data"]["existed"] is False
-            
-            # Test expire on non-existent key (should raise KeyError)
+            # Test expire on non-existent key (should still raise KeyError - not a discovery operation)
             try:
                 expire_result = await injector.run('storage_kv', {
                     "operation": "expire",
@@ -692,12 +615,9 @@ class TestStorageKv:
                 "namespace": namespace
             })
             
-            if hasattr(keys_result, 'output'):
-                keys_data = json.loads(keys_result.output)
-            else:
-                keys_data = keys_result
-            
-            assert keys_data["data"]["count"] == 4
+            # storage_kv returns typed StorageKvOutput
+            assert keys_result.success is True
+            assert keys_result.data["count"] == 4
             
             # Wait for expiration
             await asyncio.sleep(1.1)
@@ -709,13 +629,10 @@ class TestStorageKv:
                 "namespace": namespace
             })
             
-            if hasattr(get_result, 'output'):
-                get_data = json.loads(get_result.output)
-            else:
-                get_data = get_result
-            
+            # storage_kv returns typed StorageKvOutput
+            assert get_result.success is True
             # Should report expired keys were cleaned
-            assert get_data["data"]["expired_keys_cleaned"] == 3
+            assert get_result.data["expired_keys_cleaned"] == 3
             
             # Verify only persistent key remains
             keys_result = await injector.run('storage_kv', {
@@ -723,12 +640,9 @@ class TestStorageKv:
                 "namespace": namespace
             })
             
-            if hasattr(keys_result, 'output'):
-                keys_data = json.loads(keys_result.output)
-            else:
-                keys_data = keys_result
-            
-            assert keys_data["data"]["count"] == 1
-            assert persistent_key in keys_data["data"]["keys"]
+            # storage_kv returns typed StorageKvOutput
+            assert keys_result.success is True
+            assert keys_result.data["count"] == 1
+            assert persistent_key in keys_result.data["keys"]
         
         asyncio.run(run_test())

@@ -33,7 +33,7 @@ Example Usage:
 import time
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List, Literal, Union
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_ai import RunContext
 
 from agentool.base import BaseOperationInput
@@ -56,10 +56,40 @@ class StorageKvInput(BaseOperationInput):
     ttl: Optional[int] = Field(None, description="Time to live in seconds")
     pattern: Optional[str] = Field(None, description="Pattern for keys operation (supports * wildcard)")
     namespace: str = Field(default="default", description="Key namespace for data isolation")
+    
+    @field_validator('key')
+    def validate_key(cls, v, info):
+        """Validate that key is provided for operations that require it."""
+        operation = info.data.get('operation')
+        if operation in ['get', 'set', 'delete', 'exists', 'expire', 'ttl', 'get_metric'] and not v:
+            raise ValueError(f"key is required for {operation} operation")
+        return v
+    
+    @field_validator('value')
+    def validate_value(cls, v, info):
+        """Validate that value is provided for set operation."""
+        operation = info.data.get('operation')
+        # Note: None is a valid value to store, so we don't reject it
+        # The 'value' field is Optional[Any] which includes None
+        return v
+    
+    @field_validator('ttl')
+    def validate_ttl(cls, v, info):
+        """Validate TTL for operations that require it."""
+        operation = info.data.get('operation')
+        if operation == 'expire':
+            if v is None:
+                raise ValueError("ttl is required for expire operation")
+            if v <= 0:
+                raise ValueError("ttl must be positive for expire operation")
+        elif operation == 'set' and v is not None and v <= 0:
+            raise ValueError("ttl must be positive when provided")
+        return v
 
 
 class StorageKvOutput(BaseModel):
     """Structured output for key-value storage operations."""
+    success: bool = Field(default=True, description="Whether the operation succeeded")
     operation: str = Field(description="The operation that was performed")
     key: Optional[str] = Field(None, description="The key that was operated on")
     namespace: str = Field(description="The namespace used")
@@ -142,6 +172,7 @@ async def kv_get(ctx: RunContext[Any], key: str, namespace: str) -> StorageKvOut
                 ttl_remaining = max(0, int(_kv_expiry[namespace][key] - time.time()))
             
             return StorageKvOutput(
+                success=True,
                 operation="get",
                 key=key,
                 namespace=namespace,
@@ -154,10 +185,16 @@ async def kv_get(ctx: RunContext[Any], key: str, namespace: str) -> StorageKvOut
                 }
             )
         else:
-            raise KeyError(f"Key '{key}' not found in namespace '{namespace}' or has expired")
+            # Discovery operation - return success=False instead of raising
+            return StorageKvOutput(
+                success=False,
+                operation="get",
+                key=key,
+                namespace=namespace,
+                message=f"Key '{key}' not found in namespace '{namespace}' or has expired",
+                data=None
+            )
             
-    except KeyError:
-        raise  # Re-raise KeyError as-is
     except Exception as e:
         raise RuntimeError(f"Error retrieving key '{key}': {str(e)}") from e
 
@@ -194,6 +231,7 @@ async def kv_set(ctx: RunContext[Any], key: str, value: Any, namespace: str, ttl
             del _kv_expiry[namespace][key]
         
         return StorageKvOutput(
+            success=True,
             operation="set",
             key=key,
             namespace=namespace,
@@ -234,6 +272,7 @@ async def kv_delete(ctx: RunContext[Any], key: str, namespace: str) -> StorageKv
             del _kv_expiry[namespace][key]
         
         return StorageKvOutput(
+            success=True,
             operation="delete",
             key=key,
             namespace=namespace,
@@ -266,6 +305,7 @@ async def kv_exists(ctx: RunContext[Any], key: str, namespace: str) -> StorageKv
                  not _is_key_expired(namespace, key))
         
         return StorageKvOutput(
+            success=True,  # Always success - it's a query
             operation="exists",
             key=key,
             namespace=namespace,
@@ -308,6 +348,7 @@ async def kv_keys(ctx: RunContext[Any], namespace: str, pattern: Optional[str]) 
         keys.sort()
         
         return StorageKvOutput(
+            success=True,  # Always success even if no keys match
             operation="keys",
             key=None,
             namespace=namespace,
@@ -346,6 +387,7 @@ async def kv_clear(ctx: RunContext[Any], namespace: str) -> StorageKvOutput:
             del _kv_expiry[namespace]
         
         return StorageKvOutput(
+            success=True,
             operation="clear",
             key=None,
             namespace=namespace,
@@ -389,6 +431,7 @@ async def kv_expire(ctx: RunContext[Any], key: str, namespace: str, ttl: int) ->
         _kv_expiry[namespace][key] = time.time() + ttl
         
         return StorageKvOutput(
+            success=True,
             operation="expire",
             key=key,
             namespace=namespace,
@@ -424,6 +467,7 @@ async def kv_ttl(ctx: RunContext[Any], key: str, namespace: str) -> StorageKvOut
             _is_key_expired(namespace, key)):
             
             return StorageKvOutput(
+                success=True,  # Always success - it's a query
                 operation="ttl",
                 key=key,
                 namespace=namespace,
@@ -437,6 +481,7 @@ async def kv_ttl(ctx: RunContext[Any], key: str, namespace: str) -> StorageKvOut
         # Check if key has TTL
         if namespace not in _kv_expiry or key not in _kv_expiry[namespace]:
             return StorageKvOutput(
+                success=True,  # Always success - it's a query
                 operation="ttl",
                 key=key,
                 namespace=namespace,
@@ -452,6 +497,7 @@ async def kv_ttl(ctx: RunContext[Any], key: str, namespace: str) -> StorageKvOut
         remaining_ttl = max(0, int(_kv_expiry[namespace][key] - time.time()))
         
         return StorageKvOutput(
+            success=True,  # Always success - it's a query
             operation="ttl",
             key=key,
             namespace=namespace,
@@ -500,6 +546,7 @@ async def kv_get_metric(ctx: RunContext[Any], key: str, namespace: str) -> Stora
                 ttl_remaining = max(0, int(_kv_expiry[namespace][key] - time.time()))
             
             return StorageKvOutput(
+                success=True,
                 operation="get_metric",
                 key=key,
                 namespace=namespace,
@@ -512,8 +559,9 @@ async def kv_get_metric(ctx: RunContext[Any], key: str, namespace: str) -> Stora
                 }
             )
         else:
-            # Key not found - return None instead of raising
+            # Key not found - return success=False for metrics compatibility
             return StorageKvOutput(
+                success=False,  # Special case for metrics system
                 operation="get_metric",
                 key=key,
                 namespace=namespace,
@@ -557,6 +605,7 @@ def create_storage_kv_agent():
         routing_config=kv_routing,
         tools=[kv_get, kv_set, kv_delete, kv_exists, kv_keys, kv_clear, kv_expire, kv_ttl, kv_get_metric],
         output_type=StorageKvOutput,
+        use_typed_output=True,  # Enable typed output for storage_kv (Tier 2)
         system_prompt="Handle key-value storage operations with TTL support efficiently.",
         description="Key-value storage with TTL support, namespaces, and Redis-compatible interface",
         version="1.0.0",
@@ -607,5 +656,5 @@ def create_storage_kv_agent():
     )
 
 
-# Create the agent instance
+# Create the agent instance when imported (auto-registers with the registry)
 agent = create_storage_kv_agent()

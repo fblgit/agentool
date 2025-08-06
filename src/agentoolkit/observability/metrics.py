@@ -46,7 +46,7 @@ import statistics
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List, Literal, Union
 from enum import Enum
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_ai import RunContext
 
 from agentool.base import BaseOperationInput
@@ -117,10 +117,61 @@ class MetricsInput(BaseOperationInput):
     
     # New field for create_from_schema
     metrics_schema: Optional[MetricsSchema] = Field(None, description="Strict schema for custom metrics")
+    
+    @field_validator('name')
+    def validate_name(cls, v, info):
+        """Validate name is provided for operations that require it."""
+        operation = info.data.get('operation')
+        if operation in ['create', 'increment', 'decrement', 'set', 'observe', 
+                        'get', 'reset', 'delete'] and not v:
+            raise ValueError(f"name is required for {operation} operation")
+        return v
+    
+    @field_validator('type')
+    def validate_type(cls, v, info):
+        """Validate type is provided for create operation."""
+        operation = info.data.get('operation')
+        if operation == 'create' and not v:
+            raise ValueError("type is required for create operation")
+        return v
+    
+    @field_validator('value')
+    def validate_value(cls, v, info):
+        """Validate value is provided for operations that require it."""
+        operation = info.data.get('operation')
+        # set and observe operations require a value
+        if operation in ['set', 'observe'] and v is None:
+            raise ValueError(f"value is required for {operation} operation")
+        return v
+    
+    @field_validator('agent_name')
+    def validate_agent_name(cls, v, info):
+        """Validate agent_name is provided for create_agent_metrics."""
+        operation = info.data.get('operation')
+        if operation == 'create_agent_metrics' and not v:
+            raise ValueError("agent_name is required for create_agent_metrics operation")
+        return v
+    
+    @field_validator('routing_config')
+    def validate_routing_config(cls, v, info):
+        """Validate routing_config is provided for create_agent_metrics."""
+        operation = info.data.get('operation')
+        if operation == 'create_agent_metrics' and not v:
+            raise ValueError("routing_config is required for create_agent_metrics operation")
+        return v
+    
+    @field_validator('metrics_schema')
+    def validate_metrics_schema(cls, v, info):
+        """Validate metrics_schema is provided for create_from_schema."""
+        operation = info.data.get('operation')
+        if operation == 'create_from_schema' and not v:
+            raise ValueError("metrics_schema is required for create_from_schema operation")
+        return v
 
 
 class MetricsOutput(BaseModel):
     """Structured output for metrics operations."""
+    success: bool = Field(description="Whether the operation succeeded")
     operation: str = Field(description="The operation that was performed")
     message: str = Field(description="Human-readable result message")
     data: Optional[Any] = Field(None, description="Operation-specific data")
@@ -158,13 +209,9 @@ async def metrics_create(ctx: RunContext[Any], name: str, type: MetricType,
             "namespace": "metrics"
         })
         
-        if hasattr(meta_result, 'output'):
-            meta_data = json.loads(meta_result.output)
-        else:
-            meta_data = meta_result
-        
+        # storage_kv returns typed StorageKvOutput
         # If metric exists (data is not None), raise error
-        if meta_data["data"] is not None:
+        if meta_result.data is not None:
             raise ValueError(f"Metric '{name}' already exists")
         
         # Create metric metadata
@@ -189,6 +236,7 @@ async def metrics_create(ctx: RunContext[Any], name: str, type: MetricType,
         })
         
         return MetricsOutput(
+            success=True,
             operation="create",
             message=f"Created {type.value if isinstance(type, MetricType) else type} metric '{name}'",
             data={
@@ -239,13 +287,9 @@ async def metrics_increment(ctx: RunContext[Any], name: str, value: float,
             "namespace": "metrics"
         })
         
-        if hasattr(meta_result, 'output'):
-            meta_data = json.loads(meta_result.output)
-        else:
-            meta_data = meta_result
-        
+        # storage_kv returns typed StorageKvOutput
         # Check if metric exists (data is None when not found)
-        if meta_data["data"] is None:
+        if meta_result.data is None:
             # Auto-create metrics for automatic tracking
             if name.startswith("agentool."):
                 # Determine metric type
@@ -265,16 +309,12 @@ async def metrics_increment(ctx: RunContext[Any], name: str, value: float,
                     "namespace": "metrics"
                 })
                 
-                if hasattr(meta_result, 'output'):
-                    meta_data = json.loads(meta_result.output)
-                else:
-                    meta_data = meta_result
-                
-                metric_meta = meta_data["data"]["value"]
+                # storage_kv returns typed StorageKvOutput
+                metric_meta = meta_result.data["value"]
             else:
                 raise KeyError(f"Metric '{name}' does not exist")
         else:
-            metric_meta = meta_data["data"]["value"]
+            metric_meta = meta_result.data["value"]
         
         if metric_meta["type"] not in [MetricType.COUNTER.value, MetricType.GAUGE.value]:
             raise ValueError(f"Cannot increment {metric_meta['type']} metric")
@@ -322,6 +362,7 @@ async def metrics_increment(ctx: RunContext[Any], name: str, value: float,
         })
         
         return MetricsOutput(
+            success=True,
             operation="increment",
             message=f"Incremented metric '{name}' by {value}",
             data={
@@ -369,16 +410,12 @@ async def metrics_decrement(ctx: RunContext[Any], name: str, value: float,
             "namespace": "metrics"
         })
         
-        if hasattr(meta_result, 'output'):
-            meta_data = json.loads(meta_result.output)
-        else:
-            meta_data = meta_result
-        
+        # storage_kv returns typed StorageKvOutput
         # Check if metric exists (data is None when not found)
-        if meta_data["data"] is None:
+        if meta_result.data is None:
             raise KeyError(f"Metric '{name}' does not exist")
         
-        metric_meta = meta_data["data"]["value"]
+        metric_meta = meta_result.data["value"]
         
         if metric_meta["type"] != MetricType.GAUGE.value:
             raise ValueError(f"Cannot decrement {metric_meta['type']} metric - only gauge metrics can be decremented")
@@ -402,6 +439,7 @@ async def metrics_decrement(ctx: RunContext[Any], name: str, value: float,
         })
         
         return MetricsOutput(
+            success=True,
             operation="decrement",
             message=f"Decremented metric '{name}' by {value}",
             data={
@@ -449,13 +487,9 @@ async def metrics_set(ctx: RunContext[Any], name: str, value: float,
             "namespace": "metrics"
         })
         
-        if hasattr(meta_result, 'output'):
-            meta_data = json.loads(meta_result.output)
-        else:
-            meta_data = meta_result
-        
+        # storage_kv returns typed StorageKvOutput
         # Check if metric exists (data is None when not found)
-        if meta_data["data"] is None:
+        if meta_result.data is None:
             # Auto-create gauge metrics for automatic tracking
             if name.startswith("agentool.") and name == "agentool.templates.count":
                 # Create the gauge metric automatically
@@ -469,16 +503,12 @@ async def metrics_set(ctx: RunContext[Any], name: str, value: float,
                     "namespace": "metrics"
                 })
                 
-                if hasattr(meta_result, 'output'):
-                    meta_data = json.loads(meta_result.output)
-                else:
-                    meta_data = meta_result
-                
-                metric_meta = meta_data["data"]["value"]
+                # storage_kv returns typed StorageKvOutput
+                metric_meta = meta_result.data["value"]
             else:
                 raise KeyError(f"Metric '{name}' does not exist")
         else:
-            metric_meta = meta_data["data"]["value"]
+            metric_meta = meta_result.data["value"]
         
         if metric_meta["type"] != MetricType.GAUGE.value:
             raise ValueError(f"Cannot set value for {metric_meta['type']} metric - only gauge metrics can be set")
@@ -503,6 +533,7 @@ async def metrics_set(ctx: RunContext[Any], name: str, value: float,
         })
         
         return MetricsOutput(
+            success=True,
             operation="set",
             message=f"Set metric '{name}' to {value}",
             data={
@@ -550,13 +581,9 @@ async def metrics_observe(ctx: RunContext[Any], name: str, value: float,
             "namespace": "metrics"
         })
         
-        if hasattr(meta_result, 'output'):
-            meta_data = json.loads(meta_result.output)
-        else:
-            meta_data = meta_result
-        
+        # storage_kv returns typed StorageKvOutput
         # Check if metric exists (data is None when not found)
-        if meta_data["data"] is None:
+        if meta_result.data is None:
             # Auto-create timer/histogram metrics for automatic tracking
             if name.startswith("agentool.") and ("duration" in name or name.endswith(".seconds")):
                 # Create the metric automatically as a timer
@@ -570,16 +597,12 @@ async def metrics_observe(ctx: RunContext[Any], name: str, value: float,
                     "namespace": "metrics"
                 })
                 
-                if hasattr(meta_result, 'output'):
-                    meta_data = json.loads(meta_result.output)
-                else:
-                    meta_data = meta_result
-                
-                metric_meta = meta_data["data"]["value"]
+                # storage_kv returns typed StorageKvOutput
+                metric_meta = meta_result.data["value"]
             else:
                 raise KeyError(f"Metric '{name}' does not exist")
         else:
-            metric_meta = meta_data["data"]["value"]
+            metric_meta = meta_result.data["value"]
         
         if metric_meta["type"] not in [MetricType.HISTOGRAM.value, MetricType.SUMMARY.value, MetricType.TIMER.value]:
             raise ValueError(f"Cannot observe value for {metric_meta['type']} metric")
@@ -613,6 +636,7 @@ async def metrics_observe(ctx: RunContext[Any], name: str, value: float,
         })
         
         return MetricsOutput(
+            success=True,
             operation="observe",
             message=f"Recorded observation {value} for metric '{name}'",
             data={
@@ -638,10 +662,9 @@ async def metrics_get(ctx: RunContext[Any], name: str) -> MetricsOutput:
         name: Metric name
         
     Returns:
-        MetricsOutput with metric data
+        MetricsOutput with metric data (success=False if not found)
         
     Raises:
-        KeyError: If metric doesn't exist
         ValueError: If invalid metric name
         RuntimeError: If storage operation fails
     """
@@ -658,13 +681,9 @@ async def metrics_get(ctx: RunContext[Any], name: str) -> MetricsOutput:
             "namespace": "metrics"
         })
         
-        if hasattr(meta_result, 'output'):
-            meta_data = json.loads(meta_result.output)
-        else:
-            meta_data = meta_result
-        
+        # storage_kv returns typed StorageKvOutput
         # Check if metric exists (data is None when not found)
-        if meta_data["data"] is None:
+        if meta_result.data is None:
             # Auto-create standard metrics if they don't exist
             if name.startswith("agentool."):
                 # Determine metric type based on name pattern
@@ -690,16 +709,18 @@ async def metrics_get(ctx: RunContext[Any], name: str) -> MetricsOutput:
                     "namespace": "metrics"
                 })
                 
-                if hasattr(meta_result, 'output'):
-                    meta_data = json.loads(meta_result.output)
-                else:
-                    meta_data = meta_result
-                
-                metric_meta = meta_data["data"]["value"]
+                # storage_kv returns typed StorageKvOutput
+                metric_meta = meta_result.data["value"]
             else:
-                raise KeyError(f"Metric '{name}' does not exist")
+                # Return success=False for discovery operation when metric not found
+                return MetricsOutput(
+                    success=False,
+                    operation="get",
+                    message=f"Metric '{name}' does not exist",
+                    data=None
+                )
         else:
-            metric_meta = meta_data["data"]["value"]
+            metric_meta = meta_result.data["value"]
         
         # Calculate statistics for histogram/summary/timer
         stats = None
@@ -725,6 +746,7 @@ async def metrics_get(ctx: RunContext[Any], name: str) -> MetricsOutput:
                         stats["p99"] = sorted_values[int(len(sorted_values) * 0.99)]
         
         return MetricsOutput(
+            success=True,
             operation="get",
             message=f"Retrieved metric '{name}'",
             data={
@@ -771,13 +793,9 @@ async def metrics_list(ctx: RunContext[Any], pattern: Optional[str]) -> MetricsO
             "namespace": "metrics"
         })
         
-        if hasattr(keys_result, 'output'):
-            keys_data = json.loads(keys_result.output)
-        else:
-            keys_data = keys_result
-        
+        # storage_kv returns typed StorageKvOutput
         # Extract keys from the response
-        metric_keys = keys_data.get("data", {}).get("keys", [])
+        metric_keys = keys_result.data.get("keys", []) if keys_result.data else []
         metrics = []
         
         for key in metric_keys:
@@ -789,16 +807,12 @@ async def metrics_list(ctx: RunContext[Any], pattern: Optional[str]) -> MetricsO
                     "namespace": "metrics"
                 })
                 
-                if hasattr(meta_result, 'output'):
-                    meta_data = json.loads(meta_result.output)
-                else:
-                    meta_data = meta_result
-                
+                # storage_kv returns typed StorageKvOutput
                 # Skip if metric doesn't exist (data is None)
-                if meta_data["data"] is None:
+                if meta_result.data is None:
                     continue
                 
-                metric_meta = meta_data["data"]["value"]
+                metric_meta = meta_result.data["value"]
                 metrics.append({
                     "name": metric_meta["name"],
                     "type": metric_meta["type"],
@@ -811,6 +825,7 @@ async def metrics_list(ctx: RunContext[Any], pattern: Optional[str]) -> MetricsO
                 continue
         
         return MetricsOutput(
+            success=True,
             operation="list",
             message=f"Found {len(metrics)} metrics",
             data={
@@ -858,12 +873,8 @@ async def metrics_aggregate(ctx: RunContext[Any], pattern: str, aggregation: str
             "namespace": "metrics"
         })
         
-        if hasattr(keys_result, 'output'):
-            keys_data = json.loads(keys_result.output)
-        else:
-            keys_data = keys_result
-        
-        metric_keys = keys_data.get("data", {}).get("keys", [])
+        # storage_kv returns typed StorageKvOutput
+        metric_keys = keys_result.data.get("keys", []) if keys_result.data else []
         aggregated_values = []
         cutoff_time = None
         
@@ -879,16 +890,12 @@ async def metrics_aggregate(ctx: RunContext[Any], pattern: str, aggregation: str
                     "namespace": "metrics"
                 })
                 
-                if hasattr(meta_result, 'output'):
-                    meta_data = json.loads(meta_result.output)
-                else:
-                    meta_data = meta_result
-                
+                # storage_kv returns typed StorageKvOutput
                 # Skip if metric doesn't exist (data is None)
-                if meta_data["data"] is None:
+                if meta_result.data is None:
                     continue
                 
-                metric_meta = meta_data["data"]["value"]
+                metric_meta = meta_result.data["value"]
                 
                 # Handle different metric types
                 if metric_meta["type"] in [MetricType.COUNTER.value, MetricType.GAUGE.value]:
@@ -938,6 +945,7 @@ async def metrics_aggregate(ctx: RunContext[Any], pattern: str, aggregation: str
                 result = sorted_vals[int(len(sorted_vals) * 0.99)]
         
         return MetricsOutput(
+            success=True,
             operation="aggregate",
             message=f"Aggregated {len(metric_keys)} metrics",
             data={
@@ -985,16 +993,12 @@ async def metrics_reset(ctx: RunContext[Any], name: str) -> MetricsOutput:
             "namespace": "metrics"
         })
         
-        if hasattr(meta_result, 'output'):
-            meta_data = json.loads(meta_result.output)
-        else:
-            meta_data = meta_result
-        
+        # storage_kv returns typed StorageKvOutput
         # Check if metric exists (data is None when not found)
-        if meta_data["data"] is None:
+        if meta_result.data is None:
             raise KeyError(f"Metric '{name}' does not exist")
         
-        metric_meta = meta_data["data"]["value"]
+        metric_meta = meta_result.data["value"]
         
         # Reset based on type
         if metric_meta["type"] in [MetricType.COUNTER.value, MetricType.GAUGE.value]:
@@ -1013,6 +1017,7 @@ async def metrics_reset(ctx: RunContext[Any], name: str) -> MetricsOutput:
         })
         
         return MetricsOutput(
+            success=True,
             operation="reset",
             message=f"Reset metric '{name}'",
             data={"name": name, "type": metric_meta["type"]}
@@ -1047,13 +1052,14 @@ async def metrics_delete(ctx: RunContext[Any], name: str) -> MetricsOutput:
         injector = get_injector()
         
         # Check if metric exists first
-        try:
-            await injector.run('storage_kv', {
-                "operation": "get_metric",
-                "key": f"metric:{name}",
-                "namespace": "metrics"
-            })
-        except KeyError:
+        check_result = await injector.run('storage_kv', {
+            "operation": "get_metric",
+            "key": f"metric:{name}",
+            "namespace": "metrics"
+        })
+        
+        # storage_kv returns success=False for non-existent metric
+        if not check_result.success or check_result.data is None:
             raise KeyError(f"Metric '{name}' does not exist")
         
         # Delete the metric
@@ -1064,6 +1070,7 @@ async def metrics_delete(ctx: RunContext[Any], name: str) -> MetricsOutput:
         })
         
         return MetricsOutput(
+            success=True,
             operation="delete",
             message=f"Deleted metric '{name}'",
             data={"name": name}
@@ -1105,12 +1112,8 @@ async def metrics_export(ctx: RunContext[Any], pattern: Optional[str],
             "namespace": "metrics"
         })
         
-        if hasattr(keys_result, 'output'):
-            keys_data = json.loads(keys_result.output)
-        else:
-            keys_data = keys_result
-        
-        metric_keys = keys_data.get("data", {}).get("keys", [])
+        # storage_kv returns typed StorageKvOutput
+        metric_keys = keys_result.data.get("keys", []) if keys_result.data else []
         metrics_data = []
         
         for key in metric_keys:
@@ -1122,16 +1125,12 @@ async def metrics_export(ctx: RunContext[Any], pattern: Optional[str],
                     "namespace": "metrics"
                 })
                 
-                if hasattr(meta_result, 'output'):
-                    meta_data = json.loads(meta_result.output)
-                else:
-                    meta_data = meta_result
-                
+                # storage_kv returns typed StorageKvOutput
                 # Skip if metric doesn't exist (data is None)
-                if meta_data["data"] is None:
+                if meta_result.data is None:
                     continue
                 
-                metrics_data.append(meta_data["data"]["value"])
+                metrics_data.append(meta_result.data["value"])
             except KeyError:
                 # Skip metrics that don't exist
                 continue
@@ -1188,6 +1187,7 @@ async def metrics_export(ctx: RunContext[Any], pattern: Optional[str],
             output = metrics_data
         
         return MetricsOutput(
+            success=True,
             operation="export",
             message=f"Exported {len(metrics_data)} metrics in {format} format",
             data={
@@ -1284,6 +1284,7 @@ async def metrics_create_agent_metrics(
                     raise
         
         return MetricsOutput(
+            success=True,
             operation="create_agent_metrics",
             message=f"Created {len(created_metrics)} metrics for agent '{agent_name}' ({len(skipped_metrics)} already existed)",
             data={
@@ -1341,6 +1342,7 @@ async def metrics_create_from_schema(
                 failed_metrics.append({"name": name, "error": str(e)})
         
         return MetricsOutput(
+            success=True,
             operation="create_from_schema",
             message=f"Created {len(created_metrics)} metrics, {len(skipped_metrics)} skipped, {len(failed_metrics)} failed",
             data={
@@ -1425,6 +1427,7 @@ def create_metrics_agent():
             metrics_create_from_schema
         ],
         output_type=MetricsOutput,
+        use_typed_output=True,  # Enable typed output for metrics (Tier 2 - depends on storage_kv)
         system_prompt="Track and analyze metrics for observability and monitoring.",
         description="Comprehensive metrics toolkit with automatic and manual tracking",
         version="1.0.0",

@@ -35,7 +35,7 @@ import json
 import os
 from datetime import datetime
 from typing import Dict, Any, Optional, List, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_ai import RunContext
 
 from agentool.base import BaseOperationInput
@@ -60,10 +60,35 @@ class LoggingInput(BaseOperationInput):
     format: Literal['text', 'json'] = Field(default="text", description="Log format")
     max_file_size: int = Field(default=10485760, description="Max log file size in bytes (10MB default)")
     max_files: int = Field(default=5, description="Maximum number of rotated log files to keep")
+    
+    @field_validator('message')
+    def validate_message(cls, v, info):
+        """Validate message is provided for log operation."""
+        operation = info.data.get('operation')
+        if operation == 'log' and not v:
+            raise ValueError("message is required for log operation")
+        return v
+    
+    @field_validator('file_path')
+    def validate_file_path(cls, v, info):
+        """Validate file path is provided when output is file or both."""
+        operation = info.data.get('operation')
+        output = info.data.get('output')
+        logger_name = info.data.get('logger_name')
+        
+        # If file output is requested and no file path is provided
+        if output in ['file', 'both'] and not v:
+            # Check if logger has a configured file path
+            if logger_name not in _logging_config or 'file_path' not in _logging_config[logger_name]:
+                # Only require file_path for log operation if not configured
+                if operation == 'log':
+                    raise ValueError("file_path is required when output is 'file' or 'both' and logger is not configured")
+        return v
 
 
 class LoggingOutput(BaseModel):
     """Structured output for logging operations."""
+    success: bool = Field(default=True, description="Whether the operation succeeded")
     operation: str = Field(description="The operation that was performed")
     logger_name: str = Field(description="The logger name used")
     message: str = Field(description="Human-readable result message")
@@ -185,14 +210,10 @@ async def logging_log(ctx: RunContext[Any], level: str, message: str, data: Opti
                     "path": actual_file_path
                 })
                 
-                if hasattr(file_exists_result, 'output'):
-                    exists_data = json.loads(file_exists_result.output)
-                else:
-                    exists_data = file_exists_result
-                
+                # storage_fs returns typed StorageFsOutput
                 # If file exists and might need rotation
-                if exists_data.get("data", {}).get("exists", False):
-                    file_size = exists_data["data"].get("size", 0)
+                if file_exists_result.data.get("exists", False):
+                    file_size = file_exists_result.data.get("size", 0)
                     max_size = logger_config.get("max_file_size", 10485760)  # 10MB default
                     
                     if file_size >= max_size:
@@ -250,12 +271,8 @@ async def _rotate_log_file(file_path: str, max_files: int) -> None:
                 "path": base_path
             })
             
-            if hasattr(read_result, 'output'):
-                read_data = json.loads(read_result.output)
-            else:
-                read_data = read_result
-            
-            content = read_data["data"]["content"]
+            # storage_fs returns typed StorageFsOutput
+            content = read_result.data["content"]
             
             # Write to rotated file
             await injector.run('storage_fs', {
@@ -362,15 +379,12 @@ async def logging_get_logs(ctx: RunContext[Any], logger_name: str, file_path: Op
                 "path": actual_file_path
             })
             
-            if hasattr(read_result, 'output'):
-                read_data = json.loads(read_result.output)
-            else:
-                read_data = read_result
-            
-            content = read_data["data"]["content"]
+            # storage_fs returns typed StorageFsOutput
+            content = read_result.data["content"]
         except FileNotFoundError:
-            # Log file doesn't exist yet, return empty results
+            # Log file doesn't exist yet, return success=False for discovery
             return LoggingOutput(
+                success=False,
                 operation="get_logs",
                 logger_name=logger_name,
                 message=f"No log file found at {actual_file_path}",
@@ -453,12 +467,8 @@ async def logging_clear_logs(ctx: RunContext[Any], logger_name: str, file_path: 
                 "path": rotated_path
             })
             
-            if hasattr(delete_result, 'output'):
-                delete_data = json.loads(delete_result.output)
-            else:
-                delete_data = delete_result
-            
-            if delete_data.get("data", {}).get("deleted", False):
+            # storage_fs returns typed StorageFsOutput
+            if delete_result.data.get("deleted", False):
                 cleared_files.append(rotated_path)
         
         return LoggingOutput(
@@ -510,6 +520,7 @@ def create_logging_agent():
         routing_config=logging_routing,
         tools=[logging_log, logging_configure, logging_get_logs, logging_clear_logs],
         output_type=LoggingOutput,
+        use_typed_output=True,  # Enable typed output for logging
         system_prompt="Handle structured logging with multiple output formats and log rotation.",
         description="Structured logging with multiple outputs, log rotation, and level filtering",
         version="1.0.0",

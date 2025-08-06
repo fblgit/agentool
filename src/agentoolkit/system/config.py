@@ -35,7 +35,7 @@ import os
 import json
 import yaml
 from typing import Dict, Any, Optional, List, Literal, Union
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 from pydantic_ai import RunContext
 
 from agentool.base import BaseOperationInput
@@ -57,10 +57,34 @@ class ConfigInput(BaseOperationInput):
     default: Optional[Any] = Field(None, description="Default value if key not found")
     env_prefix: Optional[str] = Field(None, description="Environment variable prefix for loading")
     validation_schema: Optional[Dict[str, Any]] = Field(None, description="JSON schema for validation")
+    
+    @field_validator('key')
+    def validate_key(cls, v, info):
+        """Validate that key is provided for operations that require it."""
+        operation = info.data.get('operation')
+        if operation in ['get', 'set', 'delete'] and not v:
+            raise ValueError(f"key is required for {operation} operation")
+        return v
+    
+    @field_validator('value')
+    def validate_value(cls, v, info):
+        """Validate that value is provided for set operation."""
+        operation = info.data.get('operation')
+        # Note: None is a valid configuration value
+        return v
+    
+    @field_validator('validation_schema')
+    def validate_schema(cls, v, info):
+        """Validate that schema is provided for validate operation."""
+        operation = info.data.get('operation')
+        if operation == 'validate' and not v:
+            raise ValueError("validation_schema is required for validate operation")
+        return v
 
 
 class ConfigOutput(BaseModel):
     """Structured output for configuration operations."""
+    success: bool = Field(default=True, description="Whether the operation succeeded")
     operation: str = Field(description="The operation that was performed")
     key: Optional[str] = Field(None, description="The key that was operated on")
     namespace: str = Field(description="The namespace used")
@@ -168,26 +192,59 @@ async def config_get(ctx: RunContext[Any], key: str, namespace: str, default: An
                 "namespace": "config"
             })
             
-            # Parse the storage result
-            if hasattr(storage_result, 'output'):
-                storage_data = json.loads(storage_result.output)
+            # storage_kv now returns typed output
+            if storage_result.success:
+                config_data = storage_result.data["value"]
             else:
-                storage_data = storage_result
-            
-            config_data = storage_data["data"]["value"]
-        except KeyError:
-            # No configuration exists, return default
-            return ConfigOutput(
-                operation="get",
-                key=key,
-                namespace=namespace,
-                message=f"Configuration key '{key}' not found, returning default",
-                data={
-                    "value": default,
-                    "exists": False,
-                    "used_default": True
-                }
-            )
+                # Key not found in storage_kv - no config namespace exists
+                # Check if we have a default to return
+                if default is not None:
+                    return ConfigOutput(
+                        success=True,  # Success - we have a default to return
+                        operation="get",
+                        key=key,
+                        namespace=namespace,
+                        message=f"Configuration key '{key}' not found, returning default",
+                        data={
+                            "value": default,
+                            "exists": False,
+                            "used_default": True
+                        }
+                    )
+                else:
+                    return ConfigOutput(
+                        success=False,  # Discovery operation - key not found, no default
+                        operation="get",
+                        key=key,
+                        namespace=namespace,
+                        message=f"Configuration key '{key}' not found",
+                        data={}  # Empty data when not found
+                    )
+        except Exception:
+            # No configuration exists
+            # Check if we have a default to return
+            if default is not None:
+                return ConfigOutput(
+                    success=True,  # Success - we have a default to return
+                    operation="get",
+                    key=key,
+                    namespace=namespace,
+                    message=f"Configuration key '{key}' not found, returning default",
+                    data={
+                        "value": default,
+                        "exists": False,
+                        "used_default": True
+                    }
+                )
+            else:
+                return ConfigOutput(
+                    success=False,  # Discovery operation - key not found, no default
+                    operation="get",
+                    key=key,
+                    namespace=namespace,
+                    message=f"Configuration key '{key}' not found",
+                    data={}  # Empty data when not found
+                )
         if not isinstance(config_data, dict):
             config_data = {}
         
@@ -218,15 +275,43 @@ async def config_get(ctx: RunContext[Any], key: str, namespace: str, default: An
         except:
             pass  # Ignore metrics errors
         
+        # Return appropriate response when key doesn't exist
+        if not exists:
+            # If we have a non-None default, this is successful - we're returning the requested default
+            if default is not None:
+                return ConfigOutput(
+                    success=True,  # Success - we have a default to return
+                    operation="get",
+                    key=key,
+                    namespace=namespace,
+                    message=f"Configuration key '{key}' not found, returning default",
+                    data={
+                        "value": default,
+                        "exists": False,
+                        "used_default": True
+                    }
+                )
+            else:
+                # No default or None default - this is a failed discovery
+                return ConfigOutput(
+                    success=False,  # Discovery operation - key not found, no default
+                    operation="get",
+                    key=key,
+                    namespace=namespace,
+                    message=f"Configuration key '{key}' not found",
+                    data={}  # Empty data when not found and no default
+                )
+        
         return ConfigOutput(
+            success=True,
             operation="get",
             key=key,
             namespace=namespace,
             message=f"Successfully retrieved configuration key '{key}'",
             data={
                 "value": value,
-                "exists": exists,
-                "used_default": not exists
+                "exists": True,
+                "used_default": False
             }
         )
         
@@ -258,16 +343,15 @@ async def config_set(ctx: RunContext[Any], key: str, value: Any, namespace: str)
                 "namespace": "config"
             })
             
-            # Parse the storage result
-            if hasattr(storage_result, 'output'):
-                storage_data = json.loads(storage_result.output)
+            # storage_kv now returns typed output
+            if storage_result.success:
+                config_data = storage_result.data["value"]
+                if not isinstance(config_data, dict):
+                    config_data = {}
             else:
-                storage_data = storage_result
-            
-            config_data = storage_data["data"]["value"]
-            if not isinstance(config_data, dict):
+                # No existing config, create new
                 config_data = {}
-        except KeyError:
+        except Exception:
             # No existing config, create new
             config_data = {}
         
@@ -299,6 +383,7 @@ async def config_set(ctx: RunContext[Any], key: str, value: Any, namespace: str)
             pass  # Ignore metrics errors
         
         return ConfigOutput(
+            success=True,
             operation="set",
             key=key,
             namespace=namespace,
@@ -337,16 +422,23 @@ async def config_delete(ctx: RunContext[Any], key: str, namespace: str) -> Confi
                 "namespace": "config"
             })
             
-            # Parse the storage result
-            if hasattr(storage_result, 'output'):
-                storage_data = json.loads(storage_result.output)
+            # storage_kv now returns typed output
+            if storage_result.success:
+                config_data = storage_result.data["value"]
             else:
-                storage_data = storage_result
-            
-            config_data = storage_data["data"]["value"]
-        except KeyError:
+                # No configuration exists
+                return ConfigOutput(
+                    success=True,  # Delete is idempotent
+                    operation="delete",
+                    key=key,
+                    namespace=namespace,
+                    message=f"Configuration key '{key}' already does not exist",
+                    data={"deleted": False, "existed": False}
+                )
+        except Exception:
             # No configuration exists
             return ConfigOutput(
+                success=True,  # Delete is idempotent
                 operation="delete",
                 key=key,
                 namespace=namespace,
@@ -370,6 +462,7 @@ async def config_delete(ctx: RunContext[Any], key: str, namespace: str) -> Confi
             })
         
         return ConfigOutput(
+            success=True,
             operation="delete",
             key=key,
             namespace=namespace,
@@ -404,16 +497,23 @@ async def config_list(ctx: RunContext[Any], namespace: str, key: Optional[str]) 
                 "namespace": "config"
             })
             
-            # Parse the storage result
-            if hasattr(storage_result, 'output'):
-                storage_data = json.loads(storage_result.output)
+            # storage_kv now returns typed output
+            if storage_result.success:
+                config_data = storage_result.data["value"]
             else:
-                storage_data = storage_result
-            
-            config_data = storage_data["data"]["value"]
-        except KeyError:
+                # No configuration exists
+                return ConfigOutput(
+                    success=True,  # List always succeeds even if empty
+                    operation="list",
+                    key=key,
+                    namespace=namespace,
+                    message=f"No configuration found in namespace '{namespace}'",
+                    data={"config": {}, "keys": [], "count": 0}
+                )
+        except Exception:
             # No configuration exists
             return ConfigOutput(
+                success=True,  # List always succeeds even if empty
                 operation="list",
                 key=key,
                 namespace=namespace,
@@ -445,6 +545,7 @@ async def config_list(ctx: RunContext[Any], namespace: str, key: Optional[str]) 
             filtered_config = flattened
         
         return ConfigOutput(
+            success=True,
             operation="list",
             key=key,
             namespace=namespace,
@@ -501,16 +602,15 @@ async def config_reload(ctx: RunContext[Any], namespace: str, env_prefix: Option
                 "namespace": "config"
             })
             
-            # Parse the storage result
-            if hasattr(storage_result, 'output'):
-                storage_data = json.loads(storage_result.output)
+            # storage_kv now returns typed output
+            if storage_result.success:
+                config_data = storage_result.data["value"]
+                if not isinstance(config_data, dict):
+                    config_data = {}
             else:
-                storage_data = storage_result
-            
-            config_data = storage_data["data"]["value"]
-            if not isinstance(config_data, dict):
+                # No existing config, create new
                 config_data = {}
-        except KeyError:
+        except Exception:
             # No existing config, create new
             config_data = {}
         
@@ -543,6 +643,7 @@ async def config_reload(ctx: RunContext[Any], namespace: str, env_prefix: Option
             pass  # Ignore metrics errors
         
         return ConfigOutput(
+            success=True,
             operation="reload",
             key=None,
             namespace=namespace,
@@ -581,14 +682,12 @@ async def config_validate(ctx: RunContext[Any], namespace: str, validation_schem
                 "namespace": "config"
             })
             
-            # Parse the storage result
-            if hasattr(storage_result, 'output'):
-                storage_data = json.loads(storage_result.output)
+            # storage_kv now returns typed output
+            if storage_result.success:
+                config_data = storage_result.data["value"]
             else:
-                storage_data = storage_result
-            
-            config_data = storage_data["data"]["value"]
-        except KeyError:
+                raise ValueError(f"No configuration found to validate in namespace '{namespace}'")
+        except Exception:
             raise ValueError(f"No configuration found to validate in namespace '{namespace}'")
         
         # Validate using jsonschema if available
@@ -607,6 +706,7 @@ async def config_validate(ctx: RunContext[Any], namespace: str, validation_schem
                 pass  # Ignore metrics errors
             
             return ConfigOutput(
+                success=True,
                 operation="validate",
                 key=None,
                 namespace=namespace,
@@ -671,6 +771,7 @@ def create_config_agent():
         routing_config=config_routing,
         tools=[config_get, config_set, config_delete, config_list, config_reload, config_validate],
         output_type=ConfigOutput,
+        use_typed_output=True,  # Enable typed output for config (Tier 2 - depends on storage_kv)
         system_prompt="Handle configuration management with hierarchical keys and environment variable support.",
         description="Configuration management with environment variable integration and validation",
         version="1.0.0",

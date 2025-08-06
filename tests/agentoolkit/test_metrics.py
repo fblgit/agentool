@@ -50,13 +50,9 @@ class TestMetrics:
                 "unit": "count"
             })
             
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result
-            
-            assert data["operation"] == "create"
-            assert "test.counter" in data["message"]
+            # metrics returns typed MetricsOutput
+            assert result.operation == "create"
+            assert "test.counter" in result.message
             
             # Try creating same metric again - should raise ValueError
             try:
@@ -91,12 +87,8 @@ class TestMetrics:
                 "value": 1
             })
             
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result
-            
-            assert data["data"]["new_value"] == 1
+            # metrics returns typed MetricsOutput
+            assert result.data["new_value"] == 1
             
             # Increment again
             result2 = await injector.run('metrics', {
@@ -105,12 +97,8 @@ class TestMetrics:
                 "value": 5
             })
             
-            if hasattr(result2, 'output'):
-                data2 = json.loads(result2.output)
-            else:
-                data2 = result2
-            
-            assert data2["data"]["new_value"] == 6
+            # metrics returns typed MetricsOutput
+            assert result2.data["new_value"] == 6
             
             # Get current value
             get_result = await injector.run('metrics', {
@@ -118,12 +106,8 @@ class TestMetrics:
                 "name": "api.requests"
             })
             
-            if hasattr(get_result, 'output'):
-                get_data = json.loads(get_result.output)
-            else:
-                get_data = get_result
-            
-            assert get_data["data"]["value"] == 6
+            # metrics returns typed MetricsOutput
+            assert get_result.data["value"] == 6
         
         asyncio.run(run_test())
     
@@ -148,13 +132,9 @@ class TestMetrics:
                 "value": 1024
             })
             
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result
-            
+            # metrics returns typed MetricsOutput
             # Remove success assertion as MetricsOutput no longer has success field
-            assert data["data"]["value"] == 1024
+            assert result.data["value"] == 1024
             
             # Increment gauge
             inc_result = await injector.run('metrics', {
@@ -163,12 +143,8 @@ class TestMetrics:
                 "value": 256
             })
             
-            if hasattr(inc_result, 'output'):
-                inc_data = json.loads(inc_result.output)
-            else:
-                inc_data = inc_result
-            
-            assert inc_data["data"]["new_value"] == 1280
+            # metrics returns typed MetricsOutput
+            assert inc_result.data["new_value"] == 1280
             
             # Decrement gauge
             dec_result = await injector.run('metrics', {
@@ -177,12 +153,8 @@ class TestMetrics:
                 "value": 512
             })
             
-            if hasattr(dec_result, 'output'):
-                dec_data = json.loads(dec_result.output)
-            else:
-                dec_data = dec_result
-            
-            assert dec_data["data"]["new_value"] == 768
+            # metrics returns typed MetricsOutput
+            assert dec_result.data["new_value"] == 768
         
         asyncio.run(run_test())
     
@@ -215,13 +187,9 @@ class TestMetrics:
                 "name": "request.latency"
             })
             
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result
-            
+            # metrics returns typed MetricsOutput
             # Remove success assertion as MetricsOutput no longer has success field
-            stats = data["data"]["statistics"]
+            stats = result.data["statistics"]
             assert stats["count"] == 10
             assert abs(stats["avg"] - 0.215) < 0.01
             assert stats["min"] == 0.1
@@ -270,13 +238,9 @@ class TestMetrics:
                 "name": "http.requests"
             })
             
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result
-            
+            # metrics returns typed MetricsOutput
             # Remove success assertion as MetricsOutput no longer has success field
-            values = data["data"]["value"]
+            values = result.data["value"]
             
             # Check labeled values
             assert isinstance(values, dict)
@@ -311,12 +275,8 @@ class TestMetrics:
                 "operation": "list"
             })
             
-            if hasattr(all_result, 'output'):
-                all_data = json.loads(all_result.output)
-            else:
-                all_data = all_result
-            
-            assert all_data["data"]["count"] == 5
+            # metrics returns typed MetricsOutput
+            assert all_result.data["count"] == 5
             
             # List with pattern
             app_result = await injector.run('metrics', {
@@ -324,12 +284,8 @@ class TestMetrics:
                 "pattern": "app.*"
             })
             
-            if hasattr(app_result, 'output'):
-                app_data = json.loads(app_result.output)
-            else:
-                app_data = app_result
-            
-            assert app_data["data"]["count"] == 3
+            # metrics returns typed MetricsOutput
+            assert app_result.data["count"] == 3
             
             # List system metrics
             sys_result = await injector.run('metrics', {
@@ -337,12 +293,8 @@ class TestMetrics:
                 "pattern": "system.*"
             })
             
-            if hasattr(sys_result, 'output'):
-                sys_data = json.loads(sys_result.output)
-            else:
-                sys_data = sys_result
-            
-            assert sys_data["data"]["count"] == 2
+            # metrics returns typed MetricsOutput
+            assert sys_result.data["count"] == 2
         
         asyncio.run(run_test())
     
@@ -374,12 +326,8 @@ class TestMetrics:
                 "aggregation": "sum"
             })
             
-            if hasattr(sum_result, 'output'):
-                sum_data = json.loads(sum_result.output)
-            else:
-                sum_data = sum_result
-            
-            assert sum_data["data"]["result"] == 60  # 10 + 20 + 30
+            # metrics returns typed MetricsOutput
+            assert sum_result.data["result"] == 60  # 10 + 20 + 30
             
             # Aggregate average
             avg_result = await injector.run('metrics', {
@@ -388,12 +336,8 @@ class TestMetrics:
                 "aggregation": "avg"
             })
             
-            if hasattr(avg_result, 'output'):
-                avg_data = json.loads(avg_result.output)
-            else:
-                avg_data = avg_result
-            
-            assert avg_data["data"]["result"] == 20
+            # metrics returns typed MetricsOutput
+            assert avg_result.data["result"] == 20
         
         asyncio.run(run_test())
     
@@ -422,11 +366,7 @@ class TestMetrics:
                 "name": "test.reset"
             })
             
-            if hasattr(reset_result, 'output'):
-                reset_data = json.loads(reset_result.output)
-            else:
-                reset_data = reset_result
-            
+            # metrics returns typed MetricsOutput
             # Remove success assertion as MetricsOutput no longer has success field
             
             # Check value is reset
@@ -435,12 +375,8 @@ class TestMetrics:
                 "name": "test.reset"
             })
             
-            if hasattr(get_result, 'output'):
-                get_data = json.loads(get_result.output)
-            else:
-                get_data = get_result
-            
-            assert get_data["data"]["value"] == 0
+            # metrics returns typed MetricsOutput
+            assert get_result.data["value"] == 0
             
             # Delete metric
             delete_result = await injector.run('metrics', {
@@ -448,22 +384,16 @@ class TestMetrics:
                 "name": "test.reset"
             })
             
-            if hasattr(delete_result, 'output'):
-                delete_data = json.loads(delete_result.output)
-            else:
-                delete_data = delete_result
-            
+            # metrics returns typed MetricsOutput
             # Remove success assertion as MetricsOutput no longer has success field
             
-            # Verify deletion - should raise KeyError
-            try:
-                get_deleted = await injector.run('metrics', {
-                    "operation": "get",
-                    "name": "test.reset"
-                })
-                assert False, "Expected KeyError for deleted metric"
-            except KeyError:
-                pass  # Expected behavior
+            # Verify deletion - should return success=False for discovery
+            get_deleted = await injector.run('metrics', {
+                "operation": "get",
+                "name": "test.reset"
+            })
+            assert get_deleted.success is False
+            assert "does not exist" in get_deleted.message
         
         asyncio.run(run_test())
     
@@ -493,14 +423,10 @@ class TestMetrics:
                 "format": "json"
             })
             
-            if hasattr(json_result, 'output'):
-                json_data = json.loads(json_result.output)
-            else:
-                json_data = json_result
-            
+            # metrics returns typed MetricsOutput
             # Remove success assertion as MetricsOutput no longer has success field
-            assert json_data["data"]["format"] == "json"
-            assert json_data["data"]["metric_count"] >= 1
+            assert json_result.data["format"] == "json"
+            assert json_result.data["metric_count"] >= 1
             
             # Export as Prometheus
             prom_result = await injector.run('metrics', {
@@ -508,14 +434,10 @@ class TestMetrics:
                 "format": "prometheus"
             })
             
-            if hasattr(prom_result, 'output'):
-                prom_data = json.loads(prom_result.output)
-            else:
-                prom_data = prom_result
-            
+            # metrics returns typed MetricsOutput
             # Remove success assertion as MetricsOutput no longer has success field
-            assert prom_data["data"]["format"] == "prometheus"
-            content = prom_data["data"]["content"]
+            assert prom_result.data["format"] == "prometheus"
+            content = prom_result.data["content"]
             assert "# HELP export.counter" in content
             assert "# TYPE export.counter counter" in content
             assert "export.counter 42" in content
@@ -526,14 +448,10 @@ class TestMetrics:
                 "format": "statsd"
             })
             
-            if hasattr(statsd_result, 'output'):
-                statsd_data = json.loads(statsd_result.output)
-            else:
-                statsd_data = statsd_result
-            
+            # metrics returns typed MetricsOutput
             # Remove success assertion as MetricsOutput no longer has success field
-            assert statsd_data["data"]["format"] == "statsd"
-            content = statsd_data["data"]["content"]
+            assert statsd_result.data["format"] == "statsd"
+            content = statsd_result.data["content"]
             assert "export.counter:42|c" in content
         
         asyncio.run(run_test())
@@ -597,15 +515,11 @@ class TestMetrics:
                 "name": "agentool.test_tracked.executions.total"
             })
             
-            if hasattr(total_result, 'output'):
-                total_data = json.loads(total_result.output)
-            else:
-                total_data = total_result
-            
+            # metrics returns typed MetricsOutput
             # No longer checking success field - function now throws exceptions on failure
             # Check if metric exists and has value
-            if total_data["data"].get("value") is not None:
-                assert total_data["data"]["value"] >= 1
+            if total_result.data.get("value") is not None:
+                assert total_result.data["value"] >= 1
             
             # Test disabling metrics
             injector.enable_metrics(False)
@@ -645,13 +559,9 @@ class TestMetrics:
                 "name": "operation.duration"
             })
             
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result
-            
+            # metrics returns typed MetricsOutput
             # Remove success assertion as MetricsOutput no longer has success field
-            stats = data["data"]["statistics"]
+            stats = result.data["statistics"]
             assert stats["count"] == 5
             assert abs(stats["avg"] - 0.1) < 0.01
         
@@ -734,13 +644,9 @@ class TestMetrics:
                 "name": "response.size"
             })
             
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result
-            
+            # metrics returns typed MetricsOutput
             # Remove success assertion as MetricsOutput no longer has success field
-            stats = data["data"]["statistics"]
+            stats = result.data["statistics"]
             assert stats["count"] == 10
             assert stats["min"] == 256
             assert stats["max"] == 8192
@@ -771,13 +677,9 @@ class TestMetrics:
                 "name": "empty.histogram"
             })
             
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result
-            
+            # metrics returns typed MetricsOutput
             # Remove success assertion as MetricsOutput no longer has success field
-            assert data["data"]["statistics"] is None  # No stats for empty observations
+            assert result.data["statistics"] is None  # No stats for empty observations
         
         asyncio.run(run_test())
     
@@ -816,13 +718,9 @@ class TestMetrics:
                 "name": "cpu.usage"
             })
             
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result
-            
+            # metrics returns typed MetricsOutput
             # Remove success assertion as MetricsOutput no longer has success field
-            values = data["data"]["value"]
+            values = result.data["value"]
             assert isinstance(values, dict)
             assert len(values) == 2
         
@@ -857,13 +755,9 @@ class TestMetrics:
                 "time_range": 3600  # Last hour
             })
             
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result
-            
+            # metrics returns typed MetricsOutput
             # Remove success assertion as MetricsOutput no longer has success field
-            assert data["data"]["result"] == 20  # Average of 0, 10, 20, 30, 40
+            assert result.data["result"] == 20  # Average of 0, 10, 20, 30, 40
         
         asyncio.run(run_test())
     
@@ -894,14 +788,10 @@ class TestMetrics:
                 "aggregation": "p50"
             })
             
-            if hasattr(p50_result, 'output'):
-                p50_data = json.loads(p50_result.output)
-            else:
-                p50_data = p50_result
-            
+            # metrics returns typed MetricsOutput
             # Remove success assertion as MetricsOutput no longer has success field
             # Median of [0,10,20,30,40,50,60,70,80,90] should be around 45
-            assert 40 <= p50_data["data"]["result"] <= 50
+            assert 40 <= p50_result.data["result"] <= 50
             
             # Test p95
             p95_result = await injector.run('metrics', {
@@ -910,13 +800,9 @@ class TestMetrics:
                 "aggregation": "p95"
             })
             
-            if hasattr(p95_result, 'output'):
-                p95_data = json.loads(p95_result.output)
-            else:
-                p95_data = p95_result
-            
+            # metrics returns typed MetricsOutput
             # Remove success assertion as MetricsOutput no longer has success field
-            assert p95_data["data"]["result"] >= 80
+            assert p95_result.data["result"] >= 80
             
             # Test p99
             p99_result = await injector.run('metrics', {
@@ -925,13 +811,9 @@ class TestMetrics:
                 "aggregation": "p99"
             })
             
-            if hasattr(p99_result, 'output'):
-                p99_data = json.loads(p99_result.output)
-            else:
-                p99_data = p99_result
-            
+            # metrics returns typed MetricsOutput
             # Remove success assertion as MetricsOutput no longer has success field
-            assert p99_data["data"]["result"] >= 90
+            assert p99_result.data["result"] >= 90
         
         asyncio.run(run_test())
     
@@ -962,12 +844,8 @@ class TestMetrics:
                 "aggregation": "min"
             })
             
-            if hasattr(min_result, 'output'):
-                min_data = json.loads(min_result.output)
-            else:
-                min_data = min_result
-            
-            assert min_data["data"]["result"] == 5
+            # metrics returns typed MetricsOutput
+            assert min_result.data["result"] == 5
             
             # Test max
             max_result = await injector.run('metrics', {
@@ -976,12 +854,8 @@ class TestMetrics:
                 "aggregation": "max"
             })
             
-            if hasattr(max_result, 'output'):
-                max_data = json.loads(max_result.output)
-            else:
-                max_data = max_result
-            
-            assert max_data["data"]["result"] == 25
+            # metrics returns typed MetricsOutput
+            assert max_result.data["result"] == 25
             
             # Test count
             count_result = await injector.run('metrics', {
@@ -990,12 +864,8 @@ class TestMetrics:
                 "aggregation": "count"
             })
             
-            if hasattr(count_result, 'output'):
-                count_data = json.loads(count_result.output)
-            else:
-                count_data = count_result
-            
-            assert count_data["data"]["result"] == 5
+            # metrics returns typed MetricsOutput
+            assert count_result.data["result"] == 5
         
         asyncio.run(run_test())
     
@@ -1035,13 +905,9 @@ class TestMetrics:
                 "pattern": "http.*"
             })
             
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result
-            
+            # metrics returns typed MetricsOutput
             # Remove success assertion as MetricsOutput no longer has success field
-            content = data["data"]["content"]
+            content = result.data["content"]
             
             # Check Prometheus format
             assert "# HELP http.requests.total" in content
@@ -1081,13 +947,9 @@ class TestMetrics:
                 "format": "statsd"
             })
             
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result
-            
+            # metrics returns typed MetricsOutput
             # Remove success assertion as MetricsOutput no longer has success field
-            content = data["data"]["content"]
+            content = result.data["content"]
             
             # Check StatsD format - should have last 10 observations
             lines = content.split('\n')
@@ -1128,14 +990,10 @@ class TestMetrics:
                 "aggregation": "sum"
             })
             
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result
-            
+            # metrics returns typed MetricsOutput
             # Remove success assertion as MetricsOutput no longer has success field
-            assert data["data"]["result"] is None  # No values to aggregate
-            assert data["data"]["value_count"] == 0
+            assert result.data["result"] is None  # No values to aggregate
+            assert result.data["value_count"] == 0
         
         asyncio.run(run_test())
     
@@ -1181,13 +1039,9 @@ class TestMetrics:
                 "aggregation": "sum"
             })
             
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result
-            
+            # metrics returns typed MetricsOutput
             # Remove success assertion as MetricsOutput no longer has success field
-            assert data["data"]["result"] == 60  # Sum of all labeled values
+            assert result.data["result"] == 60  # Sum of all labeled values
         
         asyncio.run(run_test())
     
@@ -1217,13 +1071,9 @@ class TestMetrics:
                 "name": "single.observation"
             })
             
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result
-            
+            # metrics returns typed MetricsOutput
             # Remove success assertion as MetricsOutput no longer has success field
-            stats = data["data"]["statistics"]
+            stats = result.data["statistics"]
             assert stats["count"] == 1
             assert stats["stdev"] == 0  # Single value has no standard deviation
             assert "p50" not in stats  # No percentiles for single value
