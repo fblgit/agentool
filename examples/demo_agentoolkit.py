@@ -120,272 +120,128 @@ class AgenToolkitDemo:
             "data": data or {}, "logger_name": logger})
     
     async def _kvget(self, key: str, default: Any = None, namespace: str = "default") -> Any:
-        """
-        Smart key-value getter that checks existence first and returns default if not found.
-        
-        Examples:
-            value = await demo._kvget("user:123", default={"name": "Unknown"})
-        """
+        """Smart KV getter with existence check: await demo._kvget("user:123", default={"name": "Unknown"})"""
         try:
-            # Check if key exists
             exists_result = await self.injector.run('storage_kv', {
-                "operation": "exists",
-                "key": key,
-                "namespace": namespace
-            })
-            
+                "operation": "exists", "key": key, "namespace": namespace})
             if hasattr(exists_result, 'data') and exists_result.data and exists_result.data.get('exists'):
-                # Key exists, get the value
                 result = await self.injector.run('storage_kv', {
-                    "operation": "get",
-                    "key": key,
-                    "namespace": namespace
-                })
+                    "operation": "get", "key": key, "namespace": namespace})
                 return result.data.get('value', default) if hasattr(result, 'data') and result.data else default
-            else:
-                return default
+            return default
         except:
             return default
     
     async def _kvset(self, key: str, value: Any, ttl: Optional[int] = None,
                      namespace: str = "default") -> bool:
-        """
-        Simplified key-value setter.
-        
-        Examples:
-            await demo._kvset("user:123", {"name": "Alice", "role": "admin"})
-            await demo._kvset("session:abc", token, ttl=3600)  # 1 hour TTL
-        """
+        """KV setter: await demo._kvset("user:123", {"name": "Alice"}, ttl=3600)"""
         try:
             result = await self.injector.run('storage_kv', {
-                "operation": "set",
-                "key": key,
-                "value": value,
-                "ttl": ttl,
-                "namespace": namespace
-            })
+                "operation": "set", "key": key, "value": value,
+                "ttl": ttl, "namespace": namespace})
             return result.data.get('stored', False) if hasattr(result, 'data') and result.data else False
         except:
             return False
     
     async def _unref(self, reference: str) -> Any:
-        """
-        Resolve a reference to actual content (storage_kv, storage_fs, or config).
-        Supports !ref:type:key syntax just like the templates toolkit.
-        
-        Examples:
-            content = await demo._unref("!ref:storage_kv:user_profile")
-            config = await demo._unref("!ref:config:database.host")
-            file_content = await demo._unref("!ref:storage_fs:/data/template.html")
-        """
-        if not reference.startswith("!ref:"):
-            return reference
-        
+        """Resolve !ref:type:key to actual content: await demo._unref("!ref:storage_kv:user_profile")"""
+        if not reference.startswith("!ref:"): return reference
         try:
             parts = reference[5:].split(":", 1)
-            if len(parts) != 2:
-                return f"<invalid_ref:{reference}>"
-            
+            if len(parts) != 2: return f"<invalid_ref:{reference}>"
             ref_type, ref_key = parts
             
             if ref_type == "storage_kv":
                 value = await self._kvget(ref_key)
                 return value if value is not None else f"<undefined:{reference}>"
-                
             elif ref_type == "storage_fs":
                 try:
                     result = await self.injector.run('storage_fs', {
-                        "operation": "read",
-                        "path": ref_key
-                    })
+                        "operation": "read", "path": ref_key})
                     return result.data.get('content', f"<undefined:{reference}>") if hasattr(result, 'data') and result.data else f"<undefined:{reference}>"
-                except:
-                    return f"<undefined:{reference}>"
-                    
+                except: return f"<undefined:{reference}>"
             elif ref_type == "config":
                 try:
                     result = await self.injector.run('config', {
-                        "operation": "get",
-                        "key": ref_key,
-                        "namespace": "app"
-                    })
+                        "operation": "get", "key": ref_key, "namespace": "app"})
                     return result.data.get('value', f"<undefined:{reference}>") if hasattr(result, 'data') and result.data else f"<undefined:{reference}>"
-                except:
-                    return f"<undefined:{reference}>"
+                except: return f"<undefined:{reference}>"
             else:
                 return f"<unknown_type:{reference}>"
         except Exception as e:
             return f"<error:{reference}:{str(e)}>"
     
     async def _ref(self, ref_type: str, key: str, content: Any) -> str:
-        """
-        Store content and return a reference string.
-        
-        Examples:
-            ref = await demo._ref("storage_kv", "template_data", {"title": "Hello"})
-            # Returns: "!ref:storage_kv:template_data"
-        """
+        """Store content and return reference: await demo._ref("storage_kv", "data", {"x": 1})"""
         if ref_type == "storage_kv":
             await self._kvset(key, content)
         elif ref_type == "storage_fs":
             await self.injector.run('storage_fs', {
-                "operation": "write",
-                "path": key,
-                "content": json.dumps(content) if not isinstance(content, str) else content
-            })
+                "operation": "write", "path": key,
+                "content": json.dumps(content) if not isinstance(content, str) else content})
         elif ref_type == "config":
             await self.injector.run('config', {
-                "operation": "set",
-                "key": key,
-                "value": content,
-                "namespace": "app"
-            })
-        
+                "operation": "set", "key": key, "value": content, "namespace": "app"})
         return f"!ref:{ref_type}:{key}"
     
     async def _render(self, template: str, variables: Optional[Dict] = None) -> str:
-        """
-        Render a template with variables, automatically resolving references.
-        
-        Examples:
-            html = await demo._render("Hello {{ name }}!", {"name": "World"})
-            html = await demo._render("User: {{ user }}", {
-                "user": "!ref:storage_kv:current_user"
-            })
-        """
-        # Resolve any references in variables
-        resolved_vars = {}
+        """Render template with auto-ref resolution: await demo._render("Hi {{ name }}!", {"name": "!ref:storage_kv:user"})"""
+        resolved_vars = {}  # Resolve any references in variables
         if variables:
             for key, value in variables.items():
-                if isinstance(value, str) and value.startswith("!ref:"):
-                    resolved_vars[key] = await self._unref(value)
-                else:
-                    resolved_vars[key] = value
-        
+                resolved_vars[key] = await self._unref(value) if isinstance(value, str) and value.startswith("!ref:") else value
         result = await self.injector.run('templates', {
-            "operation": "exec",
-            "template_content": template,
-            "variables": resolved_vars,
-            "strict": False
-        })
-        
+            "operation": "exec", "template_content": template,
+            "variables": resolved_vars, "strict": False})
         return result.data.get('rendered', '') if hasattr(result, 'data') and result.data else ''
     
     async def _metric(self, name: str, value: float = 1, operation: str = "increment",
                       labels: Optional[Dict] = None) -> None:
-        """
-        Simplified metrics tracking.
-        
-        Examples:
-            await demo._metric("api.requests")  # Increment by 1
-            await demo._metric("response.time", 0.125, "observe")
-            await demo._metric("memory.usage", 75.5, "set")
-        """
+        """Track metrics: await demo._metric("api.requests") or ("response.time", 0.125, "observe")"""
         await self.injector.run('metrics', {
-            "operation": operation,
-            "name": name,
-            "value": value,
-            "labels": labels or {}
-        })
+            "operation": operation, "name": name, "value": value, "labels": labels or {}})
     
     async def _encrypt(self, data: str, key: Optional[str] = None) -> Dict[str, str]:
-        """
-        Encrypt data with auto-generated key if not provided.
-        
-        Returns dict with 'ciphertext' and 'key'.
-        """
-        if not key:
-            # Generate a new key
+        """Encrypt with auto-key generation. Returns dict with 'ciphertext', 'key', 'iv'."""
+        if not key:  # Generate a new key
             key_result = await self.injector.run('crypto', {
-                "operation": "generate_key",
-                "algorithm": "aes",
-                "key_size": 256
-            })
+                "operation": "generate_key", "algorithm": "aes", "key_size": 256})
             key = key_result.data.get('key') if hasattr(key_result, 'data') and key_result.data else None
             iv = key_result.data.get('iv') if hasattr(key_result, 'data') and key_result.data else None
         else:
             iv = None
-        
         result = await self.injector.run('crypto', {
-            "operation": "encrypt",
-            "algorithm": "aes",
-            "data": data,
-            "key": key,
-            "iv": iv
-        })
-        
+            "operation": "encrypt", "algorithm": "aes", "data": data, "key": key, "iv": iv})
         return {
             "ciphertext": result.data.get('ciphertext') if hasattr(result, 'data') and result.data else None,
-            "key": key,
-            "iv": iv
-        }
+            "key": key, "iv": iv}
     
     async def _http_get(self, url: str, headers: Optional[Dict] = None,
                         auth_token: Optional[str] = None) -> Any:
-        """
-        Simplified HTTP GET request.
-        
-        Examples:
-            data = await demo._http_get("https://api.example.com/data")
-            data = await demo._http_get(url, auth_token="Bearer xyz...")
-        """
-        request = {
-            "operation": "get",
-            "url": url,
-            "headers": headers or {}
-        }
-        
+        """HTTP GET: await demo._http_get(url, auth_token="Bearer xyz")"""
+        request = {"operation": "get", "url": url, "headers": headers or {}}
         if auth_token:
             request["auth_type"] = "bearer"
             request["auth_token"] = auth_token
-        
         result = await self.injector.run('http', request)
         return result.get('data', {}).get('body')
     
     async def _config(self, key: str, value: Optional[Any] = None,
                       namespace: str = "app") -> Any:
-        """
-        Get or set configuration values.
-        
-        Examples:
-            # Get config
-            host = await demo._config("database.host")
-            
-            # Set config
-            await demo._config("database.host", "localhost")
-        """
-        if value is None:
-            # Get operation
+        """Get/set config: await demo._config("db.host") or demo._config("db.host", "localhost")"""
+        if value is None:  # Get operation
             result = await self.injector.run('config', {
-                "operation": "get",
-                "key": key,
-                "namespace": namespace,
-                "default": None
-            })
+                "operation": "get", "key": key, "namespace": namespace, "default": None})
             return result.data.get('value') if hasattr(result, 'data') and result.data else None
-        else:
-            # Set operation
+        else:  # Set operation
             await self.injector.run('config', {
-                "operation": "set",
-                "key": key,
-                "value": value,
-                "namespace": namespace
-            })
+                "operation": "set", "key": key, "value": value, "namespace": namespace})
             return value
     
     async def _hash(self, data: str, salt: Optional[str] = None) -> str:
-        """
-        Hash data with SHA256.
-        
-        Examples:
-            hashed = await demo._hash("password123", salt="random_salt")
-        """
+        """SHA256 hash: await demo._hash("password123", salt="random_salt")"""
         result = await self.injector.run('crypto', {
-            "operation": "hash",
-            "algorithm": "sha256",
-            "data": data,
-            "salt": salt
-        })
+            "operation": "hash", "algorithm": "sha256", "data": data, "salt": salt})
         return result.data.get('hash') if hasattr(result, 'data') and result.data else None
     
     # ====================
@@ -397,21 +253,19 @@ class AgenToolkitDemo:
         print("\n=== User Registration Demo ===")
         await self._log("Starting user registration process")
         
-        user_data = {
-            "username": "alice_demo",
-            "email": "alice@example.com",
+        user_data = {  # Create user with hashed password
+            "username": "alice_demo", "email": "alice@example.com",
             "created_at": datetime.now().isoformat(),
-            "password_hash": await self._hash("SecurePassword123!", salt="demo_salt")
-        }
+            "password_hash": await self._hash("SecurePassword123!", salt="demo_salt")}
         user_id = "user:alice_demo"
-        await self._kvset(user_id, user_data, ttl=86400)  # 24 hour TTL
+        await self._kvset(user_id, user_data, ttl=86400)  # Store with 24h TTL
         
         template_ref = await self._ref("storage_kv", "welcome_template", _TEMPLATE_WELCOME)
         welcome_message = await self._render(await self._unref(template_ref), user_data)
         print(welcome_message)
         
-        await self._metric("users.registered")
-        await self._metric("registration.duration", "observe", 0.250)
+        await self._metric("users.registered")  # Track metrics
+        await self._metric("registration.duration", 0.250, "observe")
         await self._log("User registration completed", "INFO", {
             "username": user_data["username"], "user_id": user_id})
         return user_id
@@ -421,30 +275,22 @@ class AgenToolkitDemo:
         print("\n=== Secure Document Storage Demo ===")
         await self._log("Starting secure document storage")
         
-        document = {
-            "title": "Confidential Report",
+        document = {  # Create sensitive document
+            "title": "Confidential Report", "classification": "TOP SECRET",
             "content": "This is highly sensitive information that must be encrypted.",
-            "classification": "TOP SECRET",
-            "author": "System Admin",
-            "timestamp": datetime.now().isoformat()
-        }
+            "author": "System Admin", "timestamp": datetime.now().isoformat()}
         encrypted = await self._encrypt(json.dumps(document, indent=2))
         doc_id = "doc:confidential:001"
         
-        await self._kvset(doc_id, {
+        await self._kvset(doc_id, {  # Store encrypted document
             "encrypted_data": encrypted["ciphertext"],
-            "metadata": {
-                "title": document["title"],
-                "classification": document["classification"],
-                "encrypted_at": datetime.now().isoformat()
-            }
-        })
-        await self._kvset(f"{doc_id}:key", {
-            "key": encrypted["key"], "iv": encrypted["iv"]
-        }, ttl=3600)  # Key expires in 1 hour
+            "metadata": {"title": document["title"], "classification": document["classification"],
+                        "encrypted_at": datetime.now().isoformat()}})
+        await self._kvset(f"{doc_id}:key", {  # Store key separately with TTL
+            "key": encrypted["key"], "iv": encrypted["iv"]}, ttl=3600)
         
         print(f"Document encrypted and stored with ID: {doc_id}")
-        print(f"Encryption key stored separately with TTL")
+        print(f"Encryption key stored separately with 1h TTL")
         await self._metric("documents.encrypted")
         await self._log("Secure document storage completed", "INFO", {
             "doc_id": doc_id, "classification": document["classification"]})
@@ -455,27 +301,22 @@ class AgenToolkitDemo:
         print("\n=== Configuration Management Demo ===")
         await self._log("Setting up application configuration")
         
-        configs = {
+        configs = {  # Define all configs
             "database.host": "localhost", "database.port": 5432, "database.name": "demo_db",
             "api.version": "v2", "api.rate_limit": 1000,
-            "features.new_ui": True, "features.beta_access": False
-        }
-        for key, value in configs.items():
+            "features.new_ui": True, "features.beta_access": False}
+        for key, value in configs.items():  # Set each config
             await self._config(key, value)
             print(f"Set config: {key} = {value}")
         
         db_host, db_port = await self._config("database.host"), await self._config("database.port")
         print(f"\nDatabase connection: {db_host}:{db_port}")
         
-        config_summary = await self._render(_TEMPLATE_CONFIG_SUMMARY, {
-            "db_host": await self._config("database.host"),
-            "db_port": await self._config("database.port"),
-            "db_name": await self._config("database.name"),
-            "api_version": await self._config("api.version"),
-            "rate_limit": await self._config("api.rate_limit"),
-            "new_ui": await self._config("features.new_ui"),
-            "beta_access": await self._config("features.beta_access")
-        })
+        config_summary = await self._render(_TEMPLATE_CONFIG_SUMMARY, {  # Render summary
+            "db_host": await self._config("database.host"), "db_port": await self._config("database.port"),
+            "db_name": await self._config("database.name"), "api_version": await self._config("api.version"),
+            "rate_limit": await self._config("api.rate_limit"), "new_ui": await self._config("features.new_ui"),
+            "beta_access": await self._config("features.beta_access")})
         print(config_summary)
         await self._log("Configuration management completed")
         return configs
@@ -486,35 +327,28 @@ class AgenToolkitDemo:
         await self._log("Initializing metrics dashboard")
         
         # Create metric types
-        await self.injector.run('metrics', {
-            "operation": "create", "name": "app.requests.total", "type": "counter",
-            "description": "Total application requests"})
-        await self.injector.run('metrics', {
-            "operation": "create", "name": "app.response.time", "type": "timer",
-            "description": "Response time in seconds"})
-        await self.injector.run('metrics', {
-            "operation": "create", "name": "app.memory.usage", "type": "gauge",
-            "description": "Memory usage percentage"})
+        for name, type_, desc in [  # Define all metrics at once
+            ("app.requests.total", "counter", "Total application requests"),
+            ("app.response.time", "timer", "Response time in seconds"),
+            ("app.memory.usage", "gauge", "Memory usage percentage")]:
+            await self.injector.run('metrics', {
+                "operation": "create", "name": name, "type": type_, "description": desc})
         
-        for i in range(10):  # Simulate metrics
-            await self._metric("app.requests.total")  # increment counter
-            response_time = random.uniform(0.05, 0.3)
-            await self._metric("app.response.time", "observe", response_time)
-            memory = random.uniform(40, 80)
-            await self._metric("app.memory.usage", "set", memory)
+        for i in range(10):  # Simulate metric collection
+            await self._metric("app.requests.total")  # Increment counter
+            await self._metric("app.response.time", random.uniform(0.05, 0.3), "observe")  # Response time
+            await self._metric("app.memory.usage", random.uniform(40, 80), "set")  # Memory usage
         
-        metrics_to_check = ["app.requests.total", "app.response.time", "app.memory.usage"]
         print("\n=== Metrics Summary ===")
-        for metric_name in metrics_to_check:
+        for metric_name in ["app.requests.total", "app.response.time", "app.memory.usage"]:
             result = await self.injector.run('metrics', {"operation": "get", "name": metric_name})
             data = result.data if hasattr(result, 'data') and result.data else {}
             print(f"\n{metric_name}:")
             print(f"  Type: {data.get('type')}, Value: {data.get('value')}")
-            if data.get('statistics'):
-                stats = data['statistics']
+            if stats := data.get('statistics'):  # Show stats if available
                 print(f"  Stats: avg={stats.get('avg', 'N/A'):.3f}, "
                       f"min={stats.get('min', 'N/A'):.3f}, max={stats.get('max', 'N/A'):.3f}")
-        await self._log("Metrics dashboard updated", "INFO", {"metrics_count": len(metrics_to_check)})
+        await self._log("Metrics dashboard updated", "INFO", {"metrics_count": 3})
         return True
     
     async def demo_template_system(self):
@@ -522,27 +356,26 @@ class AgenToolkitDemo:
         print("\n=== Template System Demo ===")
         await self._log("Starting template system demo")
         
+        # Store template data in various locations
         await self._kvset("company_name", "AgenTools Inc.")
         await self._kvset("product_features", [
             "Type-safe operations", "Deterministic behavior",
             "Easy integration", "Built-in observability"])
-        await self.injector.run('storage_fs', {
+        await self.injector.run('storage_fs', {  # Store header in filesystem
             "operation": "write", "path": "/tmp/demo_header.html",
             "content": "<h1>Welcome to AgenTools Platform</h1>"})
         
-        rendered = await self._render(_TEMPLATE_REPORT, {
+        rendered = await self._render(_TEMPLATE_REPORT, {  # Render with multi-source data
             "header": await self._unref("!ref:storage_fs:/tmp/demo_header.html"),
             "company": await self._unref("!ref:storage_kv:company_name"),
             "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "features": await self._unref("!ref:storage_kv:product_features"),
             "metrics": {"requests": 1234, "response_time": 125, "memory": 65},
-            "config": {
-                "database": await self._config("database.host") or "not_configured",
-                "api_version": await self._config("api.version") or "v1"}
-        })
+            "config": {"database": await self._config("database.host") or "not_configured",
+                      "api_version": await self._config("api.version") or "v1"}})
         print(rendered)
         
-        await self.injector.run('storage_fs', {
+        await self.injector.run('storage_fs', {  # Save report
             "operation": "write", "path": "/tmp/demo_report.txt", "content": rendered})
         await self._log("Template system demo completed", "INFO", {"report_saved": "/tmp/demo_report.txt"})
         return rendered
@@ -553,44 +386,36 @@ class AgenToolkitDemo:
         print("This demo shows how different AgenToolkits work together")
         await self._log("Starting workflow orchestration", "INFO", {"workflow": "data_processing_pipeline"})
         
-        print("\n1. Loading configuration...")  # Step 1
+        print("\n1. Loading configuration...")  # Configure workflow
         await self._config("workflow.name", "DataProcessingPipeline")
         await self._config("workflow.timeout", 300)
         
-        print("2. Validating input...")  # Step 2
+        print("2. Validating input...")  # Validate and hash input
         input_data = {"source": "api", "format": "json", "data": {"values": [1, 2, 3, 4, 5]}}
         input_hash = await self._hash(json.dumps(input_data))
         await self._kvset("workflow:input:hash", input_hash)
         
-        print("3. Processing data...")  # Step 3
+        print("3. Processing data...")  # Process the data
         values = input_data["data"]["values"]
-        processed = {
-            "original": values, "sum": sum(values),
-            "avg": sum(values) / len(values), "count": len(values)
-        }
+        processed = {"original": values, "sum": sum(values),
+                    "avg": sum(values) / len(values), "count": len(values)}
         
-        print("4. Storing results...")  # Step 4
+        print("4. Storing results...")  # Store workflow results
         workflow_id = f"workflow:{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         await self._kvset(workflow_id, {
             "input": input_data, "output": processed,
-            "metadata": {
-                "workflow_name": await self._config("workflow.name"),
-                "processed_at": datetime.now().isoformat(),
-                "input_hash": input_hash
-            }
-        })
+            "metadata": {"workflow_name": await self._config("workflow.name"),
+                        "processed_at": datetime.now().isoformat(), "input_hash": input_hash}})
         
-        print("5. Generating report...")  # Step 5
+        print("5. Generating report...")  # Generate and print report
         report = await self._render(_TEMPLATE_WORKFLOW_REPORT, {
-            "workflow_name": await self._config("workflow.name"),
-            "workflow_id": workflow_id, "timestamp": datetime.now().isoformat(),
-            "input": input_data, "output": processed
-        })
+            "workflow_name": await self._config("workflow.name"), "workflow_id": workflow_id,
+            "timestamp": datetime.now().isoformat(), "input": input_data, "output": processed})
         print(report)
         
-        print("6. Updating metrics...")  # Step 6
+        print("6. Updating metrics...")  # Track workflow metrics
         await self._metric("workflow.executions")
-        await self._metric("workflow.processing_time", "observe", 0.750)
+        await self._metric("workflow.processing_time", 0.750, "observe")
         
         await self._log("Workflow completed successfully", "INFO", {
             "workflow_id": workflow_id, "items_processed": processed["count"]})

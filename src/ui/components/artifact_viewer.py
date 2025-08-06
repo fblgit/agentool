@@ -180,13 +180,9 @@ class ArtifactViewer:
                     'key': key
                 }))
                 
-                if hasattr(result, 'output'):
-                    data = json.loads(result.output)
-                else:
-                    data = result.data if hasattr(result, 'data') else result
-                
-                if data.get('data', {}).get('exists', False):
-                    return True, json.loads(data['data']['value'])
+                # storage_kv returns typed StorageKvOutput
+                if result.success and result.data.get('exists', False):
+                    return True, json.loads(result.data['value'])
                     
             elif storage_type == 'storage_fs':
                 result = asyncio.run(self.injector.run('storage_fs', {
@@ -194,13 +190,9 @@ class ArtifactViewer:
                     'path': key
                 }))
                 
-                if hasattr(result, 'output'):
-                    data = json.loads(result.output)
-                else:
-                    data = result.data if hasattr(result, 'data') else result
-                
-                if data.get('data', {}).get('content'):
-                    return True, data['data']['content']
+                # storage_fs returns typed StorageFsOutput
+                if result.success and result.data.get('content'):
+                    return True, result.data['content']
                     
         except Exception as e:
             st.error(f"Error fetching artifact: {e}")

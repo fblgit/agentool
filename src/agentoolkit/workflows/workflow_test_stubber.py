@@ -11,7 +11,7 @@ from typing import Dict, Any, List, Literal
 from pydantic import BaseModel, Field
 from pydantic_ai import RunContext, Agent
 
-from agentool import create_agentool
+from agentool import create_agentool, BaseOperationInput
 from agentool.core.registry import RoutingConfig
 from agentool.core.injector import get_injector
 
@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../'))
 from agents.models import TestStubOutput, TestAnalysisOutput, SpecificationOutput
 
 
-class WorkflowTestStubberInput(BaseModel):
+class WorkflowTestStubberInput(BaseOperationInput):
     """Input schema for workflow test stubber operations."""
     operation: Literal['stub'] = Field(
         description="Operation to perform"
@@ -42,6 +42,7 @@ class WorkflowTestStubberInput(BaseModel):
 class WorkflowTestStubberOutput(BaseModel):
     """Output from workflow test stubbing."""
     success: bool = Field(description="Whether stubbing succeeded")
+    operation: str = Field(description="Operation that was performed")
     message: str = Field(description="Status message")
     data: Dict[str, Any] = Field(description="Test stub results")
     state_ref: str = Field(description="Reference to stored state in storage_kv")
@@ -77,6 +78,19 @@ async def create_test_stub(
     injector = get_injector()
     
     try:
+        # Log test stubbing phase start
+        await injector.run('logging', {
+            'operation': 'log',
+            'level': 'INFO',
+            'logger_name': 'workflow',
+            'message': 'Test stubbing phase started',
+            'data': {
+                'workflow_id': workflow_id,
+                'operation': 'stub',
+                'tool_name': tool_name,
+                'model': model
+            }
+        })
         # Load test analysis
         analysis_key = f'workflow/{workflow_id}/test_analysis/{tool_name}'
         analysis_result = await injector.run('storage_kv', {
@@ -84,15 +98,12 @@ async def create_test_stub(
             'key': analysis_key
         })
         
-        if hasattr(analysis_result, 'output'):
-            analysis_data = json.loads(analysis_result.output)
-        else:
-            analysis_data = analysis_result.data if hasattr(analysis_result, 'data') else analysis_result
-        
-        if not analysis_data.get('data', {}).get('exists', False):
+        # storage_kv returns typed StorageKvOutput
+        assert analysis_result.success is True
+        if not analysis_result.data.get('exists', False):
             raise ValueError(f"No test analysis found for tool {tool_name}")
         
-        test_analysis = TestAnalysisOutput(**json.loads(analysis_data['data']['value']))
+        test_analysis = TestAnalysisOutput(**json.loads(analysis_result.data['value']))
         
         # Load final code for reference
         validation_key = f'workflow/{workflow_id}/validations/{tool_name}'
@@ -101,14 +112,11 @@ async def create_test_stub(
             'key': validation_key
         })
         
-        if hasattr(validation_result, 'output'):
-            validation_data = json.loads(validation_result.output)
-        else:
-            validation_data = validation_result.data if hasattr(validation_result, 'data') else validation_result
-        
+        # storage_kv returns typed StorageKvOutput
+        assert validation_result.success is True
         final_code = ""
-        if validation_data.get('data', {}).get('exists', False):
-            validation = json.loads(validation_data['data']['value'])
+        if validation_result.data.get('exists', False):
+            validation = json.loads(validation_result.data['value'])
             final_code = validation.get('final_code', '')
         
         # Load specifications
@@ -118,14 +126,11 @@ async def create_test_stub(
             'key': spec_key
         })
         
-        if hasattr(spec_result, 'output'):
-            spec_data = json.loads(spec_result.output)
-        else:
-            spec_data = spec_result.data if hasattr(spec_result, 'data') else spec_result
-        
+        # storage_kv returns typed StorageKvOutput
+        assert spec_result.success is True
         specification = None
-        if spec_data.get('data', {}).get('exists', False):
-            specification = json.loads(spec_data['data']['value'])
+        if spec_result.data.get('exists', False):
+            specification = json.loads(spec_result.data['value'])
         
         # Load all specifications for context
         all_specs_key = f'workflow/{workflow_id}/specs'
@@ -134,14 +139,11 @@ async def create_test_stub(
             'key': all_specs_key
         })
         
-        if hasattr(all_specs_result, 'output'):
-            all_specs_data = json.loads(all_specs_result.output)
-        else:
-            all_specs_data = all_specs_result.data if hasattr(all_specs_result, 'data') else all_specs_result
-        
+        # storage_kv returns typed StorageKvOutput
+        assert all_specs_result.success is True
         all_specifications = None
-        if all_specs_data.get('data', {}).get('exists', False):
-            all_specifications = json.loads(all_specs_data['data']['value'])
+        if all_specs_result.data.get('exists', False):
+            all_specifications = json.loads(all_specs_result.data['value'])
         
         # Load existing tools
         existing_tools_key = f'workflow/{workflow_id}/existing_tools'
@@ -150,14 +152,11 @@ async def create_test_stub(
             'key': existing_tools_key
         })
         
-        if hasattr(existing_tools_result, 'output'):
-            existing_tools_data = json.loads(existing_tools_result.output)
-        else:
-            existing_tools_data = existing_tools_result.data if hasattr(existing_tools_result, 'data') else existing_tools_result
-        
+        # storage_kv returns typed StorageKvOutput
+        assert existing_tools_result.success is True
         existing_tools = {}
-        if existing_tools_data.get('data', {}).get('exists', False):
-            existing_tools = json.loads(existing_tools_data['data']['value'])
+        if existing_tools_result.data.get('exists', False):
+            existing_tools = json.loads(existing_tools_result.data['value'])
         
         # Load test skeleton template
         skeleton_result = await injector.run('templates', {
@@ -168,16 +167,9 @@ async def create_test_stub(
             }
         })
         
-        if hasattr(skeleton_result, 'output'):
-            skeleton_data = json.loads(skeleton_result.output)
-        else:
-            skeleton_data = skeleton_result.data if hasattr(skeleton_result, 'data') else skeleton_result
-        
-        # Extract rendered content from the data field
-        if isinstance(skeleton_data, dict) and 'data' in skeleton_data:
-            skeleton = skeleton_data['data'].get('rendered', '')
-        else:
-            skeleton = skeleton_data.get('rendered', '')
+        # templates returns typed TemplatesOutput
+        assert skeleton_result.success is True
+        skeleton = skeleton_result.data.get('rendered', '')
         
         # Load system prompt
         system_result = await injector.run('templates', {
@@ -186,16 +178,9 @@ async def create_test_stub(
             'variables': {}
         })
         
-        if hasattr(system_result, 'output'):
-            system_data = json.loads(system_result.output)
-        else:
-            system_data = system_result.data if hasattr(system_result, 'data') else system_result
-        
-        # Extract rendered content from the data field
-        if isinstance(system_data, dict) and 'data' in system_data:
-            system_prompt = system_data['data'].get('rendered', 'You are an expert test stub creator.')
-        else:
-            system_prompt = system_data.get('rendered', 'You are an expert test stub creator.')
+        # templates returns typed TemplatesOutput
+        assert system_result.success is True
+        system_prompt = system_result.data.get('rendered', 'You are an expert test stub creator.')
         
         # Create LLM agent for stub generation (returns string)
         agent = Agent(
@@ -225,13 +210,10 @@ async def create_test_stub(
             'path': 'tests/agentoolkit/test_session.py'
         })
         
-        if hasattr(ref_test_result, 'output'):
-            ref_test_data = json.loads(ref_test_result.output)
-        else:
-            ref_test_data = ref_test_result.data if hasattr(ref_test_result, 'data') else ref_test_result
-        
+        # storage_fs returns typed StorageFsOutput
+        assert ref_test_result.success is True
         ref_test_key = f'workflow/{workflow_id}/test_stub/reference_test'
-        ref_test_content = ref_test_data.get('data', {}).get('content', '')
+        ref_test_content = ref_test_result.data.get('content', '')
         await injector.run('storage_kv', {
             'operation': 'set',
             'key': ref_test_key,
@@ -254,20 +236,41 @@ async def create_test_stub(
             }
         })
         
-        if hasattr(prompt_result, 'output'):
-            prompt_data = json.loads(prompt_result.output)
-        else:
-            prompt_data = prompt_result.data if hasattr(prompt_result, 'data') else prompt_result
+        # templates returns typed TemplatesOutput
+        assert prompt_result.success is True
+        user_prompt = prompt_result.data.get('rendered', f'Create test stub for {tool_name}')
         
-        # Extract rendered content from the data field
-        if isinstance(prompt_data, dict) and 'data' in prompt_data:
-            user_prompt = prompt_data['data'].get('rendered', f'Create test stub for {tool_name}')
-        else:
-            user_prompt = prompt_data.get('rendered', f'Create test stub for {tool_name}')
+        # Log LLM generation start
+        await injector.run('logging', {
+            'operation': 'log',
+            'level': 'DEBUG',
+            'logger_name': 'workflow',
+            'message': 'Starting LLM test stub generation',
+            'data': {
+                'workflow_id': workflow_id,
+                'tool_name': tool_name,
+                'model': model,
+                'prompt_length': len(user_prompt)
+            }
+        })
         
         # Generate test stub
         result = await agent.run(user_prompt)
         raw_output = result.output
+        
+        # Log LLM generation complete
+        await injector.run('logging', {
+            'operation': 'log',
+            'level': 'INFO',
+            'logger_name': 'workflow',
+            'message': 'LLM test stub generation completed',
+            'data': {
+                'workflow_id': workflow_id,
+                'tool_name': tool_name,
+                'output_length': len(raw_output),
+                'has_code_block': '```python' in raw_output
+            }
+        })
         
         # Extract code from markdown code block
         import re
@@ -333,6 +336,7 @@ async def create_test_stub(
         
         return WorkflowTestStubberOutput(
             success=True,
+            operation="stub",
             message=f"Test stub created with {placeholder_count} placeholders for {len(test_analysis.test_cases)} test cases",
             data=test_stub.model_dump(),
             state_ref=state_key
@@ -379,6 +383,7 @@ def create_workflow_test_stubber_agent():
         routing_config=routing,
         tools=[create_test_stub],
         output_type=WorkflowTestStubberOutput,
+        use_typed_output=True,  # Enable typed output for workflow_test_stubber
         system_prompt="Create well-structured test skeletons with proper setup and placeholders.",
         description="Generates structured test files with imports, fixtures, setup, and test method placeholders",
         version="1.0.0",
@@ -393,6 +398,7 @@ def create_workflow_test_stubber_agent():
                 },
                 "output": {
                     "success": True,
+                    "operation": "stub",
                     "message": "Test stub created with 15 placeholders for 15 test cases",
                     "data": {
                         "code": "# Test implementation stub...",

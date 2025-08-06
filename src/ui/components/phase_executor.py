@@ -348,13 +348,12 @@ class PhaseExecutor:
         }
     
     def _extract_result_data(self, result: Any) -> Dict[str, Any]:
-        """Extract data from various result formats."""
-        if hasattr(result, 'output'):
-            return json.loads(result.output)
-        elif hasattr(result, 'data'):
-            return result.data
-        else:
-            return result
+        """Extract data from typed result formats."""
+        # All AgenTools now return typed outputs with success and data fields
+        if hasattr(result, 'success'):
+            return {'success': result.success, 'data': result.data} if result.success else {'success': False}
+        # Fallback for non-AgenTool results
+        return result if isinstance(result, dict) else {}
     
     def _capture_artifacts(self, config: PhaseConfig, workflow_id: str, 
                           extracted_data: Optional[Dict[str, Any]] = None) -> List[str]:

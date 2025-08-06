@@ -12,7 +12,7 @@ from typing import Dict, Any, List, Literal, Optional
 from pydantic import BaseModel, Field
 from pydantic_ai import RunContext, Agent
 
-from agentool import create_agentool
+from agentool import create_agentool, BaseOperationInput
 from agentool.core.registry import RoutingConfig
 from agentool.core.injector import get_injector
 
@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../'))
 from agents.models import TestAnalysisOutput, TestCaseSpec, CodeOutput, SpecificationOutput
 
 
-class WorkflowTestAnalyzerInput(BaseModel):
+class WorkflowTestAnalyzerInput(BaseOperationInput):
     """Input schema for workflow test analyzer operations."""
     operation: Literal['analyze'] = Field(
         description="Operation to perform"
@@ -43,6 +43,7 @@ class WorkflowTestAnalyzerInput(BaseModel):
 class WorkflowTestAnalyzerOutput(BaseModel):
     """Output from workflow test analysis."""
     success: bool = Field(description="Whether analysis succeeded")
+    operation: str = Field(description="Operation that was performed")
     message: str = Field(description="Status message")
     data: Dict[str, Any] = Field(description="Test analysis results")
     state_ref: str = Field(description="Reference to stored state in storage_kv")
@@ -135,6 +136,19 @@ async def analyze_test_requirements(
     injector = get_injector()
     
     try:
+        # Log test analysis phase start
+        await injector.run('logging', {
+            'operation': 'log',
+            'level': 'INFO',
+            'logger_name': 'workflow',
+            'message': 'Test analysis phase started',
+            'data': {
+                'workflow_id': workflow_id,
+                'operation': 'analyze',
+                'tool_name': tool_name,
+                'model': model
+            }
+        })
         # Load the final validated code
         validation_key = f'workflow/{workflow_id}/validations/{tool_name}'
         validation_result = await injector.run('storage_kv', {
@@ -142,15 +156,12 @@ async def analyze_test_requirements(
             'key': validation_key
         })
         
-        if hasattr(validation_result, 'output'):
-            validation_data = json.loads(validation_result.output)
-        else:
-            validation_data = validation_result.data if hasattr(validation_result, 'data') else validation_result
-        
-        if not validation_data.get('data', {}).get('exists', False):
+        # storage_kv returns typed StorageKvOutput
+        assert validation_result.success is True
+        if not validation_result.data.get('exists', False):
             raise ValueError(f"No validation found for tool {tool_name}")
         
-        validation = json.loads(validation_data['data']['value'])
+        validation = json.loads(validation_result.data['value'])
         final_code = validation.get('final_code', '')
         
         if not final_code:
@@ -159,6 +170,22 @@ async def analyze_test_requirements(
         # Extract code structure
         code_structure = extract_code_structure(final_code)
         
+        # Log code analysis
+        await injector.run('logging', {
+            'operation': 'log',
+            'level': 'DEBUG',
+            'logger_name': 'workflow',
+            'message': 'Code structure extracted for test analysis',
+            'data': {
+                'workflow_id': workflow_id,
+                'tool_name': tool_name,
+                'functions_count': len(code_structure.get('functions', [])),
+                'async_functions_count': len(code_structure.get('async_functions', [])),
+                'classes_count': len(code_structure.get('classes', [])),
+                'imports_count': len(code_structure.get('imports', []))
+            }
+        })
+        
         # Load specifications for this tool
         spec_key = f'workflow/{workflow_id}/specifications/{tool_name}'
         spec_result = await injector.run('storage_kv', {
@@ -166,14 +193,11 @@ async def analyze_test_requirements(
             'key': spec_key
         })
         
-        if hasattr(spec_result, 'output'):
-            spec_data = json.loads(spec_result.output)
-        else:
-            spec_data = spec_result.data if hasattr(spec_result, 'data') else spec_result
-        
+        # storage_kv returns typed StorageKvOutput
+        assert spec_result.success is True
         specification = None
-        if spec_data.get('data', {}).get('exists', False):
-            specification = json.loads(spec_data['data']['value'])
+        if spec_result.data.get('exists', False):
+            specification = json.loads(spec_result.data['value'])
         
         # Load all specifications for context
         all_specs_key = f'workflow/{workflow_id}/specs'
@@ -182,14 +206,11 @@ async def analyze_test_requirements(
             'key': all_specs_key
         })
         
-        if hasattr(all_specs_result, 'output'):
-            all_specs_data = json.loads(all_specs_result.output)
-        else:
-            all_specs_data = all_specs_result.data if hasattr(all_specs_result, 'data') else all_specs_result
-        
+        # storage_kv returns typed StorageKvOutput
+        assert all_specs_result.success is True
         all_specifications = None
-        if all_specs_data.get('data', {}).get('exists', False):
-            all_specifications = json.loads(all_specs_data['data']['value'])
+        if all_specs_result.data.get('exists', False):
+            all_specifications = json.loads(all_specs_result.data['value'])
         
         # Load existing tools for dependency analysis
         existing_tools_key = f'workflow/{workflow_id}/existing_tools'
@@ -198,14 +219,11 @@ async def analyze_test_requirements(
             'key': existing_tools_key
         })
         
-        if hasattr(existing_tools_result, 'output'):
-            existing_tools_data = json.loads(existing_tools_result.output)
-        else:
-            existing_tools_data = existing_tools_result.data if hasattr(existing_tools_result, 'data') else existing_tools_result
-        
+        # storage_kv returns typed StorageKvOutput
+        assert existing_tools_result.success is True
         existing_tools = {}
-        if existing_tools_data.get('data', {}).get('exists', False):
-            existing_tools = json.loads(existing_tools_data['data']['value'])
+        if existing_tools_result.data.get('exists', False):
+            existing_tools = json.loads(existing_tools_result.data['value'])
         
         # Load system prompt template
         template_result = await injector.run('templates', {
@@ -216,16 +234,9 @@ async def analyze_test_requirements(
             }
         })
         
-        if hasattr(template_result, 'output'):
-            template_data = json.loads(template_result.output)
-        else:
-            template_data = template_result.data if hasattr(template_result, 'data') else template_result
-        
-        # Extract rendered content from the data field
-        if isinstance(template_data, dict) and 'data' in template_data:
-            system_prompt = template_data['data'].get('rendered', 'You are an expert test analyzer.')
-        else:
-            system_prompt = template_data.get('rendered', 'You are an expert test analyzer.')
+        # templates returns typed TemplatesOutput
+        assert template_result.success is True
+        system_prompt = template_result.data.get('rendered', 'You are an expert test analyzer.')
         
         # Create LLM agent for test analysis
         agent = Agent(
@@ -263,20 +274,42 @@ async def analyze_test_requirements(
             }
         })
         
-        if hasattr(prompt_result, 'output'):
-            prompt_data = json.loads(prompt_result.output)
-        else:
-            prompt_data = prompt_result.data if hasattr(prompt_result, 'data') else prompt_result
+        # templates returns typed TemplatesOutput
+        assert prompt_result.success is True
+        user_prompt = prompt_result.data.get('rendered', f"Analyze test requirements for {tool_name}")
         
-        # Extract rendered content from the data field
-        if isinstance(prompt_data, dict) and 'data' in prompt_data:
-            user_prompt = prompt_data['data'].get('rendered', f"Analyze test requirements for {tool_name}")
-        else:
-            user_prompt = prompt_data.get('rendered', f"Analyze test requirements for {tool_name}")
+        # Log LLM test analysis start
+        await injector.run('logging', {
+            'operation': 'log',
+            'level': 'DEBUG',
+            'logger_name': 'workflow',
+            'message': 'Starting LLM test analysis',
+            'data': {
+                'workflow_id': workflow_id,
+                'tool_name': tool_name,
+                'model': model,
+                'prompt_length': len(user_prompt)
+            }
+        })
         
         # Generate test analysis using LLM
         result = await agent.run(user_prompt)
-        test_analysis = result.data
+        test_analysis = result.output
+        
+        # Log LLM test analysis completion
+        await injector.run('logging', {
+            'operation': 'log',
+            'level': 'INFO',
+            'logger_name': 'workflow',
+            'message': 'LLM test analysis completed',
+            'data': {
+                'workflow_id': workflow_id,
+                'tool_name': tool_name,
+                'test_cases_identified': len(test_analysis.test_cases),
+                'fixtures_needed': len(test_analysis.fixtures_needed),
+                'dependencies_required': len(test_analysis.dependency_setup)
+            }
+        })
         
         # Ensure tool name consistency
         test_analysis.tool_name = tool_name
@@ -298,6 +331,20 @@ async def analyze_test_requirements(
                 'value': json.dumps(test_case.model_dump())
             })
         
+        # Log state storage completion
+        await injector.run('logging', {
+            'operation': 'log',
+            'level': 'DEBUG',
+            'logger_name': 'workflow',
+            'message': 'Test analysis state stored successfully',
+            'data': {
+                'workflow_id': workflow_id,
+                'tool_name': tool_name,
+                'state_key': state_key,
+                'test_cases_stored': len(test_analysis.test_cases)
+            }
+        })
+        
         # Log the analysis
         await injector.run('logging', {
             'operation': 'log',
@@ -315,6 +362,7 @@ async def analyze_test_requirements(
         
         return WorkflowTestAnalyzerOutput(
             success=True,
+            operation="analyze",
             message=f"Test analysis complete: {len(test_analysis.test_cases)} test cases identified",
             data=test_analysis.model_dump(),
             state_ref=state_key
@@ -361,6 +409,7 @@ def create_workflow_test_analyzer_agent():
         routing_config=routing,
         tools=[analyze_test_requirements],
         output_type=WorkflowTestAnalyzerOutput,
+        use_typed_output=True,  # Enable typed output for workflow_test_analyzer
         system_prompt="Analyze generated AgenTool code to identify comprehensive test requirements.",
         description="Analyzes validated code to determine test cases, coverage needs, and real dependency requirements",
         version="1.0.0",
@@ -375,6 +424,7 @@ def create_workflow_test_analyzer_agent():
                 },
                 "output": {
                     "success": True,
+                    "operation": "analyze",
                     "message": "Test analysis complete: 15 test cases identified",
                     "data": {
                         "tool_name": "session_manager",

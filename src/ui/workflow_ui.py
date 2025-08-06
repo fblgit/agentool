@@ -365,10 +365,8 @@ def show_artifact_content(artifact_ref: str, artifact_key: str):
                 'key': key
             }))
             
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result.data if hasattr(result, 'data') else result
+            # AgenTools return typed outputs
+            data = result.data if result.success else {}
             
             if data.get('data', {}).get('exists', False):
                 content = json.loads(data['data']['value'])
@@ -395,10 +393,8 @@ def show_artifact_content(artifact_ref: str, artifact_key: str):
                 'path': key
             }))
             
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result.data if hasattr(result, 'data') else result
+            # AgenTools return typed outputs
+            data = result.data if result.success else {}
             
             if data.get('data', {}).get('content'):
                 content = data['data']['content']
@@ -667,10 +663,8 @@ def render_results_section():
                                         'key': impl_key
                                     }))
                                     
-                                    if hasattr(result_data, 'output'):
-                                        data = json.loads(result_data.output)
-                                    else:
-                                        data = result_data.data if hasattr(result_data, 'data') else result_data
+                                    # AgenTools return typed outputs
+                                    data = result_data.data if result_data.success else {}
                                     
                                     if data.get('data', {}).get('exists', False):
                                         code_data = json.loads(data['data']['value'])
@@ -773,10 +767,8 @@ def render_test_code_section():
                             'path': path
                         }))
                         
-                        if hasattr(result, 'output'):
-                            data = json.loads(result.output)
-                        else:
-                            data = result.data if hasattr(result, 'data') else result
+                        # storage_kv returns typed StorageKvOutput
+                        data = result.data if result.success else {}
                         
                         if data.get('data', {}).get('content'):
                             test_files[filename] = data['data']['content']
@@ -807,10 +799,8 @@ def render_generation_summary():
             'path': summary_artifact_key
         }))
         
-        if hasattr(result, 'output'):
-            data = json.loads(result.output)
-        else:
-            data = result.data if hasattr(result, 'data') else result
+        # storage_kv returns typed StorageKvOutput
+        data = result.data if result.success else {}
         
         if data.get('data', {}).get('content'):
             # Display the markdown content
@@ -857,10 +847,8 @@ def render_test_summary():
                     'path': summary_path
                 }))
                 
-                if hasattr(result, 'output'):
-                    data = json.loads(result.output)
-                else:
-                    data = result.data if hasattr(result, 'data') else result
+                # storage_kv returns typed StorageKvOutput
+                data = result.data if result.success else {}
                 
                 if data.get('data', {}).get('content'):
                     st.markdown(data['data']['content'])
@@ -891,10 +879,8 @@ def render_test_summary():
                             'path': summary_path
                         }))
                         
-                        if hasattr(result, 'output'):
-                            data = json.loads(result.output)
-                        else:
-                            data = result.data if hasattr(result, 'data') else result
+                        # storage_kv returns typed StorageKvOutput
+                        data = result.data if result.success else {}
                         
                         if data.get('data', {}).get('content'):
                             st.markdown(data['data']['content'])

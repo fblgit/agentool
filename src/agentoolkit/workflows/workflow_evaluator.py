@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from pydantic_ai import RunContext, Agent
 from pydantic_ai.exceptions import ModelRetry
 
-from agentool import create_agentool
+from agentool import create_agentool, BaseOperationInput
 from agentool.core.registry import RoutingConfig
 from agentool.core.injector import get_injector
 
@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../'))
 from agents.models import ValidationOutput, CodeOutput, SpecificationOutput
 
 
-class WorkflowEvaluatorInput(BaseModel):
+class WorkflowEvaluatorInput(BaseOperationInput):
     """Input schema for workflow evaluator operations."""
     operation: Literal['evaluate', 'validate'] = Field(
         description="Operation to perform"
@@ -44,6 +44,7 @@ class WorkflowEvaluatorInput(BaseModel):
 class WorkflowEvaluatorOutput(BaseModel):
     """Output from workflow evaluation."""
     success: bool = Field(description="Whether evaluation succeeded")
+    operation: str = Field(description="Operation that was performed")
     message: str = Field(description="Status message")
     data: Dict[str, Any] = Field(description="Validation results and final code")
     state_ref: str = Field(description="Reference to stored state in storage_kv")
@@ -141,6 +142,19 @@ async def evaluate_code(
     injector = get_injector()
     
     try:
+        # Log evaluation phase start
+        await injector.run('logging', {
+            'operation': 'log',
+            'level': 'INFO',
+            'logger_name': 'workflow',
+            'message': 'Code evaluation phase started',
+            'data': {
+                'workflow_id': workflow_id,
+                'operation': 'evaluate',
+                'model': model,
+                'auto_fix': auto_fix
+            }
+        })
         # First get specifications to know which tools to evaluate
         specs_key = f'workflow/{workflow_id}/specs'
         specs_result = await injector.run('storage_kv', {
@@ -148,15 +162,25 @@ async def evaluate_code(
             'key': specs_key
         })
         
-        if hasattr(specs_result, 'output'):
-            specs_data = json.loads(specs_result.output)
-        else:
-            specs_data = specs_result.data if hasattr(specs_result, 'data') else specs_result
-        
-        if not specs_data.get('data', {}).get('exists', False):
+        # storage_kv returns typed StorageKvOutput
+        assert specs_result.success is True
+        if not specs_result.data.get('exists', False):
             raise ValueError(f"No specifications found for workflow {workflow_id}")
         
-        spec_output = SpecificationOutput(**json.loads(specs_data['data']['value']))
+        spec_output = SpecificationOutput(**json.loads(specs_result.data['value']))
+        
+        # Log specifications loaded
+        await injector.run('logging', {
+            'operation': 'log',
+            'level': 'DEBUG',
+            'logger_name': 'workflow',
+            'message': 'Specifications loaded for evaluation',
+            'data': {
+                'workflow_id': workflow_id,
+                'tools_to_evaluate': len(spec_output.specifications),
+                'tool_names': [spec.name for spec in spec_output.specifications]
+            }
+        })
         
         # Evaluate all tools that were generated
         if not spec_output.specifications:
@@ -175,12 +199,9 @@ async def evaluate_code(
                     'key': code_key
                 })
                 
-                if hasattr(code_result, 'output'):
-                    code_data = json.loads(code_result.output)
-                else:
-                    code_data = code_result.data if hasattr(code_result, 'data') else code_result
-                
-                if not code_data.get('data', {}).get('exists', False):
+                # storage_kv returns typed StorageKvOutput
+                assert code_result.success is True
+                if not code_result.data.get('exists', False):
                     # Log warning but continue with other tools
                     await injector.run('logging', {
                         'operation': 'log',
@@ -194,7 +215,7 @@ async def evaluate_code(
                     })
                     continue
             
-                code_output = CodeOutput(**json.loads(code_data['data']['value']))
+                code_output = CodeOutput(**json.loads(code_result.data['value']))
             
                 # Perform syntax validation
                 syntax_valid, syntax_errors = validate_python_syntax(code_output.code)
@@ -229,16 +250,9 @@ async def evaluate_code(
                         }
                     })
                     
-                    if hasattr(system_result, 'output'):
-                        system_data = json.loads(system_result.output)
-                    else:
-                        system_data = system_result.data if hasattr(system_result, 'data') else system_result
-                    
-                    # Extract rendered content from the data field
-                    if isinstance(system_data, dict) and 'data' in system_data:
-                        system_prompt = system_data['data'].get('rendered', 'You are an expert code evaluator.')
-                    else:
-                        system_prompt = system_data.get('rendered', 'You are an expert code evaluator.')
+                    # templates returns typed TemplatesOutput
+                    assert system_result.success is True
+                    system_prompt = system_result.data.get('rendered', 'You are an expert code evaluator.')
                     
                     # Create LLM agent for evaluation
                     agent = Agent(
@@ -261,14 +275,12 @@ async def evaluate_code(
                         'path': 'src/agentoolkit/storage/kv.py'
                     })
                     
-                    if hasattr(ref_impl_result, 'output'):
-                        ref_impl_data = json.loads(ref_impl_result.output)
-                    else:
-                        ref_impl_data = ref_impl_result.data if hasattr(ref_impl_result, 'data') else ref_impl_result
+                    # storage_fs returns typed StorageFsOutput
+                    assert ref_impl_result.success is True
                     
                     # Store reference implementation source code for template
                     ref_impl_key = f'workflow/{workflow_id}/reference_implementation'
-                    ref_impl_content = ref_impl_data.get('data', {}).get('content', '')
+                    ref_impl_content = ref_impl_result.data.get('content', '')
                     await injector.run('storage_kv', {
                         'operation': 'set',
                         'key': ref_impl_key,
@@ -287,16 +299,9 @@ async def evaluate_code(
                         }
                     })
                     
-                    if hasattr(prompt_result, 'output'):
-                        prompt_data = json.loads(prompt_result.output)
-                    else:
-                        prompt_data = prompt_result.data if hasattr(prompt_result, 'data') else prompt_result
-                    
-                    # Extract rendered content from the data field
-                    if isinstance(prompt_data, dict) and 'data' in prompt_data:
-                        user_prompt = prompt_data['data'].get('rendered', 'Evaluate this code')
-                    else:
-                        user_prompt = prompt_data.get('rendered', 'Evaluate this code')
+                    # templates returns typed TemplatesOutput
+                    assert prompt_result.success is True
+                    user_prompt = prompt_result.data.get('rendered', 'Evaluate this code')
                     
                     # Get validation from LLM
                     result = await agent.run(user_prompt)
@@ -389,14 +394,11 @@ async def evaluate_code(
             'key': analysis_key
         })
         
-        if hasattr(analysis_result, 'output'):
-            analysis_data = json.loads(analysis_result.output)
-        else:
-            analysis_data = analysis_result.data if hasattr(analysis_result, 'data') else analysis_result
-        
+        # storage_kv returns typed StorageKvOutput
+        assert analysis_result.success is True
         analysis = None
-        if analysis_data.get('data', {}).get('exists', False):
-            analysis = json.loads(analysis_data['data']['value'])
+        if analysis_result.data.get('exists', False):
+            analysis = json.loads(analysis_result.data['value'])
         
         # Create comprehensive summary for all tools
         summary_path = f"generated/{workflow_id}/SUMMARY.md"
@@ -490,6 +492,19 @@ async def evaluate_code(
             'value': json.dumps(summary_data)
         })
         
+        # Log evaluation state storage completion
+        await injector.run('logging', {
+            'operation': 'log',
+            'level': 'DEBUG',
+            'logger_name': 'workflow',
+            'message': 'Code evaluation state stored successfully',
+            'data': {
+                'workflow_id': workflow_id,
+                'summary_key': summary_key,
+                'validations_stored': len(all_validations)
+            }
+        })
+        
         # Log completion
         all_ready = all(val['validation'].ready_for_deployment for val in all_validations)
         await injector.run('logging', {
@@ -508,6 +523,7 @@ async def evaluate_code(
         
         return WorkflowEvaluatorOutput(
             success=True,
+            operation="evaluate",
             message=f"Evaluated {len(all_validations)} tools - {summary_data['tools_ready']} ready for deployment",
             data=summary_data,
             state_ref=summary_key
@@ -558,6 +574,7 @@ def create_workflow_evaluator_agent():
         routing_config=routing,
         tools=[evaluate_code],
         output_type=WorkflowEvaluatorOutput,
+        use_typed_output=True,  # Enable typed output for workflow_evaluator
         system_prompt="Evaluate and validate AgenTool implementations for quality and correctness.",
         description="Validates generated code for syntax, patterns, and quality, providing production-ready output",
         version="1.0.0",
@@ -572,6 +589,7 @@ def create_workflow_evaluator_agent():
                 },
                 "output": {
                     "success": True,
+                    "operation": "evaluate",
                     "message": "Code evaluation complete - ready for deployment",
                     "data": {
                         "syntax_valid": True,
