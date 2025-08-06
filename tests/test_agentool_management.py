@@ -35,10 +35,27 @@ class TestAgenToolManagement:
         injector = get_injector()
         injector.clear()
         
+        # Create required dependencies for management agent
+        from agentoolkit.storage.fs import create_storage_fs_agent
+        from agentoolkit.storage.kv import create_storage_kv_agent, _kv_storage, _kv_expiry
+        from agentoolkit.observability.metrics import create_metrics_agent
+        from agentoolkit.system.logging import create_logging_agent, _logging_config
+        
+        # Clear global storage
+        _kv_storage.clear()
+        _kv_expiry.clear()
+        _logging_config.clear()
+        
+        # Create agents in dependency order
+        self.storage_fs_agent = create_storage_fs_agent()    # No dependencies
+        self.storage_kv_agent = create_storage_kv_agent()    # No dependencies
+        self.metrics_agent = create_metrics_agent()          # Depends on storage_kv
+        self.logging_agent = create_logging_agent()          # Depends on storage_fs, metrics
+        
         # Create some test AgenTools for testing
         self._create_test_agentools()
         
-        # Create the management agent
+        # Create the management agent (depends on logging)
         self.mgmt_agent = create_agentool_management_agent()
         injector.register('agentool_mgmt', self.mgmt_agent)
     
@@ -134,25 +151,24 @@ class TestAgenToolManagement:
                 "detailed": False
             })
             
-            output = json.loads(result.output)
+            # management returns typed ManagementOutput
+            assert result.success is True
+            assert result.data["count"] >= 2  # At least our test agents
             
             # Print the basic list for visualization
             print("\n" + "="*80)
             print("BASIC AGENTOOL LIST:")
             print("="*80)
-            print(json.dumps(output, indent=2))
+            print(json.dumps(result.data, indent=2))
             print("="*80 + "\n")
             
-            assert output["success"] is True
-            assert output["count"] >= 2  # At least our test agents
-            
             # Check that calculator and text_processor are in the list
-            agent_names = [agent["name"] for agent in output["agentools"]]
+            agent_names = [agent["name"] for agent in result.data["agentools"]]
             assert "calculator" in agent_names
             assert "text_processor" in agent_names
             
             # Verify basic info structure
-            calc_info = next(a for a in output["agentools"] if a["name"] == "calculator")
+            calc_info = next(a for a in result.data["agentools"] if a["name"] == "calculator")
             assert calc_info["version"] == "1.0.0"
             assert calc_info["description"] == "Simple calculator for basic arithmetic operations"
             assert calc_info["operations_count"] == 2
@@ -171,19 +187,18 @@ class TestAgenToolManagement:
                 "detailed": True
             })
             
-            output = json.loads(result.output)
+            # management returns typed ManagementOutput
+            assert result.success is True
             
             # Print the detailed list for visualization
             print("\n" + "="*80)
             print("DETAILED AGENTOOL LIST:")
             print("="*80)
-            print(json.dumps(output, indent=2))
+            print(json.dumps(result.data, indent=2))
             print("="*80 + "\n")
             
-            assert output["success"] is True
-            
             # Find calculator in detailed list
-            calc_info = next(a for a in output["agentools"] if a["name"] == "calculator")
+            calc_info = next(a for a in result.data["agentools"] if a["name"] == "calculator")
             
             # Check detailed fields
             assert "operations" in calc_info
@@ -217,18 +232,17 @@ class TestAgenToolManagement:
                 "detailed": True
             })
             
-            output = json.loads(result.output)
+            # management returns typed ManagementOutput
+            assert result.success is True
             
             # Print the AgenTool info for visualization
             print("\n" + "="*80)
             print("AGENTOOL INFO FOR CALCULATOR:")
             print("="*80)
-            print(json.dumps(output, indent=2))
+            print(json.dumps(result.data, indent=2))
             print("="*80 + "\n")
             
-            assert output["success"] is True
-            
-            agentool = output["agentool"]
+            agentool = result.data["agentool"]
             assert agentool["name"] == "calculator"
             assert agentool["version"] == "1.0.0"
             assert agentool["description"] == "Simple calculator for basic arithmetic operations"
@@ -262,9 +276,9 @@ class TestAgenToolManagement:
                 "agentool_name": "nonexistent"
             })
             
-            output = json.loads(result.output)
-            assert output["success"] is False
-            assert "not found" in output["error"]
+            # management returns typed ManagementOutput
+            assert result.success is False
+            assert "not found" in result.message
         
         asyncio.run(run_test())
     
@@ -278,19 +292,18 @@ class TestAgenToolManagement:
                 "agentool_name": "calculator"
             })
             
-            output = json.loads(result.output)
+            # management returns typed ManagementOutput
+            assert result.success is True
+            assert result.data["agentool_name"] == "calculator"
             
             # Print the JSON schema for visualization
             print("\n" + "="*80)
             print("JSON SCHEMA FOR CALCULATOR:")
             print("="*80)
-            print(json.dumps(output, indent=2))
+            print(json.dumps(result.data, indent=2))
             print("="*80 + "\n")
             
-            assert output["success"] is True
-            assert output["agentool_name"] == "calculator"
-            
-            schema = output["schema"]
+            schema = result.data["schema"]
             assert schema["type"] == "object"
             assert "properties" in schema
             
@@ -318,10 +331,10 @@ class TestAgenToolManagement:
                 "tags": ["math"]
             })
             
-            output = json.loads(result.output)
-            assert output["success"] is True
-            assert output["count"] == 1
-            assert output["results"][0]["name"] == "calculator"
+            # management returns typed ManagementOutput
+            assert result.success is True
+            assert result.data["count"] == 1
+            assert result.data["results"][0]["name"] == "calculator"
             
             # Search by name pattern
             result = await injector.run('agentool_mgmt', {
@@ -329,10 +342,10 @@ class TestAgenToolManagement:
                 "name_pattern": "text"
             })
             
-            output = json.loads(result.output)
-            assert output["success"] is True
-            assert output["count"] == 1
-            assert output["results"][0]["name"] == "text_processor"
+            # management returns typed ManagementOutput
+            assert result.success is True
+            assert result.data["count"] == 1
+            assert result.data["results"][0]["name"] == "text_processor"
             
             # Search by both (should find utility tag in both)
             result = await injector.run('agentool_mgmt', {
@@ -340,9 +353,9 @@ class TestAgenToolManagement:
                 "tags": ["utility"]
             })
             
-            output = json.loads(result.output)
-            assert output["success"] is True
-            assert output["count"] == 2
+            # management returns typed ManagementOutput
+            assert result.success is True
+            assert result.data["count"] == 2
         
         asyncio.run(run_test())
     
@@ -356,19 +369,19 @@ class TestAgenToolManagement:
                 "agentool_name": "calculator"
             })
             
-            output = json.loads(result.output)
+            # management returns typed ManagementOutput
+            assert result.success is True
             
             # Print the operations for visualization
             print("\n" + "="*80)
             print("OPERATIONS FOR CALCULATOR:")
             print("="*80)
-            print(json.dumps(output, indent=2))
+            print(json.dumps(result.data, indent=2))
             print("="*80 + "\n")
             
-            assert output["success"] is True
-            assert output["agentool_name"] == "calculator"
+            assert result.data["agentool_name"] == "calculator"
             
-            operations = output["operations"]
+            operations = result.data["operations"]
             assert "add" in operations
             assert "multiply" in operations
             
@@ -390,19 +403,19 @@ class TestAgenToolManagement:
                 "agentool_name": "text_processor"
             })
             
-            output = json.loads(result.output)
+            # management returns typed ManagementOutput
+            assert result.success is True
             
             # Print the tools info for visualization
             print("\n" + "="*80)
             print("TOOLS INFO FOR TEXT_PROCESSOR:")
             print("="*80)
-            print(json.dumps(output, indent=2))
+            print(json.dumps(result.data, indent=2))
             print("="*80 + "\n")
             
-            assert output["success"] is True
-            assert output["agentool_name"] == "text_processor"
+            assert result.data["agentool_name"] == "text_processor"
             
-            tools = output["tools"]
+            tools = result.data["tools"]
             assert len(tools) == 2
             
             tool_names = {t["name"] for t in tools}
@@ -426,11 +439,11 @@ class TestAgenToolManagement:
                 "include_tools": True
             })
             
-            output = json.loads(result.output)
-            assert output["success"] is True
-            assert output["include_tools"] is True
+            # management returns typed ManagementOutput
+            assert result.success is True
+            assert result.data["include_tools"] is True
             
-            graph = output["dependency_graph"]
+            graph = result.data["dependency_graph"]
             assert "agentools" in graph
             assert "tools" in graph
             
@@ -467,10 +480,10 @@ class TestAgenToolManagement:
                 "agentool_name": "calculator"
             })
             
-            output = json.loads(result.output)
-            assert output["success"] is True
+            # management returns typed ManagementOutput
+            assert result.success is True
             
-            analysis = output["analysis"]
+            analysis = result.data["analysis"]
             assert analysis["agentool_name"] == "calculator"
             assert analysis["dependencies"] == []
             assert "text_processor" in analysis["dependents"]  # text_processor depends on calculator
@@ -484,10 +497,10 @@ class TestAgenToolManagement:
                 "operation": "analyze_agentool_usage"
             })
             
-            output = json.loads(result.output)
-            assert output["success"] is True
+            # management returns typed ManagementOutput
+            assert result.success is True
             
-            analysis = output["analysis"]
+            analysis = result.data["analysis"]
             assert analysis["total_agentools"] >= 2
             assert "calculator" in analysis["root_agentools"]
             assert "text_processor" in analysis["leaf_agentools"]
@@ -505,20 +518,20 @@ class TestAgenToolManagement:
                 "agentool_name": "calculator"
             })
             
-            output = json.loads(result.output)
+            # management returns typed ManagementOutput
+            assert result.success is True
             
             # Print the routing config for visualization
             print("\n" + "="*60)
             print("ROUTING CONFIG FOR CALCULATOR:")
             print("="*60)
-            print(json.dumps(output, indent=2))
+            print(json.dumps(result.data, indent=2))
             print("="*60 + "\n")
             
-            assert output["success"] is True
-            assert output["agentool_name"] == "calculator"
-            assert output["total_operations"] == 2
+            assert result.data["agentool_name"] == "calculator"
+            assert result.data["total_operations"] == 2
             
-            routing_config = output["routing_config"]
+            routing_config = result.data["routing_config"]
             assert routing_config["operation_field"] == "operation"
             
             # Check operations
@@ -548,9 +561,9 @@ class TestAgenToolManagement:
                 "agentool_name": "non_existent"
             })
             
-            output = json.loads(result.output)
-            assert output["success"] is False
-            assert "not found" in output["error"]
+            # management returns typed ManagementOutput
+            assert result.success is False
+            assert "not found" in result.message
         
         asyncio.run(run_test())
     
@@ -564,11 +577,11 @@ class TestAgenToolManagement:
                 "operation": "validate_dependencies"
             })
             
-            output = json.loads(result.output)
-            assert output["success"] is True
-            assert output["all_valid"] is True
+            # management returns typed ManagementOutput
+            assert result.success is True
+            assert result.data["all_valid"] is True
             
-            results = output["validation_results"]
+            results = result.data["validation_results"]
             
             # Find calculator validation
             calc_result = next(r for r in results if r["agentool_name"] == "calculator")
@@ -595,19 +608,19 @@ class TestAgenToolManagement:
                 "format": "json"
             })
             
-            output = json.loads(result.output)
+            # management returns typed ManagementOutput
+            assert result.success is True
             
             # Print the API specification for visualization
             print("\n" + "="*80)
             print("API SPECIFICATION:")
             print("="*80)
-            print(json.dumps(output, indent=2))
+            print(json.dumps(result.data, indent=2))
             print("="*80 + "\n")
             
-            assert output["success"] is True
-            assert output["format"] == "json"
+            assert result.data["format"] == "json"
             
-            spec = output["specification"]
+            spec = result.data["specification"]
             assert spec["openapi"] == "3.0.0"
             assert "info" in spec
             assert "paths" in spec
@@ -638,11 +651,11 @@ class TestAgenToolManagement:
                 "agentool_name": "calculator"
             })
             
-            output = json.loads(result.output)
-            assert output["success"] is True
-            assert output["format"] == "markdown"
+            # management returns typed ManagementOutput
+            assert result.success is True
+            assert result.data["format"] == "markdown"
             
-            docs = output["documentation"]
+            docs = result.data["documentation"]
             assert "# calculator" in docs
             assert "Simple calculator for basic arithmetic operations" in docs
             assert "## Operations" in docs
@@ -664,11 +677,11 @@ class TestAgenToolManagement:
                 "agentool_name": "calculator"
             })
             
-            output = json.loads(result.output)
-            assert output["success"] is True
-            assert output["format"] == "json"
+            # management returns typed ManagementOutput
+            assert result.success is True
+            assert result.data["format"] == "json"
             
-            docs = output["documentation"]
+            docs = result.data["documentation"]
             assert docs["name"] == "calculator"
             assert docs["version"] == "1.0.0"
             assert docs["description"] == "Simple calculator for basic arithmetic operations"
@@ -688,19 +701,19 @@ class TestAgenToolManagement:
                 "agentool_name": "calculator"
             })
             
-            output = json.loads(result.output)
+            # management returns typed ManagementOutput
+            assert result.success is True
             
             # Print the examples for calculator
             print("\n" + "="*80)
             print("EXAMPLES FOR CALCULATOR:")
             print("="*80)
-            print(json.dumps(output, indent=2))
+            print(json.dumps(result.data, indent=2))
             print("="*80 + "\n")
             
-            assert output["success"] is True
-            assert output["agentool_name"] == "calculator"
+            assert result.data["agentool_name"] == "calculator"
             
-            examples = output["examples"]
+            examples = result.data["examples"]
             assert len(examples) == 1
             assert examples[0]["title"] == "Addition example"
             assert examples[0]["input"]["operation"] == "add"
@@ -711,18 +724,18 @@ class TestAgenToolManagement:
                 "agentool_name": "text_processor"
             })
             
-            output = json.loads(result.output)
+            # management returns typed ManagementOutput
+            assert result.success is True
             
             # Print the generated examples for text_processor
             print("\n" + "="*80)
             print("GENERATED EXAMPLES FOR TEXT_PROCESSOR:")
             print("="*80)
-            print(json.dumps(output, indent=2))
+            print(json.dumps(result.data, indent=2))
             print("="*80 + "\n")
             
-            assert output["success"] is True
             
-            examples = output["examples"]
+            examples = result.data["examples"]
             assert len(examples) == 2  # Generated for upper and lower operations
             
             operations = {e["input"]["operation"] for e in examples}
@@ -740,11 +753,11 @@ class TestAgenToolManagement:
                 "format": "json"
             })
             
-            output = json.loads(result.output)
-            assert output["success"] is True
-            assert output["format"] == "json"
+            # management returns typed ManagementOutput
+            assert result.success is True
+            assert result.data["format"] == "json"
             
-            catalog = output["catalog"]
+            catalog = result.data["catalog"]
             assert "version" in catalog
             assert "generated_at" in catalog
             assert "total_agentools" in catalog
@@ -767,10 +780,10 @@ class TestAgenToolManagement:
                 "agentool_name": "calculator"
             })
             
-            output = json.loads(result.output)
-            assert output["success"] is True
+            # management returns typed ManagementOutput
+            assert result.success is True
             
-            guide = output["usage_guide"]
+            guide = result.data["usage_guide"]
             assert guide["agentool_name"] == "calculator"
             assert guide["description"] == "Simple calculator for basic arithmetic operations"
             assert guide["version"] == "1.0.0"
@@ -808,8 +821,9 @@ class TestAgenToolManagement:
                 # Missing agentool_name
             })
             
-            # This will return a validation error as plain text, not JSON
-            assert "agentool_name is required" in result.output
+            # management returns typed ManagementOutput with validation error
+            assert result.success is False
+            assert "agentool_name is required" in result.message
             
             # Test unknown operation - this will also be a validation error
             try:
@@ -827,9 +841,9 @@ class TestAgenToolManagement:
                 "operation": "create_agentool_config"
             })
             
-            output = json.loads(result.output)
-            assert output["success"] is False
-            assert "not yet implemented" in output["error"]
+            # management returns typed ManagementOutput
+            assert result.success is False
+            assert "not yet implemented" in result.message
         
         asyncio.run(run_test())
     
@@ -845,8 +859,8 @@ class TestAgenToolManagement:
                 "detailed": True
             })
             
-            mgmt_output = json.loads(mgmt_result.output)
-            assert mgmt_output["success"] is True
+            # management returns typed ManagementOutput
+            assert mgmt_result.success is True
             
             # Now use the actual calculator
             calc_result = await injector.run('calculator', {
@@ -860,7 +874,7 @@ class TestAgenToolManagement:
             assert calc_output["operation"] == "addition"
             
             # Verify the management agent correctly reported the calculator's operations
-            agentool_info = mgmt_output["agentool"]
+            agentool_info = mgmt_result.data["agentool"]
             assert "add" in agentool_info["operations"]
         
         asyncio.run(run_test())

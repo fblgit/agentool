@@ -205,8 +205,6 @@ pip install -e ".[dev,lint]"
 - `crypto`: Cryptographic operations
 - `http`: HTTP client with httpx
 - `templates`: Jinja2 template rendering
-- `rag`: RAG system with OpenAI embeddings and tiktoken
-- `graph`: Graph-based workflows with pydantic-graph
 - `observability`: Logfire integration for monitoring
 - `ui`: Streamlit-based UI components with pandas
 
@@ -651,8 +649,6 @@ AgenTools includes a comprehensive set of pre-built toolkits organized by functi
 - **storage_vector**: Vector database for embeddings  
   💻 [`src/agentoolkit/storage/vector.py`](src/agentoolkit/storage/vector.py)
   
-- **storage_document**: Document storage with metadata  
-  💻 [`src/agentoolkit/storage/document.py`](src/agentoolkit/storage/document.py)
 
 ### Authentication & Security
 - **auth**: Authentication with JWT tokens  
@@ -678,8 +674,6 @@ AgenTools includes a comprehensive set of pre-built toolkits organized by functi
 - **validation**: Advanced data validation  
   💻 [`src/agentoolkit/system/validation.py`](src/agentoolkit/system/validation.py)
   
-- **rag**: Retrieval-Augmented Generation  
-  📄 [`docs/rag-system.md`](docs/rag-system.md) | 💻 [`src/agentoolkit/rag/`](src/agentoolkit/rag/)
 
 ### System & Monitoring
 - **config**: Configuration management  
@@ -1556,8 +1550,6 @@ open htmlcov/index.html
 
 - **[Testing Guide](docs/testing-guide.md)** - Writing and running tests
 - **[Dependency Injection](docs/agentool_dependency_injection.md)** - DI system details
-- **[RAG System](docs/rag-system.md)** - Building RAG applications
-- **[Graph Integration](docs/graph-pydantic-ai.md)** - Graph-based workflows
 
 ### 📂 Code Examples
 

@@ -1,11 +1,8 @@
 """LLM Agents for various workflows.
 
 This package provides agents for:
-- RAG (Retrieval-Augmented Generation) workflows
 - AI Code Generation workflows for AgenTools
 """
-
-from .rag_agent import rag_agent
 
 # AI Code Generation Workflow imports
 from .models import (
@@ -35,9 +32,6 @@ from .workflow import (
 )
 
 __all__ = [
-    # RAG
-    "rag_agent",
-    
     # AI Code Generation Models
     'AnalyzerOutput',
     'SpecificationOutput',

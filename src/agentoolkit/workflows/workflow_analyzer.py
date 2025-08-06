@@ -8,7 +8,7 @@ for the AI code generation workflow by identifying gaps and opportunities.
 
 import json
 from typing import Dict, Any, List, Literal, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_ai import RunContext, Agent
 
 from agentool import create_agentool
@@ -37,6 +37,22 @@ class WorkflowAnalyzerInput(BaseModel):
         default="openai:gpt-4o",
         description="LLM model to use for analysis"
     )
+    
+    @field_validator('task_description')
+    def validate_task_description(cls, v, info):
+        """Validate task_description is provided for analyze operation."""
+        operation = info.data.get('operation')
+        if operation == 'analyze' and not v:
+            raise ValueError("task_description is required for analyze operation")
+        return v
+    
+    @field_validator('workflow_id')
+    def validate_workflow_id(cls, v, info):
+        """Validate workflow_id is provided for analyze operation."""
+        operation = info.data.get('operation')
+        if operation == 'analyze' and not v:
+            raise ValueError("workflow_id is required for analyze operation")
+        return v
 
 
 class WorkflowAnalyzerOutput(BaseModel):
@@ -149,7 +165,7 @@ async def analyze_task(
         
         # Generate analysis using LLM
         result = await agent.run(user_prompt)
-        analysis = result.data
+        analysis = result.output
         
         # Store analysis in storage_kv
         state_key = f'workflow/{workflow_id}/analysis'
@@ -229,6 +245,7 @@ def create_workflow_analyzer_agent():
         routing_config=routing,
         tools=[analyze_task],
         output_type=WorkflowAnalyzerOutput,
+        use_typed_output=True,  # Enable typed output for workflow_analyzer
         system_prompt="Analyze AgenTool catalog to identify existing tools and gaps for new capabilities.",
         description="Analyzes the AgenTool ecosystem to determine what exists and what needs to be created for a given task",
         version="1.0.0",
