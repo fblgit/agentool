@@ -278,6 +278,17 @@ class AgenToolInjector:
                 except:
                     pass  # Ignore any metrics recording errors
             
+            # Check if we should return typed output
+            config = AgenToolRegistry.get(agent_name)
+            if config and config.output_type and hasattr(result, 'output'):
+                # Parse the JSON output and return typed Pydantic model
+                try:
+                    output_data = json.loads(result.output)
+                    return config.output_type(**output_data)
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    # Fallback to returning the raw result if parsing fails
+                    pass
+            
             return result
             
         except Exception as e:
