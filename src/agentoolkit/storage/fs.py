@@ -56,6 +56,7 @@ class StorageFsInput(BaseOperationInput):
 
 class StorageFsOutput(BaseModel):
     """Structured output for file system operations."""
+    success: bool = Field(description="Whether the operation succeeded")
     operation: str = Field(description="The operation that was performed")
     path: str = Field(description="The path that was operated on")
     message: str = Field(description="Human-readable result message")
@@ -86,6 +87,7 @@ async def fs_read(ctx: RunContext[Any], path: str, encoding: str) -> StorageFsOu
         content = file_path.read_text(encoding=encoding)
         
         return StorageFsOutput(
+            success=True,
             operation="read",
             path=path,
             message=f"Successfully read {len(content)} characters from {path}",
@@ -132,6 +134,7 @@ async def fs_write(ctx: RunContext[Any], path: str, content: str, encoding: str,
         file_path.write_text(content, encoding=encoding)
         
         return StorageFsOutput(
+            success=True,
             operation="write",
             path=path,
             message=f"Successfully wrote {len(content)} characters to {path}",
@@ -180,6 +183,7 @@ async def fs_append(ctx: RunContext[Any], path: str, content: str, encoding: str
             f.write(content)
         
         return StorageFsOutput(
+            success=True,
             operation="append",
             path=path,
             message=f"Successfully appended {len(content)} characters to {path}",
@@ -213,6 +217,7 @@ async def fs_delete(ctx: RunContext[Any], path: str, recursive: bool) -> Storage
         
         if not file_path.exists():
             return StorageFsOutput(
+                success=True,
                 operation="delete",
                 path=path,
                 message=f"Path already does not exist: {path}",
@@ -222,6 +227,7 @@ async def fs_delete(ctx: RunContext[Any], path: str, recursive: bool) -> Storage
         if file_path.is_file():
             file_path.unlink()
             return StorageFsOutput(
+                success=True,
                 operation="delete",
                 path=path,
                 message=f"Successfully deleted file: {path}",
@@ -232,6 +238,7 @@ async def fs_delete(ctx: RunContext[Any], path: str, recursive: bool) -> Storage
             if recursive:
                 shutil.rmtree(file_path)
                 return StorageFsOutput(
+                    success=True,
                     operation="delete",
                     path=path,
                     message=f"Successfully deleted directory recursively: {path}",
@@ -241,6 +248,7 @@ async def fs_delete(ctx: RunContext[Any], path: str, recursive: bool) -> Storage
                 try:
                     file_path.rmdir()
                     return StorageFsOutput(
+                        success=True,
                         operation="delete",
                         path=path,
                         message=f"Successfully deleted empty directory: {path}",
@@ -327,6 +335,7 @@ async def fs_list(ctx: RunContext[Any], path: str, recursive: bool, pattern: Opt
         items.sort(key=lambda x: x["name"])
         
         return StorageFsOutput(
+            success=True,
             operation="list",
             path=path,
             message=f"Successfully listed {len(items)} items in {path}",
@@ -368,6 +377,7 @@ async def fs_exists(ctx: RunContext[Any], path: str) -> StorageFsOutput:
             size = file_path.stat().st_size if file_path.is_file() else None
             
             return StorageFsOutput(
+                success=True,
                 operation="exists",
                 path=path,
                 message=f"Path exists: {path} ({file_type})",
@@ -379,6 +389,7 @@ async def fs_exists(ctx: RunContext[Any], path: str) -> StorageFsOutput:
             )
         else:
             return StorageFsOutput(
+                success=True,
                 operation="exists",
                 path=path,
                 message=f"Path does not exist: {path}",
@@ -407,6 +418,7 @@ async def fs_mkdir(ctx: RunContext[Any], path: str, create_parents: bool) -> Sto
         if dir_path.exists():
             if dir_path.is_dir():
                 return StorageFsOutput(
+                    success=True,
                     operation="mkdir",
                     path=path,
                     message=f"Directory already exists: {path}",
@@ -418,6 +430,7 @@ async def fs_mkdir(ctx: RunContext[Any], path: str, create_parents: bool) -> Sto
         dir_path.mkdir(parents=create_parents, exist_ok=True)
         
         return StorageFsOutput(
+            success=True,
             operation="mkdir",
             path=path,
             message=f"Successfully created directory: {path}",
@@ -455,6 +468,7 @@ async def fs_rmdir(ctx: RunContext[Any], path: str, recursive: bool) -> StorageF
         
         if not dir_path.exists():
             return StorageFsOutput(
+                success=True,
                 operation="rmdir",
                 path=path,
                 message=f"Directory already does not exist: {path}",
@@ -467,6 +481,7 @@ async def fs_rmdir(ctx: RunContext[Any], path: str, recursive: bool) -> StorageF
         if recursive:
             shutil.rmtree(dir_path)
             return StorageFsOutput(
+                success=True,
                 operation="rmdir",
                 path=path,
                 message=f"Successfully removed directory recursively: {path}",
@@ -476,6 +491,7 @@ async def fs_rmdir(ctx: RunContext[Any], path: str, recursive: bool) -> StorageF
             try:
                 dir_path.rmdir()
                 return StorageFsOutput(
+                    success=True,
                     operation="rmdir",
                     path=path,
                     message=f"Successfully removed empty directory: {path}",

@@ -39,7 +39,7 @@ import json
 import re
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_ai import RunContext
 
 try:
@@ -69,10 +69,27 @@ class TemplatesInput(BaseOperationInput):
     
     # Options
     strict: bool = Field(default=False, description="Fail on undefined variables")
+    
+    @field_validator('template_name')
+    def validate_template_name(cls, v, info):
+        """Validate template_name is provided for operations that require it."""
+        operation = info.data.get('operation')
+        if operation in ['render'] and not v:
+            raise ValueError(f"template_name is required for {operation} operation")
+        return v
+    
+    @field_validator('template_content')
+    def validate_template_content(cls, v, info):
+        """Validate template_content is provided for operations that require it."""
+        operation = info.data.get('operation')
+        if operation in ['save', 'validate', 'exec'] and not v:
+            raise ValueError(f"template_content is required for {operation} operation")
+        return v
 
 
 class TemplatesOutput(BaseModel):
     """Structured output for template operations."""
+    success: bool = Field(description="Whether the operation succeeded")
     operation: str = Field(description="The operation that was performed")
     message: str = Field(description="Human-readable result message")
     data: Optional[Any] = Field(None, description="Operation-specific data")
@@ -150,20 +167,14 @@ async def _resolve_variable_references(variables: Dict[str, Any]) -> Dict[str, A
                             "key": path
                         })
                         
-                        if hasattr(result, 'output'):
-                            result_data = json.loads(result.output)
-                        else:
-                            result_data = result
-                        
-                        # If we got here without exception, the key exists
-                        if result_data.get("data", {}).get("exists"):
-                            resolved[key] = result_data["data"]["value"]
+                        # storage_kv returns typed StorageKvOutput
+                        # Check if key exists and has value
+                        if result.success and result.data and result.data.get("exists"):
+                            resolved[key] = result.data["value"]
                         else:
                             resolved[key] = f"<undefined:{value}>"
-                    except KeyError:
-                        # Key doesn't exist
-                        resolved[key] = f"<undefined:{value}>"
-                    except Exception:
+                    except Exception as e:
+                        # Log the error for debugging
                         resolved[key] = f"<error:{value}>"
                 
                 elif storage_type == "storage_fs":
@@ -174,17 +185,14 @@ async def _resolve_variable_references(variables: Dict[str, Any]) -> Dict[str, A
                             "path": path
                         })
                         
-                        if hasattr(result, 'output'):
-                            result_data = json.loads(result.output)
+                        # storage_fs returns typed StorageFsOutput
+                        # Check if file was read successfully
+                        if result.success and result.data:
+                            resolved[key] = result.data["content"]
                         else:
-                            result_data = result
-                        
-                        # If we got here without exception, we have content
-                        resolved[key] = result_data["data"]["content"]
-                    except FileNotFoundError:
-                        # File doesn't exist
-                        resolved[key] = f"<undefined:{value}>"
-                    except Exception:
+                            resolved[key] = f"<undefined:{value}>"
+                    except Exception as e:
+                        # Log the error for debugging
                         resolved[key] = f"<error:{value}>"
                 else:
                     resolved[key] = f"<invalid_ref:{value}>"
@@ -251,7 +259,13 @@ async def templates_render(ctx: RunContext[Any], template_name: str, variables: 
             error_msg = f"Template '{template_name}' not found in loaded templates"
             await _log_operation("render", False, {"template": template_name, "error": error_msg})
             await _track_metric("validation.errors", labels={"template": template_name, "error_type": "not_found"})
-            raise ValueError(error_msg)
+            # Return success=False for discovery operation (404-like)
+            return TemplatesOutput(
+                success=False,
+                operation="render",
+                message=error_msg,
+                data=None
+            )
         
         # Resolve variable references
         resolved_vars = await _resolve_variable_references(variables or {})
@@ -315,6 +329,7 @@ async def templates_render(ctx: RunContext[Any], template_name: str, variables: 
             })
             
             return TemplatesOutput(
+                success=True,
                 operation="render",
                 message=f"Successfully rendered template '{template_name}'",
                 data={
@@ -368,11 +383,7 @@ async def templates_save(ctx: RunContext[Any], template_name: str, template_cont
             "create_parents": True
         })
         
-        if hasattr(save_result, 'output'):
-            save_data = json.loads(save_result.output)
-        else:
-            save_data = save_result
-        
+        # storage_fs returns typed StorageFsOutput
         # If we got here without exception, the save succeeded
         
         # Reload the template into memory
@@ -397,6 +408,7 @@ async def templates_save(ctx: RunContext[Any], template_name: str, template_cont
             })
             
             return TemplatesOutput(
+                success=True,
                 operation="save",
                 message=f"Successfully saved template '{template_name}'",
                 data={
@@ -451,6 +463,7 @@ async def templates_list(ctx: RunContext[Any]) -> TemplatesOutput:
         template_list.sort(key=lambda x: x["name"])
         
         return TemplatesOutput(
+            success=True,
             operation="list",
             message=f"Found {len(template_list)} templates",
             data={
@@ -487,6 +500,7 @@ async def templates_validate(ctx: RunContext[Any], template_content: str) -> Tem
             variables = meta.find_undeclared_variables(ast)
             
             return TemplatesOutput(
+                success=True,
                 operation="validate",
                 message="Template syntax is valid",
                 data={
@@ -573,6 +587,7 @@ async def templates_exec(ctx: RunContext[Any], template_content: str, variables:
             })
             
             return TemplatesOutput(
+                success=True,
                 operation="exec",
                 message="Successfully executed template",
                 data={
@@ -650,6 +665,7 @@ def create_templates_agent(templates_dir: str = "templates"):
         routing_config=templates_routing,
         tools=[templates_render, templates_save, templates_list, templates_validate, templates_exec],
         output_type=TemplatesOutput,
+        use_typed_output=True,  # Enable typed output for templates
         system_prompt="Handle Jinja2 template operations with storage integration.",
         description="Template rendering with Jinja2, supporting storage_kv and storage_fs variable references",
         version="1.0.0",

@@ -73,20 +73,17 @@ class TestTemplatesAgent:
                 }
             })
             
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result
-            
-            assert 'operation' in data
-            assert "Hello Alice!" in data['data']['rendered']
-            assert "Welcome to the system!" in data['data']['rendered']
+            # templates returns typed TemplatesOutput
+            assert result.operation == "render"
+            assert result.success is True
+            assert "Hello Alice!" in result.data['rendered']
+            assert "Welcome to the system!" in result.data['rendered']
             
             # Print the rendered output
             print("\n=== test_render_template Output ===")
-            print(f"Rendered template:\n{data['data']['rendered']}")
-            print(f"Template name: {data['data']['template_name']}")
-            print(f"Variables resolved: {data['data']['variables_resolved']}")
+            print(f"Rendered template:\n{result.data['rendered']}")
+            print(f"Template name: {result.data['template_name']}")
+            print(f"Variables resolved: {result.data['variables_resolved']}")
             print("=" * 40)
             
             # Test rendering without optional variable
@@ -98,27 +95,22 @@ class TestTemplatesAgent:
                 }
             })
             
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result
+            # templates returns typed TemplatesOutput
+            assert result.operation == "render"
+            assert result.success is True
+            assert "Hello Bob!" in result.data['rendered']
+            assert "Welcome" not in result.data['rendered']
             
-            assert 'operation' in data
-            assert "Hello Bob!" in data['data']['rendered']
-            assert "Welcome" not in data['data']['rendered']
-            
-            # Test non-existent template (should raise exception)
-            try:
-                result = await injector.run('templates', {
-                    "operation": "render",
-                    "template_name": "nonexistent",
-                    "variables": {"name": "Test"}
-                })
-                # Should not reach here
-                assert False, "Expected ValueError for non-existent template"
-            except ValueError as e:
-                assert "not found" in str(e).lower()
-                print(f"\n   Expected exception caught: {e}")
+            # Test non-existent template (should return success=False)
+            result = await injector.run('templates', {
+                "operation": "render",
+                "template_name": "nonexistent",
+                "variables": {"name": "Test"}
+            })
+            # Should return success=False for discovery operation
+            assert result.success is False
+            assert "not found" in result.message.lower()
+            print(f"\n   Template not found: {result.message}")
         
         asyncio.run(run_test())
     
@@ -143,13 +135,10 @@ Best regards,
                 "template_content": template_content
             })
             
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result
-            
-            assert 'operation' in data
-            assert data['data']['template_name'] == "test_email"
+            # templates returns typed TemplatesOutput
+            assert result.operation == "save"
+            assert result.success is True
+            assert result.data['template_name'] == "test_email"
             
             # Verify the template file was created
             template_file = self.test_templates_dir / "test_email.jinja"
@@ -167,19 +156,15 @@ Best regards,
                 }
             })
             
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result
-            
-            assert 'operation' in data
-            assert "Dear John" in data['data']['rendered']
-            assert "Item 1" in data['data']['rendered']
+            # templates returns typed TemplatesOutput
+            assert result.success is True
+            assert "Dear John" in result.data['rendered']
+            assert "Item 1" in result.data['rendered']
             
             # Print the saved and rendered template
             print("\n=== test_save_template Output ===")
-            print(f"Saved template: {data['data']['template_name']}")
-            print(f"Rendered content:\n{data['data']['rendered']}")
+            print(f"Saved template: {result.data['template_name']}")
+            print(f"Rendered content:\n{result.data['rendered']}")
             print("=" * 40)
             
             # Test saving invalid template (should raise exception)
@@ -208,23 +193,19 @@ Best regards,
                 "operation": "list"
             })
             
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result
+            # templates returns typed TemplatesOutput
+            assert result.success is True
+            assert result.data['count'] >= 1  # At least the greeting template
             
-            assert 'operation' in data
-            assert data['data']['count'] >= 1  # At least the greeting template
-            
-            template_names = [t['name'] for t in data['data']['templates']]
+            template_names = [t['name'] for t in result.data['templates']]
             assert "greeting" in template_names
             
             # Print the templates list
             print("\n=== test_list_templates Output ===")
             print(f"Available templates: {template_names}")
-            print(f"Total count: {data['data']['count']}")
-            print(f"Templates directory: {data['data']['directory']}")
-            for template in data['data']['templates']:
+            print(f"Total count: {result.data['count']}")
+            print(f"Templates directory: {result.data['directory']}")
+            for template in result.data['templates']:
                 print(f"  - {template['name']}: {template.get('filename', 'N/A')} ({template.get('size', 'N/A')} bytes)")
             print("=" * 40)
         
@@ -242,15 +223,11 @@ Best regards,
                 "template_content": "Hello {{ name }}! Your age is {{ age }}."
             })
             
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result
-            
-            assert 'operation' in data
-            assert data['data']['valid'] is True
-            assert "name" in data['data']['variables']
-            assert "age" in data['data']['variables']
+            # templates returns typed TemplatesOutput
+            assert result.success is True
+            assert result.data['valid'] is True
+            assert "name" in result.data['variables']
+            assert "age" in result.data['variables']
             
             # Validate an incorrect template (should raise exception)
             try:
@@ -279,19 +256,15 @@ Best regards,
                 "variables": {"value": 21}
             })
             
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result
-            
-            assert 'operation' in data
-            assert "Result: 42" in data['data']['rendered']
+            # templates returns typed TemplatesOutput
+            assert result.success is True
+            assert "Result: 42" in result.data['rendered']
             
             # Print the exec output
             print("\n=== test_exec_template Output (Simple) ===")
             print(f"Template: 'Result: {{{{ value * 2 }}}}'")
             print(f"Variables: {{value: 21}}")
-            print(f"Rendered: {data['data']['rendered']}")
+            print(f"Rendered: {result.data['rendered']}")
             print("=" * 40)
             
             # Execute with loops
@@ -301,17 +274,13 @@ Best regards,
                 "variables": {}
             })
             
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result
-            
-            assert 'operation' in data
-            assert "0, 1, 2" in data['data']['rendered']
+            # templates returns typed TemplatesOutput
+            assert result.success is True
+            assert "0, 1, 2" in result.data['rendered']
             
             # Print the loop output
             print("\n=== test_exec_template Output (Loop) ===")
-            print(f"Rendered loop: {data['data']['rendered']}")
+            print(f"Rendered loop: {result.data['rendered']}")
             print("=" * 40)
             
             # Execute with undefined variable (strict mode - should raise exception)
@@ -336,13 +305,9 @@ Best regards,
                 "strict": False
             })
             
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result
-            
-            assert 'operation' in data
-            assert data['data']['rendered'] == "Hello !"
+            # templates returns typed TemplatesOutput
+            assert result.success is True
+            assert result.data['rendered'] == "Hello !"
         
         asyncio.run(run_test())
     
@@ -386,15 +351,11 @@ File: {{ file_content }}""",
                 }
             })
             
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result
-            
-            assert 'operation' in data
-            assert "User: John Doe" in data['data']['rendered']
-            assert "Company: Acme Corp" in data['data']['rendered']
-            assert "File: This is file content" in data['data']['rendered']
+            # templates returns typed TemplatesOutput
+            assert result.success is True
+            assert "User: John Doe" in result.data['rendered']
+            assert "Company: Acme Corp" in result.data['rendered']
+            assert "File: This is file content" in result.data['rendered']
             
             # Print the storage references output
             print("\n=== test_storage_references Output ===")
@@ -402,7 +363,7 @@ File: {{ file_content }}""",
             print("  user: !ref:storage_kv:test_user_name")
             print("  company: !ref:storage_kv:test_company")
             print(f"  file_content: !ref:storage_fs:{test_file}")
-            print(f"\nRendered output:\n{data['data']['rendered']}")
+            print(f"\nRendered output:\n{result.data['rendered']}")
             print("=" * 40)
             
             # Test with non-existent references
@@ -414,13 +375,9 @@ File: {{ file_content }}""",
                 }
             })
             
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result
-            
-            assert 'operation' in data
-            assert "<undefined:" in data['data']['rendered'] or "Value: " in data['data']['rendered']
+            # templates returns typed TemplatesOutput
+            assert result.success is True
+            assert "<undefined:" in result.data['rendered'] or "Value: " in result.data['rendered']
         
         asyncio.run(run_test())
 

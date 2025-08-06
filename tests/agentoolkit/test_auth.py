@@ -26,6 +26,9 @@ class TestAuth:
         
         # Import and create the agents (in dependency order)
         from agentoolkit.storage.kv import create_storage_kv_agent, _kv_storage, _kv_expiry
+        from agentoolkit.storage.fs import create_storage_fs_agent
+        from agentoolkit.observability.metrics import create_metrics_agent
+        from agentoolkit.system.logging import create_logging_agent, _logging_config
         from agentoolkit.security.crypto import create_crypto_agent
         from agentoolkit.auth.session import create_session_agent, _sessions
         from agentoolkit.auth.auth import create_auth_agent, _users, _role_permissions
@@ -35,12 +38,16 @@ class TestAuth:
         _kv_expiry.clear()
         _sessions.clear()
         _users.clear()
+        _logging_config.clear()
         
         # Create agents in dependency order
-        storage_agent = create_storage_kv_agent()
-        crypto_agent = create_crypto_agent()
-        session_agent = create_session_agent()
-        auth_agent = create_auth_agent()
+        storage_fs_agent = create_storage_fs_agent()  # No dependencies
+        storage_agent = create_storage_kv_agent()     # No dependencies
+        crypto_agent = create_crypto_agent()          # No dependencies
+        metrics_agent = create_metrics_agent()        # Depends on storage_kv
+        logging_agent = create_logging_agent()        # Depends on storage_fs and metrics
+        session_agent = create_session_agent()        # Depends on storage_kv, logging, metrics
+        auth_agent = create_auth_agent()             # Depends on crypto, storage_kv, session
     
     def test_user_registration(self):
         """Test user registration."""
@@ -60,16 +67,12 @@ class TestAuth:
                 }
             })
             
-            if hasattr(register_result, 'output'):
-                register_data = json.loads(register_result.output)
-            else:
-                register_data = register_result
-            
-            # No longer checking success field - function now throws exceptions on failure
-            assert register_data["operation"] == "register"
-            assert register_data["data"]["username"] == "john_doe"
-            assert register_data["data"]["email"] == "john@example.com"
-            assert "user" in register_data["data"]["roles"]
+            # auth returns typed AuthOutput
+            assert register_result.success is True
+            assert register_result.operation == "register"
+            assert register_result.data["username"] == "john_doe"
+            assert register_result.data["email"] == "john@example.com"
+            assert "user" in register_result.data["roles"]
             
             # Try registering same user again - should throw exception
             try:
@@ -104,16 +107,12 @@ class TestAuth:
                 "password": "test_password"
             })
             
-            if hasattr(login_result, 'output'):
-                login_data = json.loads(login_result.output)
-            else:
-                login_data = login_result
+            # auth returns typed AuthOutput
+            assert login_result.success is True
+            assert "session_id" in login_result.data
+            assert login_result.data["username"] == "login_test"
             
-            # No longer checking success field - function now throws exceptions on failure
-            assert "session_id" in login_data["data"]
-            assert login_data["data"]["username"] == "login_test"
-            
-            session_id = login_data["data"]["session_id"]
+            session_id = login_result.data["session_id"]
             
             # Verify session exists
             session_result = await injector.run('session', {
@@ -121,10 +120,7 @@ class TestAuth:
                 "session_id": session_id
             })
             
-            if hasattr(session_result, 'output'):
-                session_data = json.loads(session_result.output)
-            else:
-                session_data = session_result
+            # session returns typed SessionOutput
             
             # No longer checking success field - function now throws exceptions on failure
             
@@ -134,23 +130,17 @@ class TestAuth:
                 "session_id": session_id
             })
             
-            if hasattr(logout_result, 'output'):
-                logout_data = json.loads(logout_result.output)
-            else:
-                logout_data = logout_result
+            # auth returns typed AuthOutput
+            assert logout_result.success is True
+            assert logout_result.data["session_deleted"] is True
             
-            # No longer checking success field - function now throws exceptions on failure
-            assert logout_data["data"]["session_deleted"] is True
-            
-            # Verify session is gone - should raise KeyError
-            with pytest.raises(KeyError) as exc_info:
-                await injector.run('session', {
-                    "operation": "get",
-                    "session_id": session_id
-                })
-            
-            # Verify the error message contains expected text
-            assert "does not exist" in str(exc_info.value)
+            # Verify session is gone - should return success=False
+            get_deleted = await injector.run('session', {
+                "operation": "get",
+                "session_id": session_id
+            })
+            # session returns typed SessionOutput with success=False for not found
+            assert get_deleted.success is False
         
         asyncio.run(run_test())
     
@@ -174,13 +164,9 @@ class TestAuth:
                 "password": "correct_password"
             })
             
-            if hasattr(verify_result, 'output'):
-                verify_data = json.loads(verify_result.output)
-            else:
-                verify_data = verify_result
-            
-            # No longer checking success field - function now throws exceptions on failure
-            assert verify_data["data"]["valid"] is True
+            # auth returns typed AuthOutput
+            assert verify_result.success is True
+            assert verify_result.data["valid"] is True
             
             # Verify wrong password
             wrong_result = await injector.run('auth', {
@@ -189,13 +175,9 @@ class TestAuth:
                 "password": "wrong_password"
             })
             
-            if hasattr(wrong_result, 'output'):
-                wrong_data = json.loads(wrong_result.output)
-            else:
-                wrong_data = wrong_result
-            
-            # No longer checking success field - function now throws exceptions on failure
-            assert wrong_data["data"]["valid"] is False
+            # auth returns typed AuthOutput
+            assert wrong_result.success is True
+            assert wrong_result.data["valid"] is False
             
             # Verify non-existent user
             nouser_result = await injector.run('auth', {
@@ -204,13 +186,9 @@ class TestAuth:
                 "password": "any_password"
             })
             
-            if hasattr(nouser_result, 'output'):
-                nouser_data = json.loads(nouser_result.output)
-            else:
-                nouser_data = nouser_result
-            
-            # No longer checking success field - function now throws exceptions on failure
-            assert nouser_data["data"]["valid"] is False
+            # auth returns typed AuthOutput - should return success=False for discovery operation
+            assert nouser_result.success is False
+            assert nouser_result.data["valid"] is False
         
         asyncio.run(run_test())
     
@@ -234,12 +212,9 @@ class TestAuth:
                 "password": "old_password"
             })
             
-            if hasattr(login_result, 'output'):
-                login_data = json.loads(login_result.output)
-            else:
-                login_data = login_result
+            # auth returns typed AuthOutput
             
-            session_id = login_data["data"]["session_id"]
+            session_id = login_result.data["session_id"]
             
             # Change password
             change_result = await injector.run('auth', {
@@ -249,23 +224,17 @@ class TestAuth:
                 "new_password": "new_password"
             })
             
-            if hasattr(change_result, 'output'):
-                change_data = json.loads(change_result.output)
-            else:
-                change_data = change_result
+            # auth returns typed AuthOutput
+            assert change_result.success is True
+            assert change_result.data["sessions_invalidated"] is True
             
-            # No longer checking success field - function now throws exceptions on failure
-            assert change_data["data"]["sessions_invalidated"] is True
-            
-            # Verify old session is invalid - should raise KeyError
-            with pytest.raises(KeyError) as exc_info:
-                await injector.run('session', {
-                    "operation": "get",
-                    "session_id": session_id
-                })
-            
-            # Verify the error message contains expected text
-            assert "does not exist" in str(exc_info.value)
+            # Verify old session is invalid - should return success=False
+            get_deleted = await injector.run('session', {
+                "operation": "get",
+                "session_id": session_id
+            })
+            # session returns typed SessionOutput with success=False for not found
+            assert get_deleted.success is False
             
             # Verify old password doesn't work - should throw exception
             try:
@@ -285,12 +254,8 @@ class TestAuth:
                 "password": "new_password"
             })
             
-            if hasattr(new_login, 'output'):
-                new_data = json.loads(new_login.output)
-            else:
-                new_data = new_login
-            
-            # No longer checking success field - function now throws exceptions on failure
+            # auth returns typed AuthOutput
+            assert new_login.success is True
         
         asyncio.run(run_test())
     
@@ -314,13 +279,9 @@ class TestAuth:
                 "new_password": "reset_password"
             })
             
-            if hasattr(reset_result, 'output'):
-                reset_data = json.loads(reset_result.output)
-            else:
-                reset_data = reset_result
-            
-            # No longer checking success field - function now throws exceptions on failure
-            assert reset_data["data"]["sessions_invalidated"] is True
+            # auth returns typed AuthOutput
+            assert reset_result.success is True
+            assert reset_result.data["sessions_invalidated"] is True
             
             # Verify new password works
             login_result = await injector.run('auth', {
@@ -329,12 +290,8 @@ class TestAuth:
                 "password": "reset_password"
             })
             
-            if hasattr(login_result, 'output'):
-                login_data = json.loads(login_result.output)
-            else:
-                login_data = login_result
-            
-            # No longer checking success field - function now throws exceptions on failure
+            # auth returns typed AuthOutput
+            assert login_result.success is True
         
         asyncio.run(run_test())
     
@@ -361,16 +318,12 @@ class TestAuth:
                 }
             })
             
-            if hasattr(token_result, 'output'):
-                token_data = json.loads(token_result.output)
-            else:
-                token_data = token_result
+            # auth returns typed AuthOutput
+            assert token_result.success is True
+            assert "token" in token_result.data
+            assert token_result.data["expires_in"] == 3600
             
-            # No longer checking success field - function now throws exceptions on failure
-            assert "token" in token_data["data"]
-            assert token_data["data"]["expires_in"] == 3600
-            
-            token = token_data["data"]["token"]
+            token = token_result.data["token"]
             
             # Verify token
             verify_result = await injector.run('auth', {
@@ -378,15 +331,11 @@ class TestAuth:
                 "token": token
             })
             
-            if hasattr(verify_result, 'output'):
-                verify_data = json.loads(verify_result.output)
-            else:
-                verify_data = verify_result
-            
-            # No longer checking success field - function now throws exceptions on failure
-            assert verify_data["data"]["valid"] is True
-            assert verify_data["data"]["user_id"] == "token_test"
-            assert verify_data["data"]["metadata"]["purpose"] == "api_access"
+            # auth returns typed AuthOutput
+            assert verify_result.success is True
+            assert verify_result.data["valid"] is True
+            assert verify_result.data["user_id"] == "token_test"
+            assert verify_result.data["metadata"]["purpose"] == "api_access"
             
             # Verify invalid token
             invalid_result = await injector.run('auth', {
@@ -394,13 +343,9 @@ class TestAuth:
                 "token": "invalid.token.here"
             })
             
-            if hasattr(invalid_result, 'output'):
-                invalid_data = json.loads(invalid_result.output)
-            else:
-                invalid_data = invalid_result
-            
-            # Should return invalid token result
-            assert invalid_data["data"]["valid"] is False
+            # auth returns typed AuthOutput - should return success=False for invalid token
+            assert invalid_result.success is False
+            assert invalid_result.data["valid"] is False
         
         asyncio.run(run_test())
     
@@ -424,13 +369,9 @@ class TestAuth:
                 "permission": "admin"
             })
             
-            if hasattr(perm_result, 'output'):
-                perm_data = json.loads(perm_result.output)
-            else:
-                perm_data = perm_result
-            
-            # No longer checking success field - function now throws exceptions on failure
-            assert perm_data["data"]["has_permission"] is False
+            # auth returns typed AuthOutput
+            assert perm_result.success is True
+            assert perm_result.data["has_permission"] is False
             
             # Assign admin role
             assign_result = await injector.run('auth', {
@@ -439,13 +380,9 @@ class TestAuth:
                 "role": "admin"
             })
             
-            if hasattr(assign_result, 'output'):
-                assign_data = json.loads(assign_result.output)
-            else:
-                assign_data = assign_result
-            
-            # No longer checking success field - function now throws exceptions on failure
-            assert "admin" in assign_data["data"]["current_roles"]
+            # auth returns typed AuthOutput
+            assert assign_result.success is True
+            assert "admin" in assign_result.data["current_roles"]
             
             # Check permission again
             admin_perm = await injector.run('auth', {
@@ -454,12 +391,9 @@ class TestAuth:
                 "permission": "admin"
             })
             
-            if hasattr(admin_perm, 'output'):
-                admin_data = json.loads(admin_perm.output)
-            else:
-                admin_data = admin_perm
-            
-            assert admin_data["data"]["has_permission"] is True
+            # auth returns typed AuthOutput
+            assert admin_perm.success is True
+            assert admin_perm.data["has_permission"] is True
             
             # Revoke admin role
             revoke_result = await injector.run('auth', {
@@ -468,13 +402,9 @@ class TestAuth:
                 "role": "admin"
             })
             
-            if hasattr(revoke_result, 'output'):
-                revoke_data = json.loads(revoke_result.output)
-            else:
-                revoke_data = revoke_result
-            
-            # No longer checking success field - function now throws exceptions on failure
-            assert "admin" not in revoke_data["data"]["current_roles"]
+            # auth returns typed AuthOutput
+            assert revoke_result.success is True
+            assert "admin" not in revoke_result.data["current_roles"]
             
             # Verify permission revoked
             final_perm = await injector.run('auth', {
@@ -483,12 +413,9 @@ class TestAuth:
                 "permission": "admin"
             })
             
-            if hasattr(final_perm, 'output'):
-                final_data = json.loads(final_perm.output)
-            else:
-                final_data = final_perm
-            
-            assert final_data["data"]["has_permission"] is False
+            # auth returns typed AuthOutput
+            assert final_perm.success is True
+            assert final_perm.data["has_permission"] is False
         
         asyncio.run(run_test())
     
@@ -545,12 +472,9 @@ class TestAuth:
                         "permission": permission
                     })
                     
-                    if hasattr(result, 'output'):
-                        data = json.loads(result.output)
-                    else:
-                        data = result
-                    
-                    assert data["data"]["has_permission"] == expected[username][permission], \
+                    # auth returns typed AuthOutput
+                    assert result.success is True
+                    assert result.data["has_permission"] == expected[username][permission], \
                         f"{username} should {'have' if expected[username][permission] else 'not have'} {permission} permission"
         
         asyncio.run(run_test())
@@ -578,13 +502,9 @@ class TestAuth:
                 "user_id": "manage_test"
             })
             
-            if hasattr(get_result, 'output'):
-                get_data = json.loads(get_result.output)
-            else:
-                get_data = get_result
-            
-            # No longer checking success field - function now throws exceptions on failure
-            user_info = get_data["data"]
+            # auth returns typed AuthOutput
+            assert get_result.success is True
+            user_info = get_result.data
             assert user_info["username"] == "manage_test"
             assert user_info["metadata"]["age"] == 25
             assert "password_hash" not in user_info  # Sensitive data removed
@@ -600,13 +520,9 @@ class TestAuth:
                 }
             })
             
-            if hasattr(update_result, 'output'):
-                update_data = json.loads(update_result.output)
-            else:
-                update_data = update_result
-            
-            # No longer checking success field - function now throws exceptions on failure
-            assert set(update_data["data"]["updated_fields"]) == {"age", "occupation"}
+            # auth returns typed AuthOutput
+            assert update_result.success is True
+            assert set(update_result.data["updated_fields"]) == {"age", "occupation"}
             
             # Verify update
             get_updated = await injector.run('auth', {
@@ -614,12 +530,9 @@ class TestAuth:
                 "user_id": "manage_test"
             })
             
-            if hasattr(get_updated, 'output'):
-                updated_data = json.loads(get_updated.output)
-            else:
-                updated_data = get_updated
-            
-            user_info = updated_data["data"]
+            # auth returns typed AuthOutput
+            assert get_updated.success is True
+            user_info = get_updated.data
             assert user_info["metadata"]["age"] == 26
             assert user_info["metadata"]["occupation"] == "Engineer"
             assert user_info["metadata"]["city"] == "New York"  # Original preserved
@@ -630,13 +543,9 @@ class TestAuth:
                 "user_id": "manage_test"
             })
             
-            if hasattr(delete_result, 'output'):
-                delete_data = json.loads(delete_result.output)
-            else:
-                delete_data = delete_result
-            
-            # No longer checking success field - function now throws exceptions on failure
-            assert delete_data["data"]["sessions_invalidated"] is True
+            # auth returns typed AuthOutput
+            assert delete_result.success is True
+            assert delete_result.data["sessions_invalidated"] is True
             
             # Verify deletion - should throw exception for non-existent user
             try:

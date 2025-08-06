@@ -28,7 +28,7 @@ import secrets
 import json
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional, List, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_ai import RunContext
 
 from agentool.base import BaseOperationInput
@@ -58,10 +58,34 @@ class SessionInput(BaseOperationInput):
     
     # Update fields
     data: Optional[Dict[str, Any]] = Field(None, description="Data to store/update")
+    
+    @field_validator('session_id')
+    def validate_session_id(cls, v, info):
+        """Validate that session_id is provided for operations that require it."""
+        operation = info.data.get('operation')
+        if operation in ['get', 'update', 'delete', 'validate', 'renew'] and not v:
+            raise ValueError(f"session_id is required for {operation} operation")
+        return v
+    
+    @field_validator('user_id')
+    def validate_user_id(cls, v, info):
+        """Validate that user_id is provided for operations that require it."""
+        operation = info.data.get('operation')
+        if operation in ['create', 'invalidate_all'] and not v:
+            raise ValueError(f"user_id is required for {operation} operation")
+        return v
+    
+    @field_validator('ttl')
+    def validate_ttl(cls, v, info):
+        """Validate that ttl is positive when provided."""
+        if v is not None and v <= 0:
+            raise ValueError("ttl must be a positive integer when provided")
+        return v
 
 
 class SessionOutput(BaseModel):
     """Structured output for session operations."""
+    success: bool = Field(default=True, description="Whether the operation succeeded")
     operation: str = Field(description="The operation that was performed")
     message: str = Field(description="Human-readable result message")
     data: Optional[Dict[str, Any]] = Field(None, description="Operation-specific data")
@@ -135,8 +159,19 @@ async def session_create(ctx: RunContext[Any], user_id: str, metadata: Optional[
                 "name": "agentool.session.sessions.active",
                 "value": 1
             })
-        except:
-            pass  # Ignore metrics errors
+        except Exception as metrics_error:
+            # Log metrics error but continue
+            await injector.run('logging', {
+                "operation": "log",
+                "level": "ERROR",
+                "message": f"Failed to record session creation metrics: {str(metrics_error)}",
+                "data": {
+                    "operation": "session_create",
+                    "user_id": user_id,
+                    "error": str(metrics_error)
+                },
+                "logger_name": "session"
+            })
         
         return SessionOutput(
             operation="create",
@@ -162,12 +197,11 @@ async def session_get(ctx: RunContext[Any], session_id: str) -> SessionOutput:
         session_id: Session identifier
         
     Returns:
-        SessionOutput with session details
+        SessionOutput with session details or success=False if not found/expired
         
     Raises:
         ValueError: For invalid session_id
-        KeyError: When session is not found
-        RuntimeError: When session has expired or storage errors occur
+        RuntimeError: For storage errors (not for session not found/expired)
     """
     if not session_id or not isinstance(session_id, str):
         raise ValueError("session_id must be a non-empty string")
@@ -179,53 +213,69 @@ async def session_get(ctx: RunContext[Any], session_id: str) -> SessionOutput:
         else:
             # Try to load from storage
             injector = get_injector()
-            try:
-                result = await injector.run('storage_kv', {
-                    "operation": "get",
-                    "key": f"session:{session_id}",
-                    "namespace": "sessions"
-                })
-                
-                if hasattr(result, 'output'):
-                    kv_data = json.loads(result.output)
-                else:
-                    kv_data = result
-                
-                if kv_data["data"]["value"]:
-                    session_data = kv_data["data"]["value"]
-                    # Cache in memory
-                    _sessions[session_id] = session_data
-                else:
-                    raise KeyError(f"Session {session_id} does not exist")
-            except KeyError:
-                # Storage_kv now throws KeyError for missing keys
-                raise KeyError(f"Session {session_id} does not exist")
+            result = await injector.run('storage_kv', {
+                "operation": "get",
+                "key": f"session:{session_id}",
+                "namespace": "sessions"
+            })
+            
+            # storage_kv now returns typed output with success field
+            if result.success and result.data["value"]:
+                session_data = result.data["value"]
+                # Cache in memory
+                _sessions[session_id] = session_data
+            else:
+                # Discovery operation - session not found
+                return SessionOutput(
+                    success=False,
+                    operation="get",
+                    message=f"Session {session_id} does not exist",
+                    data={}  # Empty data when not found
+                )
         
         # Check if expired
         expires_at = datetime.fromisoformat(session_data["expires_at"])
         if datetime.now(timezone.utc) > expires_at:
             # Record expired session metric
+            injector = get_injector()
             try:
                 await injector.run('metrics', {
                     "operation": "increment",
                     "name": "agentool.session.sessions.expired",
                     "value": 1
                 })
-            except:
-                pass  # Ignore metrics errors
+            except Exception as metrics_error:
+                # Log metrics error but continue
+                await injector.run('logging', {
+                    "operation": "log",
+                    "level": "ERROR",
+                    "message": f"Failed to record session expiration metrics: {str(metrics_error)}",
+                    "data": {
+                        "operation": "session_get",
+                        "session_id": session_id,
+                        "error": str(metrics_error)
+                    },
+                    "logger_name": "session"
+                })
             
             # Session expired, clean it up
             await session_delete(ctx, session_id)
-            raise RuntimeError(f"Session {session_id} has expired")
+            
+            # Discovery operation - session expired
+            return SessionOutput(
+                success=False,
+                operation="get",
+                message=f"Session {session_id} has expired",
+                data={}  # Empty data when expired
+            )
         
         return SessionOutput(
+            success=True,
             operation="get",
             message="Session retrieved successfully",
             data=session_data
         )
         
-    except (KeyError, RuntimeError):
-        raise
     except Exception as e:
         raise RuntimeError(f"Failed to retrieve session {session_id}: {e}") from e
 
@@ -248,8 +298,15 @@ async def session_update(ctx: RunContext[Any], session_id: str,
         KeyError: When session is not found
         RuntimeError: For storage errors or expired sessions
     """
-    # Get existing session (this will raise appropriate exceptions)
+    # Get existing session
     get_result = await session_get(ctx, session_id)
+    
+    # Check if session was found
+    if not get_result.success:
+        # Session not found or expired - this is NOT a discovery operation for update
+        # Update requires the session to exist, so we raise an exception
+        raise KeyError(f"Session {session_id} does not exist or has expired")
+    
     session_data = get_result.data
     
     try:
@@ -334,8 +391,19 @@ async def session_delete(ctx: RunContext[Any], session_id: str) -> SessionOutput
                     "name": "agentool.session.sessions.active",
                     "value": 1
                 })
-            except:
-                pass  # Ignore metrics errors
+            except Exception as metrics_error:
+                # Log metrics error but continue
+                await injector.run('logging', {
+                    "operation": "log",
+                    "level": "ERROR",
+                    "message": f"Failed to record session deletion metrics: {str(metrics_error)}",
+                    "data": {
+                        "operation": "session_delete",
+                        "session_id": session_id,
+                        "error": str(metrics_error)
+                    },
+                    "logger_name": "session"
+                })
         
         return SessionOutput(
             operation="delete",
@@ -359,20 +427,57 @@ async def session_validate(ctx: RunContext[Any], session_id: str) -> SessionOutp
         session_id: Session identifier
         
     Returns:
-        SessionOutput with validation result
+        SessionOutput with validation result (success=False for invalid sessions)
         
     Raises:
         ValueError: For invalid session_id
         RuntimeError: For validation errors
     """
     try:
-        # Get session - this will raise KeyError if not found or RuntimeError if expired
+        # Get session - this now returns success=False if not found or expired
         get_result = await session_get(ctx, session_id)
+        
+        # Check if session was found and not expired
+        if not get_result.success:
+            # Record failed validation
+            try:
+                injector = get_injector()
+                await injector.run('metrics', {
+                    "operation": "increment",
+                    "name": "agentool.session.validations.failure",
+                    "value": 1
+                })
+            except Exception as metrics_error:
+                # Log metrics error but continue
+                await injector.run('logging', {
+                    "operation": "log",
+                    "level": "ERROR",
+                    "message": f"Failed to record validation failure metrics: {str(metrics_error)}",
+                    "data": {
+                        "operation": "session_validate",
+                        "session_id": session_id,
+                        "error": str(metrics_error)
+                    },
+                    "logger_name": "session"
+                })
+            
+            # Session not found or expired - return validation failed result
+            return SessionOutput(
+                success=False,  # Discovery operation - session invalid
+                operation="validate",
+                message="Session validation failed",
+                data={
+                    "valid": False,
+                    "reason": get_result.message
+                }
+            )
+        
         session_data = get_result.data
         
         # Check if active
         if not session_data.get("active", True):
             return SessionOutput(
+                success=False,  # Discovery operation - session inactive
                 operation="validate",
                 message="Session is inactive",
                 data={
@@ -392,10 +497,22 @@ async def session_validate(ctx: RunContext[Any], session_id: str) -> SessionOutp
                 "name": "agentool.session.validations.success",
                 "value": 1
             })
-        except:
-            pass  # Ignore metrics errors
+        except Exception as metrics_error:
+            # Log metrics error but continue
+            await injector.run('logging', {
+                "operation": "log",
+                "level": "ERROR",
+                "message": f"Failed to record validation success metrics: {str(metrics_error)}",
+                "data": {
+                    "operation": "session_validate",
+                    "session_id": session_id,
+                    "error": str(metrics_error)
+                },
+                "logger_name": "session"
+            })
         
         return SessionOutput(
+            success=True,  # Session is valid
             operation="validate",
             message="Session is valid",
             data={
@@ -405,27 +522,6 @@ async def session_validate(ctx: RunContext[Any], session_id: str) -> SessionOutp
             }
         )
         
-    except (KeyError, RuntimeError) as e:
-        # Record failed validation
-        try:
-            injector = get_injector()
-            await injector.run('metrics', {
-                "operation": "increment",
-                "name": "agentool.session.validations.failure",
-                "value": 1
-            })
-        except:
-            pass  # Ignore metrics errors
-        
-        # Session not found or expired - return validation failed result
-        return SessionOutput(
-            operation="validate",
-            message="Session validation failed",
-            data={
-                "valid": False,
-                "reason": str(e)
-            }
-        )
     except Exception as e:
         raise RuntimeError(f"Failed to validate session {session_id}: {e}") from e
 
@@ -450,8 +546,15 @@ async def session_renew(ctx: RunContext[Any], session_id: str, ttl: Optional[int
     if ttl is not None and (not isinstance(ttl, int) or ttl <= 0):
         raise ValueError("ttl must be a positive integer")
     
-    # Get existing session (this will raise appropriate exceptions)
+    # Get existing session
     get_result = await session_get(ctx, session_id)
+    
+    # Check if session was found
+    if not get_result.success:
+        # Session not found or expired - this is NOT a discovery operation for renew
+        # Renew requires the session to exist, so we raise an exception
+        raise KeyError(f"Session {session_id} does not exist or has expired")
+    
     session_data = get_result.data
     
     try:
@@ -511,19 +614,20 @@ async def session_list(ctx: RunContext[Any], user_id: Optional[str]) -> SessionO
             "namespace": "sessions"
         })
         
-        if hasattr(list_result, 'output'):
-            list_data = json.loads(list_result.output)
-        else:
-            list_data = list_result
-        
+        # storage_kv now returns typed output
         sessions = []
         
         # Load each session
-        for key in list_data["data"]["keys"]:
+        for key in list_result.data["keys"]:
             if key.startswith("session:"):
                 session_id = key.replace("session:", "")
                 try:
                     get_result = await session_get(ctx, session_id)
+                    
+                    # Skip if session not found or expired
+                    if not get_result.success:
+                        continue
+                    
                     session_data = get_result.data
                     if not user_id or session_data["user_id"] == user_id:
                         sessions.append({
@@ -534,8 +638,19 @@ async def session_list(ctx: RunContext[Any], user_id: Optional[str]) -> SessionO
                             "last_activity": session_data["last_activity"],
                             "active": session_data.get("active", True)
                         })
-                except (KeyError, RuntimeError):
-                    # Skip sessions that are expired or not found
+                except Exception as e:
+                    # Log the error but continue with other sessions
+                    await injector.run('logging', {
+                        "operation": "log",
+                        "level": "WARN",
+                        "message": f"Failed to load session {session_id} during list operation: {str(e)}",
+                        "data": {
+                            "operation": "session_list",
+                            "session_id": session_id,
+                            "error": str(e)
+                        },
+                        "logger_name": "session"
+                    })
                     continue
         
         return SessionOutput(
@@ -693,6 +808,7 @@ def create_session_agent():
             session_invalidate_all, session_get_active
         ],
         output_type=SessionOutput,
+        use_typed_output=True,  # Enable typed output for session (Tier 3)
         system_prompt="Manage user sessions efficiently and securely.",
         description="Comprehensive session management for authentication and state tracking",
         version="1.0.0",
