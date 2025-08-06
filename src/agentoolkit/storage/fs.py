@@ -531,6 +531,7 @@ def create_storage_fs_agent():
         routing_config=fs_routing,
         tools=[fs_read, fs_write, fs_append, fs_delete, fs_list, fs_exists, fs_mkdir, fs_rmdir],
         output_type=StorageFsOutput,
+        use_typed_output=True,  # Enable typed output for storage_fs (Tier 1 - no dependencies)
         system_prompt="Handle file system operations efficiently and safely.",
         description="File system storage operations with comprehensive CRUD support",
         version="1.0.0",

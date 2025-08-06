@@ -34,7 +34,7 @@ import os
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional, List, Literal, Union
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_ai import RunContext
 
 from agentool.base import BaseOperationInput
@@ -74,6 +74,76 @@ class CryptoInput(BaseOperationInput):
     private_key: Optional[str] = Field(None, description="Private key for signing")
     public_key: Optional[str] = Field(None, description="Public key for verification")
     signature: Optional[str] = Field(None, description="Signature to verify")
+    
+    @field_validator('data')
+    def validate_data(cls, v, info):
+        """Validate data field is present for operations that require it."""
+        operation = info.data.get('operation')
+        if operation in ['hash', 'verify_hash', 'encrypt', 'decrypt', 'sign', 
+                        'verify_signature', 'encode_base64', 'decode_base64', 
+                        'verify_jwt', 'hmac'] and not v:
+            raise ValueError(f"data is required for {operation} operation")
+        return v
+    
+    @field_validator('algorithm')
+    def validate_algorithm(cls, v, info):
+        """Validate algorithm field is present for operations that require it."""
+        operation = info.data.get('operation')
+        if operation in ['hash', 'verify_hash', 'generate_key', 'encrypt', 
+                        'decrypt', 'sign', 'verify_signature', 'hmac'] and not v:
+            raise ValueError(f"algorithm is required for {operation} operation")
+        return v
+    
+    @field_validator('key')
+    def validate_key(cls, v, info):
+        """Validate key field is present for operations that require it."""
+        operation = info.data.get('operation')
+        # Note: verify_hash uses 'key' field to pass the hash value
+        if operation in ['encrypt', 'decrypt', 'verify_hash', 'hmac'] and not v:
+            raise ValueError(f"key is required for {operation} operation")
+        return v
+    
+    @field_validator('payload')
+    def validate_payload(cls, v, info):
+        """Validate payload field for JWT operations."""
+        operation = info.data.get('operation')
+        if operation == 'generate_jwt':
+            if v is None:
+                raise ValueError("payload is required for generate_jwt operation")
+            # Note: empty dict check is done in the tool function
+        return v
+    
+    @field_validator('secret')
+    def validate_secret(cls, v, info):
+        """Validate secret field for JWT operations."""
+        operation = info.data.get('operation')
+        if operation in ['generate_jwt', 'verify_jwt'] and not v:
+            raise ValueError(f"secret is required for {operation} operation")
+        return v
+    
+    @field_validator('private_key')
+    def validate_private_key(cls, v, info):
+        """Validate private_key field for signing operations."""
+        operation = info.data.get('operation')
+        if operation == 'sign' and not v:
+            raise ValueError("private_key is required for sign operation")
+        return v
+    
+    @field_validator('public_key')
+    def validate_public_key(cls, v, info):
+        """Validate public_key field for signature verification."""
+        operation = info.data.get('operation')
+        if operation == 'verify_signature' and not v:
+            raise ValueError("public_key is required for verify_signature operation")
+        return v
+    
+    @field_validator('signature')
+    def validate_signature(cls, v, info):
+        """Validate signature field for verification."""
+        operation = info.data.get('operation')
+        if operation == 'verify_signature' and not v:
+            raise ValueError("signature is required for verify_signature operation")
+        return v
 
 
 class CryptoOutput(BaseModel):
@@ -182,21 +252,23 @@ async def crypto_verify_hash(ctx: RunContext[Any], data: str, algorithm: str,
         salt: Salt used in hashing
         
     Returns:
-        CryptoOutput with verification result
+        CryptoOutput with verification result (success=True with valid field)
         
     Raises:
-        ValueError: If required parameters are missing or invalid
+        ValueError: If required parameters are missing or invalid format
         RuntimeError: If hash verification operation fails
     """
     if algorithm == 'bcrypt':
         # For bcrypt, we need to use the same approach as in hash
         # The stored hash includes the salt, so we need to regenerate it
         if not salt:
+            # Missing salt is a validation error, not a discovery failure
             raise ValueError("Salt is required for bcrypt hash verification")
         
         try:
             salt_bytes = base64.b64decode(salt)
         except Exception as e:
+            # Invalid format is a validation error
             raise ValueError(f"Invalid salt format for bcrypt verification: {e}") from e
         
         # Use the same default iterations as in crypto_hash
@@ -210,6 +282,7 @@ async def crypto_verify_hash(ctx: RunContext[Any], data: str, algorithm: str,
                 iterations
             )
         except Exception as e:
+            # Actual computation failure is a runtime error
             raise RuntimeError(f"Failed to compute bcrypt hash for verification: {e}") from e
         
         # The stored hash is base64(salt + hash_value)
@@ -222,6 +295,8 @@ async def crypto_verify_hash(ctx: RunContext[Any], data: str, algorithm: str,
         computed_hash = result.data["hash"]
         is_valid = computed_hash == hash
     
+    # Always return success=True for discovery operations
+    # The "valid" field indicates if verification passed
     return CryptoOutput(
         success=True,
         operation="verify_hash",
@@ -496,7 +571,7 @@ async def crypto_verify_signature(ctx: RunContext[Any], data: str, algorithm: st
         public_key: Public key for verification
         
     Returns:
-        CryptoOutput with verification result
+        CryptoOutput with verification result (success=True with valid field)
         
     Raises:
         ValueError: If public key format is invalid
@@ -507,9 +582,11 @@ async def crypto_verify_signature(ctx: RunContext[Any], data: str, algorithm: st
     try:
         public_key_bytes = base64.b64decode(public_key)
     except Exception as e:
+        # Invalid format is a validation error
         raise ValueError(f"Invalid public key format: {e}") from e
     
     if not public_key_bytes:
+        # Empty key is a validation error
         raise ValueError("Public key cannot be empty")
     
     try:
@@ -522,6 +599,8 @@ async def crypto_verify_signature(ctx: RunContext[Any], data: str, algorithm: st
         expected_signature = base64.b64encode(expected_signature_bytes).decode()
         is_valid = expected_signature == signature
         
+        # Always return success=True for discovery operations
+        # The "valid" field indicates if verification passed
         return CryptoOutput(
             success=True,
             operation="verify_signature",
@@ -532,6 +611,7 @@ async def crypto_verify_signature(ctx: RunContext[Any], data: str, algorithm: st
             }
         )
     except Exception as e:
+        # Actual computation failure is a runtime error
         raise RuntimeError(f"Failed to verify signature: {e}") from e
 
 
@@ -916,6 +996,7 @@ def create_crypto_agent():
             crypto_hmac
         ],
         output_type=CryptoOutput,
+        use_typed_output=True,  # Enable typed output for crypto (Tier 1 - no dependencies)
         system_prompt="Handle cryptographic operations securely and efficiently.",
         description="Comprehensive cryptographic operations including hashing, encryption, and JWT",
         version="1.0.0",
