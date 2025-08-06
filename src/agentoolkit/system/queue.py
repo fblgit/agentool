@@ -43,7 +43,7 @@ import json
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List, Literal
 from collections import deque
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_ai import RunContext
 
 from agentool.base import BaseOperationInput
@@ -88,10 +88,27 @@ class QueueInput(BaseOperationInput):
     
     # DLQ options
     max_retries: Optional[int] = Field(3, description="Max retries before moving to DLQ")
+    
+    @field_validator('message')
+    def validate_message(cls, v, info):
+        """Validate message is provided for enqueue operation."""
+        operation = info.data.get('operation')
+        if operation == 'enqueue' and v is None:
+            raise ValueError(f"message is required for {operation} operation")
+        return v
+    
+    @field_validator('message_id')
+    def validate_message_id(cls, v, info):
+        """Validate message_id is provided for get_message operation."""
+        operation = info.data.get('operation')
+        if operation == 'get_message' and not v:
+            raise ValueError(f"message_id is required for {operation} operation")
+        return v
 
 
 class QueueOutput(BaseModel):
     """Structured output for queue operations."""
+    success: bool = Field(description="Whether the operation succeeded")
     operation: str = Field(description="The operation that was performed")
     queue_name: str = Field(description="The queue that was operated on")
     message: str = Field(description="Human-readable result message")
@@ -185,25 +202,19 @@ async def queue_enqueue(ctx: RunContext[Any], queue_name: str, message: Any,
                 queue_name, message, delay, schedule_at, message_id
             )
             
-            # Check if scheduling was successful
-            # The result is an AgentRunResult, parse the output
-            if result and hasattr(result, 'output'):
-                try:
-                    schedule_data = json.loads(result.output)
-                    # If we got here without exception, scheduling succeeded
-                except json.JSONDecodeError as e:
-                    raise RuntimeError(f"Failed to parse scheduler response: {e}") from e
-            else:
-                raise RuntimeError("Scheduler returned no result")
+            # scheduler returns typed SchedulerOutput
+            if not result or not result.success:
+                raise RuntimeError("Failed to schedule delayed enqueue")
             
             return QueueOutput(
+                success=True,
                 operation='enqueue',
                 queue_name=queue_name,
                 message=f"Message scheduled for delayed enqueue",
                 data={
                     'message_id': message_id,
-                    'scheduled_at': schedule_data.get('data', {}).get('next_run'),
-                    'job_id': schedule_data.get('data', {}).get('job_id')
+                    'scheduled_at': result.data.get('next_run') if result.data else None,
+                    'job_id': result.data.get('job_id') if result.data else None
                 }
             )
         
@@ -229,6 +240,7 @@ async def queue_enqueue(ctx: RunContext[Any], queue_name: str, message: Any,
         _queue_metadata[queue_name]['total_enqueued'] += 1
         
         return QueueOutput(
+            success=True,
             operation='enqueue',
             queue_name=queue_name,
             message=f"Message enqueued successfully",
@@ -269,6 +281,7 @@ async def queue_dequeue(ctx: RunContext[Any], queue_name: str, timeout: Optional
                 # The scheduler would have raised an exception if the execution failed
                 
                 return QueueOutput(
+                    success=True,
                     operation='dequeue',
                     queue_name=queue_name,
                     message=f"Message dequeued and executed",
@@ -276,7 +289,7 @@ async def queue_dequeue(ctx: RunContext[Any], queue_name: str, timeout: Optional
                         'message_id': wrapped_message['id'],
                         'message': wrapped_message['payload'],
                         'executed': True,
-                        'execution_result': execution_result.output if hasattr(execution_result, 'output') else None
+                        'execution_result': str(execution_result) if execution_result else None
                     }
                 )
                 
@@ -299,6 +312,7 @@ async def queue_dequeue(ctx: RunContext[Any], queue_name: str, timeout: Optional
         
         # Normal dequeue without execution
         return QueueOutput(
+            success=True,
             operation='dequeue',
             queue_name=queue_name,
             message=f"Message dequeued successfully",
@@ -324,6 +338,7 @@ async def queue_peek(ctx: RunContext[Any], queue_name: str) -> QueueOutput:
         
         if queue.empty():
             return QueueOutput(
+                success=True,
                 operation='peek',
                 queue_name=queue_name,
                 message="Queue is empty",
@@ -337,6 +352,7 @@ async def queue_peek(ctx: RunContext[Any], queue_name: str) -> QueueOutput:
         if items:
             next_message = items[0]
             return QueueOutput(
+                success=True,
                 operation='peek',
                 queue_name=queue_name,
                 message="Next message retrieved",
@@ -348,6 +364,7 @@ async def queue_peek(ctx: RunContext[Any], queue_name: str) -> QueueOutput:
             )
         else:
             return QueueOutput(
+                success=True,
                 operation='peek',
                 queue_name=queue_name,
                 message="Queue is empty",
@@ -367,6 +384,7 @@ async def queue_size(ctx: RunContext[Any], queue_name: str) -> QueueOutput:
         metadata = _queue_metadata.get(queue_name, {})
         
         return QueueOutput(
+            success=True,
             operation='size',
             queue_name=queue_name,
             message=f"Queue has {size} messages",
@@ -399,6 +417,7 @@ async def queue_clear(ctx: RunContext[Any], queue_name: str) -> QueueOutput:
                 break
         
         return QueueOutput(
+            success=True,
             operation='clear',
             queue_name=queue_name,
             message=f"Cleared {count} messages from queue",
@@ -427,6 +446,7 @@ async def queue_list(ctx: RunContext[Any]) -> QueueOutput:
             })
         
         return QueueOutput(
+            success=True,
             operation='list_queues',
             queue_name='*',
             message=f"Found {len(queues_info)} queues",
@@ -446,6 +466,7 @@ async def queue_get_dlq(ctx: RunContext[Any], queue_name: str) -> QueueOutput:
         dlq_messages = list(_dlq.get(queue_name, []))
         
         return QueueOutput(
+            success=True,
             operation='get_dlq',
             queue_name=queue_name,
             message=f"Retrieved {len(dlq_messages)} messages from DLQ",
@@ -556,6 +577,7 @@ def create_queue_agent():
         name='queue',
         input_schema=QueueInput,
         output_type=QueueOutput,
+        use_typed_output=True,  # Enable typed output for queue (Tier 4 - depends on scheduler)
         routing_config=routing_config,
         tools=[manage_queue],
         system_prompt="Message queue for data bus operations. Routes messages between AgenTools.",

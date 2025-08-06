@@ -183,6 +183,7 @@ async def logging_log(ctx: RunContext[Any], level: str, message: str, data: Opti
         # Check if log level meets minimum threshold
         if _get_log_level_priority(level) < _get_log_level_priority(min_level):
             return LoggingOutput(
+                success=True,
                 operation="log",
                 logger_name=logger_name,
                 message=f"Log level {level} below minimum threshold {min_level}, skipped",
@@ -234,6 +235,7 @@ async def logging_log(ctx: RunContext[Any], level: str, message: str, data: Opti
                 raise IOError(f"Error writing to log file: {str(file_error)}") from file_error
         
         return LoggingOutput(
+            success=True,
             operation="log",
             logger_name=logger_name,
             message=f"Successfully logged {level} message to {', '.join(outputs_written)}",
@@ -339,6 +341,7 @@ async def logging_configure(ctx: RunContext[Any], logger_name: str, level: str, 
         _logging_config[logger_name] = config
         
         return LoggingOutput(
+            success=True,
             operation="configure",
             logger_name=logger_name,
             message=f"Successfully configured logger '{logger_name}'",
@@ -417,6 +420,7 @@ async def logging_get_logs(ctx: RunContext[Any], logger_name: str, file_path: Op
         recent_entries = entries[-100:] if len(entries) > 100 else entries
         
         return LoggingOutput(
+            success=True,
             operation="get_logs",
             logger_name=logger_name,
             message=f"Retrieved {len(recent_entries)} log entries",
@@ -472,6 +476,7 @@ async def logging_clear_logs(ctx: RunContext[Any], logger_name: str, file_path: 
                 cleared_files.append(rotated_path)
         
         return LoggingOutput(
+            success=True,
             operation="clear_logs",
             logger_name=logger_name,
             message=f"Cleared {len(cleared_files)} log files",
