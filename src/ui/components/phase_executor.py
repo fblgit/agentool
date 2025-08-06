@@ -72,7 +72,7 @@ class PhaseExecutor:
                 artifact_patterns=[
                     "workflow/{workflow_id}/catalog",
                     "workflow/{workflow_id}/analysis",
-                    "workflow/{workflow_id}/missing_tools/{tool_name}"
+                    "workflow/{workflow_id}/missing_tools"
                 ]
             ),
             
@@ -367,12 +367,13 @@ class PhaseExecutor:
         
         if extracted_data:
             # Extract tool name from various sources
-            if 'missing_tools' in extracted_data:
-                # Analyzer phase - capture all missing tools
-                for tool in extracted_data.get('missing_tools', []):
-                    if isinstance(tool, dict) and 'name' in tool:
-                        artifact = f"storage_kv:workflow/{workflow_id}/missing_tools/{tool['name']}"
-                        artifacts.append(artifact)
+            # TODO: Fix missing_tools artifact storage - temporarily disabled
+            # if 'missing_tools' in extracted_data:
+            #     # Analyzer phase - capture all missing tools as a single artifact
+            #     if extracted_data.get('missing_tools'):
+            #         artifact = f"storage_kv:workflow/{workflow_id}/missing_tools"
+            #         if artifact not in artifacts:
+            #             artifacts.append(artifact)
             
             if 'specifications' in extracted_data:
                 # Specification phase - capture all specifications

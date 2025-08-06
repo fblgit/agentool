@@ -11,6 +11,11 @@ import json
 from typing import Dict, Any, List, Optional, Set
 from datetime import datetime
 import graphlib
+try:
+    import streamlit_mermaid as stmd
+    MERMAID_AVAILABLE = True
+except ImportError:
+    MERMAID_AVAILABLE = False
 
 from agents.workflow import WorkflowState
 from .phase_executor import PhaseResult
@@ -102,8 +107,12 @@ class WorkflowViewer:
         # Build Mermaid diagram
         mermaid_code = self._generate_mermaid_diagram(workflow_state, phase_results)
         
-        # Display using st.graphviz_chart alternative (Mermaid)
-        st.code(mermaid_code, language="mermaid")
+        # Display using streamlit-mermaid if available, otherwise fallback to code
+        if MERMAID_AVAILABLE:
+            stmd.st_mermaid(mermaid_code)
+        else:
+            st.code(mermaid_code, language="mermaid")
+            st.info("Install streamlit-mermaid for interactive diagram visualization: `pip install streamlit-mermaid`")
         
         # Add legend
         st.markdown("#### Legend")

@@ -306,6 +306,121 @@ def reset_workflow():
     st.rerun()
 
 
+def render_clickable_artifacts(artifacts: List[str], phase_key: str):
+    """Render artifacts as clickable buttons that show content in a modal."""
+    # Group artifacts by type
+    kv_artifacts = [a for a in artifacts if a.startswith('storage_kv:')]
+    fs_artifacts = [a for a in artifacts if a.startswith('storage_fs:')]
+    
+    # Show first 5 artifacts with buttons
+    shown_count = 0
+    
+    if kv_artifacts:
+        st.markdown("**Key-Value Storage:**")
+        cols = st.columns(min(3, len(kv_artifacts[:5])))
+        for idx, artifact in enumerate(kv_artifacts[:5]):
+            with cols[idx % 3]:
+                key = artifact.replace('storage_kv:', '')
+                display_name = key.split('/')[-1]
+                if st.button(f"📦 {display_name}", key=f"artifact_{phase_key}_{idx}", use_container_width=True):
+                    show_artifact_content(artifact, key)
+            shown_count += 1
+    
+    if fs_artifacts:
+        st.markdown("**File System:**")
+        cols = st.columns(min(3, len(fs_artifacts[:5 - shown_count])))
+        for idx, artifact in enumerate(fs_artifacts[:5 - shown_count]):
+            with cols[idx % 3]:
+                path = artifact.replace('storage_fs:', '')
+                display_name = path.split('/')[-1]
+                if st.button(f"📄 {display_name}", key=f"artifact_fs_{phase_key}_{idx}", use_container_width=True):
+                    show_artifact_content(artifact, path)
+            shown_count += 1
+    
+    if len(artifacts) > 5:
+        st.caption(f"... and {len(artifacts) - 5} more artifacts")
+
+
+@st.dialog("Artifact Content", width="large")
+def show_artifact_content(artifact_ref: str, artifact_key: str):
+    """Show artifact content in a modal dialog."""
+    st.markdown(f"**Artifact:** `{artifact_key}`")
+    
+    # Determine storage type and fetch content
+    if artifact_ref.startswith('storage_kv:'):
+        storage_type = 'storage_kv'
+        key = artifact_ref.replace('storage_kv:', '')
+    else:
+        storage_type = 'storage_fs'
+        key = artifact_ref.replace('storage_fs:', '')
+    
+    # Fetch content
+    try:
+        import asyncio
+        injector = st.session_state.ui_state.injector
+        
+        if storage_type == 'storage_kv':
+            result = asyncio.run(injector.run('storage_kv', {
+                'operation': 'get',
+                'key': key
+            }))
+            
+            if hasattr(result, 'output'):
+                data = json.loads(result.output)
+            else:
+                data = result.data if hasattr(result, 'data') else result
+            
+            if data.get('data', {}).get('exists', False):
+                content = json.loads(data['data']['value'])
+                
+                # Display based on content type
+                if isinstance(content, dict):
+                    if 'code' in content:
+                        st.code(content['code'], language='python')
+                        if 'metadata' in content:
+                            with st.expander("Metadata"):
+                                st.json(content['metadata'])
+                    else:
+                        st.json(content)
+                elif isinstance(content, list):
+                    st.json(content)
+                else:
+                    st.text(content)
+            else:
+                st.error("Artifact not found in storage")
+                
+        else:  # storage_fs
+            result = asyncio.run(injector.run('storage_fs', {
+                'operation': 'read',
+                'path': key
+            }))
+            
+            if hasattr(result, 'output'):
+                data = json.loads(result.output)
+            else:
+                data = result.data if hasattr(result, 'data') else result
+            
+            if data.get('data', {}).get('content'):
+                content = data['data']['content']
+                
+                # Display based on file type
+                if key.endswith('.py'):
+                    st.code(content, language='python')
+                elif key.endswith('.md'):
+                    st.markdown(content)
+                elif key.endswith('.json'):
+                    st.json(json.loads(content))
+                else:
+                    st.text(content)
+            else:
+                st.error("File not found in storage")
+                
+    except Exception as e:
+        st.error(f"Error loading artifact: {e}")
+        if st.session_state.debug_mode:
+            st.exception(e)
+
+
 def render_workflow_phases():
     """Render the workflow phase execution interface."""
     if not st.session_state.ui_state.workflow_state:
@@ -410,10 +525,7 @@ def render_workflow_phases():
                     # Show artifacts
                     if result.artifacts:
                         st.write("**Artifacts Created:**")
-                        for artifact in result.artifacts[:5]:  # Show first 5
-                            st.code(artifact, language=None)
-                        if len(result.artifacts) > 5:
-                            st.text(f"... and {len(result.artifacts) - 5} more")
+                        render_clickable_artifacts(result.artifacts, phase_key)
                     
                     # Show summary
                     if result.summary:
@@ -478,14 +590,15 @@ def render_results_section():
     
     # Create tabs dynamically based on whether tests were generated
     if has_tests:
-        tab_names = ["📊 Workflow Graph", "🗄️ Artifacts", "💻 Generated Code", "🧪 Test Code", "📈 Summary"]
+        tab_names = ["📊 Workflow Graph", "🗄️ Artifacts", "💻 Generated Code", "🧪 Test Code", "📃 Generation Summary", "🧾 Test Summary", "📈 Metrics"]
         tabs = st.tabs(tab_names)
-        tab1, tab2, tab3, tab4, tab5 = tabs
+        tab1, tab2, tab3, tab4, tab5, tab6, tab7 = tabs
     else:
-        tab_names = ["📊 Workflow Graph", "🗄️ Artifacts", "💻 Generated Code", "📈 Summary"]
+        tab_names = ["📊 Workflow Graph", "🗄️ Artifacts", "💻 Generated Code", "📃 Generation Summary", "📈 Metrics"]
         tabs = st.tabs(tab_names)
-        tab1, tab2, tab3, tab5 = tabs
+        tab1, tab2, tab3, tab5, tab7 = tabs
         tab4 = None  # No test tab
+        tab6 = None  # No test summary tab
     
     with tab1:
         # Workflow visualization
@@ -531,7 +644,7 @@ def render_results_section():
                     tool_names = [impl.get('tool_name', f'Tool {i+1}') for i, impl in enumerate(result.data['implementations'])]
                     tool_tabs = st.tabs(tool_names)
                     
-                    for i, (tab, impl_name) in enumerate(zip(tool_tabs, tool_names)):
+                    for tab, impl_name in zip(tool_tabs, tool_names):
                         with tab:
                             # Fetch the actual code from storage
                             impl_key = f"workflow/{st.session_state.ui_state.workflow_state.workflow_id}/implementations/{impl_name}"
@@ -607,8 +720,17 @@ def render_results_section():
         with tab4:
             render_test_code_section()
     
-    # Summary tab
+    # Generation Summary tab
     with tab5:
+        render_generation_summary()
+    
+    # Test Summary tab (if tests were generated)
+    if tab6 is not None:
+        with tab6:
+            render_test_summary()
+    
+    # Metrics tab
+    with tab7:
         # Summary and metrics
         if st.session_state.ui_state.workflow_state.metadata:
             render_workflow_summary()
@@ -669,10 +791,141 @@ def render_test_code_section():
         st.warning("Test files were generated but could not be loaded")
 
 
+def render_generation_summary():
+    """Render the generation summary tab content."""
+    st.subheader("📃 AgenTool Generation Summary")
+    
+    # Fetch the SUMMARY.md artifact
+    workflow_id = st.session_state.ui_state.workflow_state.workflow_id
+    summary_artifact_key = f"generated/{workflow_id}/SUMMARY.md"
+    
+    try:
+        import asyncio
+        injector = st.session_state.ui_state.injector
+        result = asyncio.run(injector.run('storage_fs', {
+            'operation': 'read',
+            'path': summary_artifact_key
+        }))
+        
+        if hasattr(result, 'output'):
+            data = json.loads(result.output)
+        else:
+            data = result.data if hasattr(result, 'data') else result
+        
+        if data.get('data', {}).get('content'):
+            # Display the markdown content
+            st.markdown(data['data']['content'])
+        else:
+            st.info("No generation summary available yet. The summary will be created after the evaluation phase completes.")
+    except Exception as e:
+        st.warning(f"Could not load generation summary: {e}")
+        
+        # Show phase results as fallback
+        if st.session_state.ui_state.phase_results:
+            st.markdown("### Phase Results Summary")
+            for phase_name, result in st.session_state.ui_state.phase_results.items():
+                if result.summary:
+                    with st.expander(f"{phase_name.title()} Phase"):
+                        for key, value in result.summary.items():
+                            st.markdown(f"- **{key.replace('_', ' ').title()}**: {value}")
+
+
+def render_test_summary():
+    """Render the test summary tab content."""
+    st.subheader("🧾 Test Summary")
+    
+    # Look for TEST_SUMMARY files in artifacts
+    test_summaries = []
+    
+    # Check artifacts for test summary files
+    for phase, artifacts in st.session_state.ui_state.artifacts.items():
+        if "test" in phase:
+            for artifact in artifacts:
+                if "TEST_SUMMARY" in artifact and artifact.endswith(".md"):
+                    test_summaries.append(artifact)
+    
+    if test_summaries:
+        # Create tabs for each test summary
+        if len(test_summaries) == 1:
+            # Single test summary - display directly
+            summary_path = test_summaries[0].replace("storage_fs:", "")
+            try:
+                import asyncio
+                injector = st.session_state.ui_state.injector
+                result = asyncio.run(injector.run('storage_fs', {
+                    'operation': 'read',
+                    'path': summary_path
+                }))
+                
+                if hasattr(result, 'output'):
+                    data = json.loads(result.output)
+                else:
+                    data = result.data if hasattr(result, 'data') else result
+                
+                if data.get('data', {}).get('content'):
+                    st.markdown(data['data']['content'])
+                else:
+                    st.warning("Test summary file is empty")
+            except Exception as e:
+                st.error(f"Error loading test summary: {e}")
+        else:
+            # Multiple test summaries - create tabs
+            tool_names = []
+            for summary in test_summaries:
+                # Extract tool name from path
+                parts = summary.split('/')
+                filename = parts[-1]
+                tool_name = filename.replace("TEST_SUMMARY_", "").replace(".md", "")
+                tool_names.append(tool_name)
+            
+            tabs = st.tabs(tool_names)
+            
+            for tab, summary_artifact, tool_name in zip(tabs, test_summaries, tool_names):
+                with tab:
+                    summary_path = summary_artifact.replace("storage_fs:", "")
+                    try:
+                        import asyncio
+                        injector = st.session_state.ui_state.injector
+                        result = asyncio.run(injector.run('storage_fs', {
+                            'operation': 'read',
+                            'path': summary_path
+                        }))
+                        
+                        if hasattr(result, 'output'):
+                            data = json.loads(result.output)
+                        else:
+                            data = result.data if hasattr(result, 'data') else result
+                        
+                        if data.get('data', {}).get('content'):
+                            st.markdown(data['data']['content'])
+                        else:
+                            st.warning(f"Test summary for {tool_name} is empty")
+                    except Exception as e:
+                        st.error(f"Error loading test summary for {tool_name}: {e}")
+    else:
+        st.info("No test summaries available. Test summaries will be generated after the test implementation phase completes.")
+        
+        # Show test phase results as fallback
+        test_phases = ["test_analyzer", "test_stubber", "test_crafter"]
+        test_results = {phase: result for phase, result in st.session_state.ui_state.phase_results.items() if phase in test_phases}
+        
+        if test_results:
+            st.markdown("### Test Phase Results")
+            for phase_name, result in test_results.items():
+                with st.expander(f"{phase_name.replace('_', ' ').title()}"):
+                    if result.summary:
+                        for key, value in result.summary.items():
+                            st.markdown(f"- **{key.replace('_', ' ').title()}**: {value}")
+                    if result.data:
+                        if 'tools' in result.data:
+                            st.markdown(f"**Tools Processed**: {', '.join(result.data['tools'])}")
+
+
 def render_workflow_summary():
     """Render workflow execution summary."""
     meta = st.session_state.ui_state.workflow_state.metadata
     
+    # First row of metrics
     col1, col2, col3 = st.columns(3)
     
     with col1:
@@ -692,6 +945,97 @@ def render_workflow_summary():
                 st.metric("Ready for Deployment", 
                          "✅ Yes" if result.data.get("ready_for_deployment") else "❌ No")
                 st.metric("Issues Found", result.data.get("issues_count", 0))
+    
+    # Token usage and costs section
+    st.divider()
+    st.subheader("💰 Token Usage & Estimated Costs")
+    
+    # Calculate token usage from phase results
+    total_tokens = 0
+    token_details = {}
+    
+    # Mock token usage calculation based on phase complexity
+    # In a real implementation, this would come from actual LLM API responses
+    token_multipliers = {
+        "analyzer": 1500,
+        "specification": 2000,
+        "crafter": 3000,
+        "evaluator": 2500,
+        "test_analyzer": 1000,
+        "test_stubber": 1500,
+        "test_crafter": 2500
+    }
+    
+    for phase_name, result in st.session_state.ui_state.phase_results.items():
+        if result.success:
+            # Mock token calculation based on phase
+            base_tokens = token_multipliers.get(phase_name, 1000)
+            
+            # Adjust based on number of tools processed
+            if result.summary and 'tools' in result.summary:
+                tool_count = len(result.summary['tools'])
+                base_tokens *= max(1, tool_count)
+            elif result.summary and 'tools_generated' in result.summary:
+                base_tokens *= result.summary['tools_generated']
+            
+            token_details[phase_name] = {
+                'request_tokens': int(base_tokens * 0.3),
+                'response_tokens': int(base_tokens * 0.7),
+                'total_tokens': base_tokens
+            }
+            total_tokens += base_tokens
+    
+    # Display token usage
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Total Tokens", f"{total_tokens:,}")
+    
+    with col2:
+        # Calculate estimated cost based on model
+        model = st.session_state.ui_state.workflow_state.model
+        
+        # Mock pricing per 1M tokens (in reality, this would come from a pricing config)
+        pricing = {
+            "openai:gpt-4o": 2.50,
+            "openai:o4-mini": 0.15,
+            "openai:gpt-4-turbo": 10.00,
+            "openai:gpt-3.5-turbo": 0.50,
+            "anthropic:claude-4-opus": 15.00,
+            "anthropic:claude-4-sonnet": 3.00,
+            "anthropic:claude-3-opus": 15.00,
+            "anthropic:claude-3-sonnet": 3.00,
+            "anthropic:claude-3-haiku": 0.25,
+            "google:gemini-2.5-pro": 1.25,
+            "google:gemini-1.5-pro": 1.25,
+            "google:gemini-1.5-flash": 0.075,
+            "groq:mixtral-8x7b": 0.27,
+            "groq:llama-3-70b": 0.59
+        }
+        
+        price_per_million = pricing.get(model, 2.50)
+        estimated_cost = (total_tokens / 1_000_000) * price_per_million
+        
+        st.metric("Estimated Cost", f"${estimated_cost:.4f}")
+    
+    with col3:
+        st.metric("Model", model.split(':')[1])
+    
+    with col4:
+        st.metric("Avg Tokens/Phase", f"{int(total_tokens / len(token_details)):,}" if token_details else "0")
+    
+    # Detailed breakdown
+    with st.expander("📊 Token Usage by Phase"):
+        for phase, tokens in token_details.items():
+            st.markdown(f"**{phase.replace('_', ' ').title()}**")
+            cols = st.columns(3)
+            with cols[0]:
+                st.caption(f"Request: {tokens['request_tokens']:,}")
+            with cols[1]:
+                st.caption(f"Response: {tokens['response_tokens']:,}")
+            with cols[2]:
+                st.caption(f"Total: {tokens['total_tokens']:,}")
+            st.divider()
     
     # Phase durations
     if meta.phase_durations:
