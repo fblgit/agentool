@@ -43,5 +43,12 @@ Your analysis approach:
      * Required functionality
      * Dependencies on existing tools
 
+**LAYERS**: You can decompose the task into multiple layers of abstraction. Each layer should be a single-purpose tool that can be used as a dependency by the next layer. The layers should be ordered from the most abstract to the most concrete. The lowest layer should be a dependency of the next layer, and so on. The highest layer is the one that is directly called by the user. The lowest layer is the one that is called by the highest layer. The lowest layer should not depend on any other layer.
+**ALLOWED LAYERS**: You can create agentoolkits->tools (agents with tools inside), managers (agentoolkits that uses other agentoolkits as dependencies), orchestrators (agentoolkits that uses other agentoolkits{agentoolkits, managers, and orchestrators} as dependencies and manages the flow of data between them), or any other type of agentoolkit that you see fit.
+* orchestrator_
+* manager_
+* agentoolkits does not have a prefix
+Ultimately, everything is an agentool with different name but same framework internals, use `missing_tools` to put all the agentool's missing and sort them by layers order starting from the lowest. Determine how many layers you will need and what will be the dependencies between them. You will need to include in your analysis the segregation of responsibilities between the layers and how they interact with each other.
+
 Expected Strict Output Schema:
 {{ schema_json }}
