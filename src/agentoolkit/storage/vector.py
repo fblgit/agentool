@@ -1,15 +1,15 @@
 """
-Vector Storage AgenTool - PGVector operations for RAG.
+Vector Storage AgenTool - PGVector operations for embeddings.
 
 This AgenTool provides vector storage operations using PostgreSQL with pgvector extension.
-Supports embedding storage, similarity search, and metadata management.
+Supports embedding storage, similarity search, and metadata management for machine learning applications.
 """
 
 import json
 import asyncio
 import asyncpg
 from typing import Dict, Any, Optional, List, Literal
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_ai import RunContext
 
 from agentool.base import BaseOperationInput
@@ -30,7 +30,7 @@ DB_CONFIG = {
 
 class StorageVectorInput(BaseOperationInput):
     """Input schema for vector storage operations."""
-    operation: Literal['init_collection', 'upsert', 'search', 'delete', 'list_collections'] = Field(
+    operation: Literal['init_collection', 'upsert', 'search', 'delete', 'list_collections', 'collection_exists'] = Field(
         description="The vector storage operation to perform"
     )
     collection: str = Field("default", description="Collection/table name")
@@ -45,6 +45,34 @@ class StorageVectorInput(BaseOperationInput):
     filter: Optional[Dict[str, Any]] = Field(None, description="Metadata filter")
     # For delete
     doc_ids: Optional[List[str]] = Field(None, description="IDs to delete")
+    
+    @field_validator('collection')
+    def validate_collection(cls, v, info):
+        """Validate collection name is provided and not empty."""
+        if not v or not v.strip():
+            raise ValueError("collection name is required and cannot be empty")
+        return v.strip()
+    
+    @model_validator(mode='after')
+    def validate_operation_requirements(self):
+        """Validate operation-specific required fields."""
+        operation = self.operation
+        
+        if operation == 'upsert':
+            if not self.embeddings:
+                raise ValueError("embeddings is required for upsert operation")
+            if not self.ids:
+                raise ValueError("ids is required for upsert operation")
+        
+        elif operation == 'search':
+            if not self.query_embedding:
+                raise ValueError("query_embedding is required for search operation")
+        
+        elif operation == 'delete':
+            if not self.doc_ids:
+                raise ValueError("doc_ids is required for delete operation")
+        
+        return self
 
 class StorageVectorOutput(BaseModel):
     """Structured output for vector storage operations."""
@@ -202,6 +230,15 @@ async def search(
                     "similarity": float(row["similarity"])
                 })
             
+            # Discovery pattern: return success=False when no results found
+            if not results:
+                return StorageVectorOutput(
+                    success=False,
+                    operation="search",
+                    message=f"No vectors found in collection '{collection}'",
+                    data={"results": [], "collection": collection, "count": 0}
+                )
+            
             return StorageVectorOutput(
                 success=True,
                 operation="search",
@@ -264,6 +301,42 @@ async def list_collections(ctx: RunContext[Any]) -> StorageVectorOutput:
     except Exception as e:
         raise RuntimeError(f"Failed to list collections: {e}") from e
 
+
+async def collection_exists(ctx: RunContext[Any], collection: str) -> StorageVectorOutput:
+    """Check if a collection exists. Discovery operation."""
+    pool = await get_connection()
+    table_name = f"vectors_{collection}"
+    
+    try:
+        async with pool.acquire() as conn:
+            # Check if table exists
+            rows = await conn.fetch("""
+                SELECT table_name 
+                FROM information_schema.tables 
+                WHERE table_schema = 'public' 
+                AND table_name = $1
+            """, table_name)
+            
+            exists = len(rows) > 0
+            
+            if not exists:
+                # Discovery pattern: return success=False when collection not found
+                return StorageVectorOutput(
+                    success=False,
+                    operation="collection_exists",
+                    message=f"Collection '{collection}' does not exist",
+                    data={"collection": collection, "exists": False}
+                )
+            
+            return StorageVectorOutput(
+                success=True,
+                operation="collection_exists",
+                message=f"Collection '{collection}' exists",
+                data={"collection": collection, "exists": True}
+            )
+    except Exception as e:
+        raise RuntimeError(f"Failed to check collection existence: {e}") from e
+
 # Routing configuration
 routing = RoutingConfig(
     operation_field='operation',
@@ -286,7 +359,10 @@ routing = RoutingConfig(
             'collection': x.collection,
             'doc_ids': x.doc_ids
         }),
-        'list_collections': ('list_collections', lambda x: {})
+        'list_collections': ('list_collections', lambda x: {}),
+        'collection_exists': ('collection_exists', lambda x: {
+            'collection': x.collection
+        })
     }
 )
 
@@ -298,11 +374,11 @@ def create_vector_agent():
         output_type=StorageVectorOutput,
         use_typed_output=True,
         routing_config=routing,
-        tools=[init_collection, upsert, search, delete, list_collections],
-        system_prompt="Manage vector embeddings with PGVector for RAG applications.",
+        tools=[init_collection, upsert, search, delete, list_collections, collection_exists],
+        system_prompt="Manage vector embeddings with PGVector for similarity search applications.",
         description="Vector storage operations for similarity search and retrieval",
         version="1.0.0",
-        tags=["storage", "vector", "pgvector", "rag", "embeddings"],
+        tags=["storage", "vector", "pgvector", "embeddings", "similarity"],
         dependencies=[],
         examples=[
             {

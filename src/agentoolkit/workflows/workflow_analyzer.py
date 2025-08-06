@@ -11,7 +11,7 @@ from typing import Dict, Any, List, Literal, Optional
 from pydantic import BaseModel, Field, field_validator
 from pydantic_ai import RunContext, Agent
 
-from agentool import create_agentool
+from agentool import create_agentool, BaseOperationInput
 from agentool.core.registry import RoutingConfig
 from agentool.core.injector import get_injector
 
@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../'))
 from agents.models import AnalyzerOutput, MissingToolSpec
 
 
-class WorkflowAnalyzerInput(BaseModel):
+class WorkflowAnalyzerInput(BaseOperationInput):
     """Input schema for workflow analyzer operations."""
     operation: Literal['analyze'] = Field(
         description="Operation to perform"
@@ -58,6 +58,7 @@ class WorkflowAnalyzerInput(BaseModel):
 class WorkflowAnalyzerOutput(BaseModel):
     """Output from workflow analysis."""
     success: bool = Field(description="Whether analysis succeeded")
+    operation: str = Field(description="Operation that was performed")
     message: str = Field(description="Status message")
     data: Dict[str, Any] = Field(description="Analysis results")
     state_ref: str = Field(description="Reference to stored state in storage_kv")
@@ -93,19 +94,41 @@ async def analyze_task(
     injector = get_injector()
     
     try:
+        # Log analysis start
+        await injector.run('logging', {
+            'operation': 'log',
+            'level': 'INFO',
+            'logger_name': 'workflow',
+            'message': 'Analysis phase started',
+            'data': {
+                'workflow_id': workflow_id,
+                'operation': 'analyze',
+                'model': model,
+                'task_description': task_description[:100] + '...' if len(task_description) > 100 else task_description
+            }
+        })
         # Get catalog from agentool_mgmt
         catalog_result = await injector.run('agentool_mgmt', {
             'operation': 'export_catalog',
             'format': 'json'
         })
         
-        # Extract catalog data
-        if hasattr(catalog_result, 'output'):
-            catalog_data = json.loads(catalog_result.output)
-        else:
-            catalog_data = catalog_result.data if hasattr(catalog_result, 'data') else catalog_result
+        # Extract catalog data - management returns typed ManagementOutput
+        assert catalog_result.success is True
+        catalog = catalog_result.data.get('catalog', {})
         
-        catalog = catalog_data.get('catalog', {})
+        # Log catalog retrieval
+        await injector.run('logging', {
+            'operation': 'log',
+            'level': 'DEBUG',
+            'logger_name': 'workflow',
+            'message': 'Catalog retrieved for analysis',
+            'data': {
+                'workflow_id': workflow_id,
+                'catalog_tools_count': len(catalog.get('agentools', [])),
+                'catalog_size_bytes': len(str(catalog))
+            }
+        })
         
         # Load system prompt from template with schema
         template_result = await injector.run('templates', {
@@ -116,16 +139,9 @@ async def analyze_task(
             }
         })
         
-        if hasattr(template_result, 'output'):
-            template_data = json.loads(template_result.output)
-        else:
-            template_data = template_result.data if hasattr(template_result, 'data') else template_result
-        
-        # Extract rendered content from the data field
-        if isinstance(template_data, dict) and 'data' in template_data:
-            system_prompt = template_data['data'].get('rendered', 'You are an expert AgenTool analyzer.')
-        else:
-            system_prompt = template_data.get('rendered', 'You are an expert AgenTool analyzer.')
+        # templates returns typed TemplatesOutput
+        assert template_result.success is True
+        system_prompt = template_result.data.get('rendered', 'You are an expert AgenTool analyzer.')
         
         # Create LLM agent for analysis
         agent = Agent(
@@ -152,20 +168,40 @@ async def analyze_task(
             }
         })
         
-        if hasattr(user_prompt_result, 'output'):
-            prompt_data = json.loads(user_prompt_result.output)
-        else:
-            prompt_data = user_prompt_result.data if hasattr(user_prompt_result, 'data') else user_prompt_result
+        # templates returns typed TemplatesOutput
+        assert user_prompt_result.success is True
+        user_prompt = user_prompt_result.data.get('rendered', f"Analyze: {task_description}")
         
-        # Extract rendered content from the data field
-        if isinstance(prompt_data, dict) and 'data' in prompt_data:
-            user_prompt = prompt_data['data'].get('rendered', f"Analyze: {task_description}")
-        else:
-            user_prompt = prompt_data.get('rendered', f"Analyze: {task_description}")
+        # Log LLM analysis start
+        await injector.run('logging', {
+            'operation': 'log',
+            'level': 'DEBUG',
+            'logger_name': 'workflow',
+            'message': 'Starting LLM analysis',
+            'data': {
+                'workflow_id': workflow_id,
+                'model': model,
+                'prompt_length': len(user_prompt)
+            }
+        })
         
         # Generate analysis using LLM
         result = await agent.run(user_prompt)
         analysis = result.output
+        
+        # Log LLM analysis completion
+        await injector.run('logging', {
+            'operation': 'log',
+            'level': 'INFO',
+            'logger_name': 'workflow',
+            'message': 'LLM analysis completed',
+            'data': {
+                'workflow_id': workflow_id,
+                'solution_name': analysis.name,
+                'existing_tools_found': len(analysis.existing_tools),
+                'missing_tools_identified': len(analysis.missing_tools)
+            }
+        })
         
         # Store analysis in storage_kv
         state_key = f'workflow/{workflow_id}/analysis'
@@ -184,6 +220,20 @@ async def analyze_task(
                 'value': json.dumps(missing_tool.model_dump())
             })
         
+        # Log state storage completion
+        await injector.run('logging', {
+            'operation': 'log',
+            'level': 'DEBUG',
+            'logger_name': 'workflow',
+            'message': 'Analysis state stored successfully',
+            'data': {
+                'workflow_id': workflow_id,
+                'catalog_key': f'workflow/{workflow_id}/catalog',
+                'analysis_key': state_key,
+                'missing_tools_stored': len(analysis.missing_tools)
+            }
+        })
+        
         # Log the analysis
         await injector.run('logging', {
             'operation': 'log',
@@ -200,6 +250,7 @@ async def analyze_task(
         
         return WorkflowAnalyzerOutput(
             success=True,
+            operation="analyze",
             message=f"Analysis complete: {len(analysis.existing_tools)} existing tools, {len(analysis.missing_tools)} tools to create",
             data=analysis.model_dump(),
             state_ref=state_key
@@ -260,6 +311,7 @@ def create_workflow_analyzer_agent():
                 },
                 "output": {
                     "success": True,
+                    "operation": "analyze",
                     "message": "Analysis complete: 3 existing tools, 2 tools to create",
                     "data": {
                         "name": "session_management_system",
