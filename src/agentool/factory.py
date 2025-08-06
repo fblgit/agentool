@@ -161,6 +161,7 @@ def create_agentool(
     tags: Optional[List[str]] = None,
     dependencies: Optional[List[str]] = None,
     examples: Optional[List[Dict[str, Any]]] = None,
+    use_typed_output: bool = False,
     **agent_kwargs,
 ) -> Agent:
     """
@@ -185,6 +186,7 @@ def create_agentool(
         tags: List of tags for categorization
         dependencies: List of required dependencies
         examples: List of example inputs/outputs
+        use_typed_output: Whether to return typed Pydantic models instead of AgentRunResult
         **agent_kwargs: Additional keyword arguments passed to Agent
         
     Returns:
@@ -231,7 +233,8 @@ def create_agentool(
         tags=tags or [],
         tools_metadata=tools_metadata,
         dependencies=dependencies or [],
-        examples=examples or []
+        examples=examples or [],
+        use_typed_output=use_typed_output
     )
     AgenToolRegistry.register(name, config)
     

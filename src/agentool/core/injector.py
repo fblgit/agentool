@@ -278,17 +278,57 @@ class AgenToolInjector:
                 except:
                     pass  # Ignore any metrics recording errors
             
-            # Check if we should return typed output
+            # =================================================================
+            # TYPED OUTPUT HANDLING (Feature Flag-Based Migration)
+            # =================================================================
+            # 
+            # Background: The AgenTool system has a type flow issue:
+            # 1. Tool functions return typed Pydantic models (e.g., StorageKvOutput)
+            # 2. These get serialized to JSON strings in AgentRunResult.output
+            # 3. Callers receive AgentRunResult with JSON string, losing type safety
+            #
+            # Solution: With use_typed_output=True flag, we restore type safety by:
+            # - Parsing the JSON string from AgentRunResult.output
+            # - Reconstructing the original typed Pydantic model
+            # - Returning the typed object instead of AgentRunResult
+            #
+            # This enables gradual migration to typed outputs without breaking changes
+            # =================================================================
+            
+            # Get the AgenTool's configuration from the registry
             config = AgenToolRegistry.get(agent_name)
-            if config and config.output_type and hasattr(result, 'output'):
-                # Parse the JSON output and return typed Pydantic model
+            
+            # Check if typed output is enabled for this specific AgenTool
+            if config and config.use_typed_output and config.output_type and hasattr(result, 'output'):
+                # The result is an AgentRunResult with JSON string in .output attribute
+                # We need to deserialize it back to the original typed object
                 try:
+                    # Step 1: Parse the JSON string to get a Python dict
+                    # AgentRunResult.output contains something like:
+                    # '{"operation": "get", "key": "test", "data": {"value": "hello"}}'
                     output_data = json.loads(result.output)
-                    return config.output_type(**output_data)
-                except (json.JSONDecodeError, TypeError, ValueError):
-                    # Fallback to returning the raw result if parsing fails
+                    
+                    # Step 2: Reconstruct the typed Pydantic model from the dict
+                    # This validates the data against the schema and provides type safety
+                    # Example: StorageKvOutput(**output_data) creates a StorageKvOutput instance
+                    typed_output = config.output_type(**output_data)
+                    
+                    # Step 3: Return the typed object instead of AgentRunResult
+                    # Callers can now use: result.data.value instead of json.loads(result.output)['data']['value']
+                    return typed_output
+                    
+                except (json.JSONDecodeError, TypeError, ValueError) as e:
+                    # If parsing or validation fails, fall back to returning raw AgentRunResult
+                    # This ensures backward compatibility even if data doesn't match schema
+                    # TODO: Consider logging this for debugging during migration
                     pass
             
+            # Default behavior: return the raw AgentRunResult (backward compatible)
+            # This happens when:
+            # - use_typed_output=False (default for gradual migration)
+            # - No output_type is defined
+            # - Result doesn't have .output attribute (not an AgentRunResult)
+            # - JSON parsing or type validation failed
             return result
             
         except Exception as e:
