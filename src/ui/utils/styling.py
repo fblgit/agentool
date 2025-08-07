@@ -27,6 +27,78 @@ def apply_custom_css():
         font-family: 'Fira Code', 'Monaco', monospace !important;
     }
     
+    /* Fix button text overflow and sizing */
+    .stButton > button {
+        white-space: normal !important;
+        word-wrap: break-word !important;
+        height: auto !important;
+        min-height: 38px !important;
+        padding: 0.5rem 1rem !important;
+        font-size: 0.875rem !important;
+    }
+    
+    /* Fix selectbox text */
+    .stSelectbox label {
+        font-size: 0.875rem !important;
+    }
+    
+    .stSelectbox > div > div {
+        font-size: 0.875rem !important;
+    }
+    
+    /* Fix radio button text */
+    .stRadio label {
+        font-size: 0.875rem !important;
+    }
+    
+    .stRadio > div {
+        gap: 0.5rem !important;
+    }
+    
+    /* Fix checkbox text */
+    .stCheckbox label {
+        font-size: 0.875rem !important;
+    }
+    
+    /* Fix text area */
+    .stTextArea textarea {
+        font-size: 0.875rem !important;
+        min-height: 150px !important;
+    }
+    
+    /* Fix columns spacing for pipeline visualization */
+    .stColumns {
+        gap: 1rem !important;
+    }
+    
+    /* Fix metric cards in pipeline */
+    .stMetric {
+        background: rgba(255, 255, 255, 0.05);
+        padding: 1rem !important;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    
+    .stMetric label {
+        font-size: 0.75rem !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+    }
+    
+    .stMetric > div[data-testid="metric-container"] > div {
+        font-size: 1.25rem !important;
+    }
+    
+    /* Fix expander text */
+    .stExpander summary {
+        font-size: 0.875rem !important;
+    }
+    
+    .stExpander div[data-testid="stExpanderContent"] {
+        font-size: 0.875rem !important;
+    }
+    
     /* Smooth scrolling */
     html {
         scroll-behavior: smooth;

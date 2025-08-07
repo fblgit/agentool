@@ -374,6 +374,10 @@ class PhaseExecutorV2:
     def _start_phase_execution(self, phase_name: str, config: PhaseConfig, 
                                workflow_state: WorkflowState):
         """Start executing a phase."""
+        # Log to live feed
+        from .live_feed import log_phase_start
+        log_phase_start(phase_name, config.description)
+        
         # Update phase status
         st.session_state.phase_executor_v2['phase_results'][phase_name] = PhaseResult(
             phase_name=phase_name,
@@ -431,9 +435,19 @@ class PhaseExecutorV2:
             result.duration = (result.completed_at - result.started_at).total_seconds()
             result.data = extracted_data
             result.artifacts = artifacts
+            
+            # Log completion to live feed
+            from .live_feed import log_phase_complete
+            log_phase_complete(phase_name, result.duration, len(artifacts))
             result.summary = self._create_phase_summary(phase_name, extracted_data)
             result.progress = 1.0
             result.logs.append(f"Phase completed successfully in {result.duration:.1f}s")
+            
+            # Clear current phase so next phase can start
+            st.session_state.phase_executor_v2['current_phase'] = None
+            
+            # Force UI update
+            st.rerun()
             
             # Update metrics
             st.session_state.phase_executor_v2['metrics']['phases_completed'] += 1
@@ -458,6 +472,10 @@ class PhaseExecutorV2:
             result.duration = (result.completed_at - result.started_at).total_seconds()
             result.error = str(e)
             result.logs.append(f"Error: {e}")
+            
+            # Log error to live feed
+            from .live_feed import log_phase_error
+            log_phase_error(phase_name, str(e))
             
             # Update metrics
             st.session_state.phase_executor_v2['metrics']['phases_failed'] += 1
@@ -556,9 +574,11 @@ class PhaseExecutorV2:
         if not config:
             return False
         
-        # Check prerequisites
+        # Check prerequisites - look at phase results instead of workflow_state
         for prereq in config.prerequisites:
-            if not getattr(workflow_state, f"{prereq}_completed", False):
+            prereq_result = st.session_state.phase_executor_v2['phase_results'].get(prereq)
+            if not prereq_result or prereq_result.status != PhaseStatus.COMPLETED:
+                # Prerequisite phase not completed
                 return False
         
         # Check if not already running or completed
@@ -660,7 +680,34 @@ class PhaseExecutorV2:
         
         # Add standard patterns
         for pattern in config.artifact_patterns:
-            if '{tool_name}' not in pattern or extracted_data:
+            # Skip patterns with {tool_name} if we don't have tool names
+            if '{tool_name}' in pattern:
+                # Try to get tool names from extracted_data
+                tool_names = []
+                if extracted_data:
+                    # Look for tool names in various places
+                    if 'tool_name' in extracted_data:
+                        tool_names.append(extracted_data['tool_name'])
+                    elif 'specifications' in extracted_data:
+                        for spec in extracted_data.get('specifications', []):
+                            if isinstance(spec, dict) and 'name' in spec:
+                                tool_names.append(spec['name'])
+                    elif 'implementations' in extracted_data:
+                        for impl in extracted_data.get('implementations', []):
+                            if isinstance(impl, dict) and 'tool_name' in impl:
+                                tool_names.append(impl['tool_name'])
+                
+                # Create artifacts for each tool name
+                for tool_name in tool_names:
+                    expanded = pattern.replace("{workflow_id}", workflow_id)
+                    expanded = expanded.replace("{tool_name}", tool_name)
+                    
+                    if expanded.startswith("workflow/"):
+                        artifacts.append(f"storage_kv:{expanded}")
+                    elif expanded.startswith("generated/"):
+                        artifacts.append(f"storage_fs:{expanded}")
+            else:
+                # Pattern without {tool_name}
                 pattern = pattern.replace("{workflow_id}", workflow_id)
                 
                 if pattern.startswith("workflow/"):

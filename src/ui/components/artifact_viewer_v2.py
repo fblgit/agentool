@@ -41,11 +41,16 @@ class ArtifactViewerV2:
     workflow execution, using Streamlit fragments and dialogs.
     """
     
-    def __init__(self):
+    def __init__(self, debug_mode: bool = False):
         """Initialize the artifact viewer."""
-        self.injector = get_injector()
+        # Get injector from session state if available, otherwise create new
+        if 'injector' in st.session_state:
+            self.injector = st.session_state.injector
+        else:
+            self.injector = get_injector()
         self.container_manager = get_container_manager()
         self.theme_manager = get_theme_manager()
+        self.debug_mode = debug_mode
         
         # Initialize artifact type configuration
         self.artifact_types = {
@@ -279,21 +284,22 @@ class ArtifactViewerV2:
                 
                 df = pd.DataFrame(df_data)
                 
-                # Display with clickable rows
-                selected_indices = st.dataframe(
+                # Display DataFrame without selection (causes issues)
+                st.dataframe(
                     df,
                     use_container_width=True,
-                    hide_index=True,
-                    on_select="rerun",
-                    selection_mode="single-row"
+                    hide_index=True
                 )
                 
-                # Handle selection
-                if selected_indices and selected_indices.selection.rows:
-                    selected_idx = selected_indices.selection.rows[0]
-                    if selected_idx < len(all_items):
-                        selected_item = all_items[selected_idx]
-                        self._show_artifact_modal(selected_item)
+                # Add view buttons for each artifact
+                st.markdown("#### Actions")
+                for idx, item in enumerate(all_items[:10]):  # Show first 10 with buttons
+                    col1, col2 = st.columns([4, 1])
+                    with col1:
+                        st.text(f"{item.get('key', 'Unknown').split('/')[-1]}")
+                    with col2:
+                        if st.button("View", key=f"list_view_{idx}_{item.get('key', '')}"):
+                            self._show_artifact_modal(item)
             else:
                 st.info("No artifacts to display")
     
@@ -350,44 +356,55 @@ class ArtifactViewerV2:
                     st.session_state.artifact_viewer_v2['selected_artifact'] = item
     
     def _show_artifact_modal(self, item: Dict[str, Any]):
-        """Display artifact content in a modal dialog."""
-        # Note: st.dialog is not available, using expander instead
+        """Display artifact content in the main area with better layout."""
+        # Store selected artifact in session state for detail view
+        st.session_state.artifact_viewer_v2['selected_artifact'] = item
+        
         key = item.get('key', '')
         data = item.get('data', {})
         
         # Parse storage type and actual key from the artifact reference
+        # The key format is "storage_kv:workflow/..." or "storage_fs:generated/..."
         if ':' in key:
             storage_type, actual_key = key.split(':', 1)
         else:
             storage_type = data.get('type', 'storage_kv')
             actual_key = key
         
-        # Header
-        st.markdown(f"### 📄 {actual_key.split('/')[-1]}")
-        st.caption(f"Path: `{actual_key}`")
-        
-        # Metadata
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Storage", storage_type.replace('_', ' ').title())
-        with col2:
-            phase = data.get('phase', 'unknown')
-            st.metric("Phase", phase)
-        with col3:
-            if 'created_at' in item:
-                created = item['created_at']
-                if isinstance(created, datetime):
-                    st.metric("Created", created.strftime('%H:%M:%S'))
-        
-        st.divider()
-        
-        # Content
-        content = self._fetch_artifact_content(actual_key, storage_type)
-        
-        if content[0]:  # Success
-            self._display_content_by_type(actual_key, content[1])
-        else:
-            st.error("Failed to fetch artifact content")
+        # Create a container for the artifact detail
+        with st.container():
+            # Header
+            st.markdown(f"### 📄 {actual_key.split('/')[-1]}")
+            st.caption(f"Path: `{actual_key}`")
+            
+            # Metadata
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Storage", storage_type.replace('_', ' ').title())
+            with col2:
+                phase = data.get('phase', 'unknown')
+                st.metric("Phase", phase)
+            with col3:
+                if 'created_at' in item:
+                    created = item['created_at']
+                    if isinstance(created, datetime):
+                        st.metric("Created", created.strftime('%H:%M:%S'))
+            
+            st.divider()
+            
+            # Content in scrollable container
+            content_container = st.container()
+            with content_container:
+                content = self._fetch_artifact_content(actual_key, storage_type)
+                
+                if content[0]:  # Success
+                    # Check if it's a placeholder message
+                    if isinstance(content[1], str) and content[1].startswith("⏳"):
+                        st.info(content[1])
+                    else:
+                        self._display_content_by_type(actual_key, content[1])
+                else:
+                    st.error("Failed to fetch artifact content")
         
         # Actions
         st.divider()
@@ -436,14 +453,21 @@ class ArtifactViewerV2:
         key = item.get('key', '')
         data = item.get('data', {})
         
-        st.markdown(f"### {key.split('/')[-1]}")
-        st.caption(f"Full path: `{key}`")
+        # Parse storage type and actual key from the artifact reference
+        if ':' in key:
+            storage_type, actual_key = key.split(':', 1)
+        else:
+            storage_type = data.get('type', 'storage_kv')
+            actual_key = key
+        
+        st.markdown(f"### {actual_key.split('/')[-1]}")
+        st.caption(f"Full path: `{actual_key}`")
         
         # Fetch content
-        content = self._fetch_artifact_content(key, data.get('type', 'storage_kv'))
+        content = self._fetch_artifact_content(actual_key, storage_type)
         
         if content[0]:
-            self._display_content_by_type(key, content[1])
+            self._display_content_by_type(actual_key, content[1])
         else:
             st.error("Failed to fetch artifact content")
     
@@ -491,14 +515,50 @@ class ArtifactViewerV2:
     def _fetch_artifact_content(self, key: str, storage_type: str) -> Tuple[bool, Any]:
         """Fetch artifact content from storage."""
         try:
+            # Debug logging
+            if self.debug_mode:
+                st.caption(f"Debug: Fetching {storage_type}:{key}")
+            
             if storage_type == 'storage_kv':
+                # Ensure injector is available
+                if not self.injector:
+                    st.error("Injector not initialized!")
+                    return False, None
+                
                 result = asyncio.run(self.injector.run('storage_kv', {
                     'operation': 'get',
                     'key': key
                 }))
                 
-                if result.success and result.data.get('exists', False):
-                    return True, json.loads(result.data['value'])
+                # Debug the result
+                if self.debug_mode:
+                    st.caption(f"Debug: Result success={result.success}, data keys={list(result.data.keys()) if result.data else 'None'}")
+                
+                if result.success and result.data and result.data.get('exists', False):
+                    value = result.data.get('value')
+                    if value is None:
+                        return True, "No content available"
+                    # Try to parse as JSON if it looks like JSON
+                    if isinstance(value, str) and (value.strip().startswith('{') or value.strip().startswith('[')):
+                        try:
+                            return True, json.loads(value)
+                        except json.JSONDecodeError:
+                            return True, value
+                    return True, value
+                else:
+                    # Artifact doesn't exist yet - this is normal if the phase hasn't completed
+                    # Return a user-friendly message instead of an error
+                    if not result.success or (result.data and not result.data.get('exists', False)):
+                        # This is a normal case - the artifact hasn't been created yet
+                        return True, f"⏳ Artifact not yet available. The phase may still be running or hasn't started."
+                    else:
+                        # Actual error case
+                        error_msg = f"Failed to retrieve artifact: {key}"
+                        if self.debug_mode:
+                            st.warning(error_msg)
+                            if result.data:
+                                st.caption(f"Debug data: {result.data}")
+                        return False, error_msg
             
             elif storage_type == 'storage_fs':
                 result = asyncio.run(self.injector.run('storage_fs', {
@@ -506,11 +566,20 @@ class ArtifactViewerV2:
                     'path': key
                 }))
                 
+                # Debug the result
+                if self.debug_mode:
+                    st.caption(f"Debug: Result success={result.success}")
+                
                 if result.success and result.data.get('content'):
                     return True, result.data['content']
+                else:
+                    if self.debug_mode:
+                        st.warning(f"File not found or read failed: {key}")
         
         except Exception as e:
             st.error(f"Error fetching artifact: {e}")
+            import traceback
+            st.code(traceback.format_exc())
         
         return False, None
     

@@ -66,7 +66,7 @@ class WorkflowUIV2:
         
         # Initialize components
         self.phase_executor = PhaseExecutorV2(self.injector, debug_mode)
-        self.artifact_viewer = ArtifactViewerV2()
+        self.artifact_viewer = ArtifactViewerV2(debug_mode)
         self.live_feed = LiveFeed(max_items=200, auto_scroll=True)
         self.workflow_viewer = WorkflowViewerV2()
         
@@ -211,14 +211,14 @@ class WorkflowUIV2:
             task_description = st.text_area(
                 "Task Description",
                 placeholder="Describe what you want to build...",
-                height=100,
+                height=200,
                 key="task_input"
             )
             
             # Model selection
             model = st.selectbox(
                 "Model",
-                ["openai:gpt-4o", "openai:gpt-4o-mini", "anthropic:claude-3-5-sonnet-latest"],
+                ["openai:gpt-5-nano", "openai:gpt-5-mini", "openai:gpt-5-chat-latest", "openai:gpt-5", "openai:gpt-4o", "openai:gpt-4o-mini", "anthropic:claude-3-5-sonnet-latest"],
                 key="model_input"
             )
             
@@ -378,57 +378,67 @@ class WorkflowUIV2:
             main_phases = ['analyzer', 'specification', 'crafter', 'evaluator']
             test_phases = ['test_analyzer', 'test_stubber', 'test_crafter'] if workflow_state.generate_tests else []
             
-            # Main pipeline
+            # Main pipeline - use container with horizontal scrolling for better spacing
             st.markdown("### 🔧 Main Pipeline")
-            cols = st.columns(len(main_phases))
             
-            for i, phase in enumerate(main_phases):
-                with cols[i]:
-                    result = self.phase_executor.render_phase_card(
-                        phase,
-                        workflow_state,
-                        f"main_phase_{phase}"
-                    )
-                    
-                    # Update artifacts
-                    if result.artifacts:
-                        st.session_state.workflow_ui_v2['artifacts'][phase] = result.artifacts
-                    
-                    # Auto-execute if in automatic mode
-                    if (st.session_state.workflow_ui_v2['execution_mode'] == 'automatic' and
-                        result.status == PhaseStatus.PENDING and
-                        self.phase_executor._can_execute_phase(phase, workflow_state)):
-                        
-                        # Start phase automatically
-                        config = self.phase_executor.phase_configs[phase]
-                        self.phase_executor._start_phase_execution(phase, config, workflow_state)
-                        log_phase_start(phase, config.description)
+            # Use 2 rows of 2 columns for better spacing
+            for row in range(0, len(main_phases), 2):
+                cols = st.columns(2)
+                for col_idx in range(2):
+                    phase_idx = row + col_idx
+                    if phase_idx < len(main_phases):
+                        phase = main_phases[phase_idx]
+                        with cols[col_idx]:
+                            result = self.phase_executor.render_phase_card(
+                                phase,
+                                workflow_state,
+                                f"main_phase_{phase}"
+                            )
+                            
+                            # Update artifacts
+                            if result.artifacts:
+                                st.session_state.workflow_ui_v2['artifacts'][phase] = result.artifacts
+                            
+                            # Auto-execute if in automatic mode
+                            if (st.session_state.workflow_ui_v2['execution_mode'] == 'automatic' and
+                                result.status == PhaseStatus.PENDING and
+                                self.phase_executor._can_execute_phase(phase, workflow_state)):
+                                
+                                # Start phase automatically
+                                config = self.phase_executor.phase_configs[phase]
+                                self.phase_executor._start_phase_execution(phase, config, workflow_state)
+                                log_phase_start(phase, config.description)
             
             # Test pipeline (if enabled)
             if test_phases:
                 st.markdown("### 🧪 Test Pipeline")
-                cols = st.columns(len(test_phases))
                 
-                for i, phase in enumerate(test_phases):
-                    with cols[i]:
-                        result = self.phase_executor.render_phase_card(
-                            phase,
-                            workflow_state,
-                            f"test_phase_{phase}"
-                        )
-                        
-                        # Update artifacts
-                        if result.artifacts:
-                            st.session_state.workflow_ui_v2['artifacts'][phase] = result.artifacts
-                        
-                        # Auto-execute if in automatic mode
-                        if (st.session_state.workflow_ui_v2['execution_mode'] == 'automatic' and
-                            result.status == PhaseStatus.PENDING and
-                            self.phase_executor._can_execute_phase(phase, workflow_state)):
-                            
-                            config = self.phase_executor.phase_configs[phase]
-                            self.phase_executor._start_phase_execution(phase, config, workflow_state)
-                            log_phase_start(phase, config.description)
+                # Use 2 columns for better spacing (3 test phases -> 2 cols then 1)
+                for row in range(0, len(test_phases), 2):
+                    cols = st.columns(2)
+                    for col_idx in range(2):
+                        phase_idx = row + col_idx
+                        if phase_idx < len(test_phases):
+                            phase = test_phases[phase_idx]
+                            with cols[col_idx]:
+                                result = self.phase_executor.render_phase_card(
+                                    phase,
+                                    workflow_state,
+                                    f"test_phase_{phase}"
+                                )
+                                
+                                # Update artifacts
+                                if result.artifacts:
+                                    st.session_state.workflow_ui_v2['artifacts'][phase] = result.artifacts
+                                
+                                # Auto-execute if in automatic mode
+                                if (st.session_state.workflow_ui_v2['execution_mode'] == 'automatic' and
+                                    result.status == PhaseStatus.PENDING and
+                                    self.phase_executor._can_execute_phase(phase, workflow_state)):
+                                    
+                                    config = self.phase_executor.phase_configs[phase]
+                                    self.phase_executor._start_phase_execution(phase, config, workflow_state)
+                                    log_phase_start(phase, config.description)
             
             # Check if workflow is complete
             self._check_workflow_completion(workflow_state, phases)

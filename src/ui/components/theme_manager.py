@@ -344,6 +344,17 @@ class ThemeManager:
             self.PALETTES[effective_mode][ColorScheme.DEFAULT]
         )
     
+    def _get_palette_for_mode(self) -> ColorPalette:
+        """Get the appropriate palette for the current mode."""
+        effective_mode = ThemeMode.DARK if self.mode == ThemeMode.DARK else ThemeMode.LIGHT
+        return self.PALETTES.get(
+            effective_mode,
+            {}
+        ).get(
+            self.scheme,
+            self.PALETTES[effective_mode][ColorScheme.DEFAULT]
+        )
+    
     def apply_theme(self):
         """Apply the theme to the Streamlit app."""
         # Ensure session state is initialized
@@ -351,12 +362,21 @@ class ThemeManager:
             st.session_state.theme_manager = {
                 'mode': self.mode.value,
                 'scheme': self.scheme.value,
-                'custom_css_applied': False
+                'last_applied_mode': None
             }
         
-        if not st.session_state.theme_manager.get('custom_css_applied', False):
+        # Apply CSS if mode changed or not yet applied
+        current_mode = st.session_state.theme_manager.get('mode', self.mode.value)
+        last_applied = st.session_state.theme_manager.get('last_applied_mode')
+        
+        if current_mode != last_applied:
+            # Update mode from session state
+            self.mode = ThemeMode(current_mode)
+            # Get appropriate palette for the mode
+            self.palette = self._get_palette_for_mode()
+            # Apply the CSS
             st.markdown(self.generate_css(), unsafe_allow_html=True)
-            st.session_state.theme_manager['custom_css_applied'] = True
+            st.session_state.theme_manager['last_applied_mode'] = current_mode
     
     def generate_css(self) -> str:
         """Generate CSS styles based on the current theme."""
