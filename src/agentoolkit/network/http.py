@@ -658,12 +658,8 @@ async def _add_auth_headers(headers: Dict[str, str], auth_type: Optional[str],
                 'session_id': session_id
             })
             
-            if hasattr(session_result, 'output'):
-                session_data = json.loads(session_result.output)
-            else:
-                session_data = session_result
-            
-            if session_data['success'] and session_data['data']['valid']:
+            # Session agent has use_typed_output=True, so we get typed result directly
+            if session_result.success and session_result.data['valid']:
                 # Add session cookie or header
                 headers['X-Session-Id'] = session_id
                 headers['Cookie'] = f'session_id={session_id}'

@@ -32,6 +32,7 @@ Example Usage:
 """
 
 import asyncio
+import json
 import uuid
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List, Literal
@@ -301,13 +302,24 @@ async def _execute_agentool(job_id: str, agentool_name: str, input_data: Dict[st
                 'data': {'job_id': job_id, 'queue': result_queue}
             })
             
+            # Serialize result appropriately based on its type
+            if hasattr(result, 'model_dump'):
+                # Result is a Pydantic model (typed output)
+                result_data = result.model_dump()
+            elif hasattr(result, 'output'):
+                # Result is an AgentRunResult
+                result_data = json.loads(result.output)
+            else:
+                # Result is something else, convert to string
+                result_data = str(result)
+            
             await injector.run('queue', {
                 'operation': 'enqueue',
                 'queue_name': result_queue,
                 'message': {
                     'job_id': job_id,
                     'agentool': agentool_name,
-                    'result': result.output if hasattr(result, 'output') else str(result),
+                    'result': result_data,
                     'timestamp': datetime.now().isoformat(),
                     'status': 'success'
                 }
@@ -540,13 +552,24 @@ async def scheduler_run_now(ctx: RunContext[Any], job_id: Optional[str],
         result = await _execute_agentool(job_id, agentool_name, input_data, 
                                         result_queue, error_queue)
         
+        # Serialize result appropriately based on its type
+        if hasattr(result, 'model_dump'):
+            # Result is a Pydantic model (typed output)
+            result_data = result.model_dump()
+        elif hasattr(result, 'output'):
+            # Result is an AgentRunResult
+            result_data = json.loads(result.output)
+        else:
+            # Result is something else, convert to string
+            result_data = str(result)
+        
         return SchedulerOutput(
             success=True,
             operation='run_now',
             message=f"AgenTool '{agentool_name}' executed successfully",
             data={
                 'job_id': job_id,
-                'result': result.output if hasattr(result, 'output') else str(result)
+                'result': result_data
             }
         )
         

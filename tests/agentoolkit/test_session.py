@@ -248,11 +248,7 @@ class TestSession:
                     "metadata": {"session_num": i}
                 })
                 
-                if hasattr(create_result, 'output'):
-                    create_data = json.loads(create_result.output)
-                else:
-                    create_data = create_result
-                
+                # Session agent has use_typed_output=True, so we get typed result directly
                 session_ids.append(create_result.data["session_id"])
             
             # Create a session for different user
@@ -293,11 +289,7 @@ class TestSession:
                     "user_id": user_id
                 })
                 
-                if hasattr(create_result, 'output'):
-                    create_data = json.loads(create_result.output)
-                else:
-                    create_data = create_result
-                
+                # Session agent has use_typed_output=True, so we get typed result directly
                 session_ids.append(create_result.data["session_id"])
             
             # Invalidate all sessions

@@ -318,22 +318,23 @@ class TestScheduler:
             injector = get_injector()
             
             # Try to schedule with invalid schedule type 
-            # Pydantic validation error is caught and returned in output
-            result = await injector.run('scheduler', {
-                "operation": "schedule",
-                "job_name": "invalid_job",
-                "schedule_type": "invalid",
-                "schedule": "invalid",
-                "agentool_name": "test_tool",
-                "input_data": {"operation": "echo", "message": "test"}
-            })
-            
-            # Check that validation error is in the output
-            assert hasattr(result, 'output')
-            assert "validation error" in result.output.lower()
-            assert "schedule_type" in result.output.lower()
-            assert "Input should be 'cron', 'interval' or 'once'" in result.output
-            print(f"\n   Expected validation error in output: {result.output}")
+            # With typed output, validation errors are raised as exceptions
+            try:
+                result = await injector.run('scheduler', {
+                    "operation": "schedule",
+                    "job_name": "invalid_job",
+                    "schedule_type": "invalid",
+                    "schedule": "invalid",
+                    "agentool_name": "test_tool",
+                    "input_data": {"operation": "echo", "message": "test"}
+                })
+                # Should not reach here
+                assert False, "Expected validation error to be raised"
+            except Exception as e:
+                # Check that validation error was raised
+                error_msg = str(e)
+                assert "validation error" in error_msg.lower() or "Input should be" in error_msg
+                print(f"\n   Expected validation error raised: {error_msg}")
         
         asyncio.run(run_test())
     

@@ -22,7 +22,7 @@ Your task is to transform the test stub into a fully implemented test suite foll
    - Ensure data follows the tool's input requirements
 
 4. **Assertion Pattern**
-   - Follow exact pattern: if hasattr(result, 'output'): data = json.loads(result.output)
+   - Use result.success, result.data directly for typed outputs
    - Assert on actual response data fields
    - Check real state changes in global stores
    - Validate actual error messages with pytest.raises
@@ -41,11 +41,9 @@ Your task is to transform the test stub into a fully implemented test suite foll
                # ... parameters
            })
            
-           # Parse result
-           if hasattr(result, 'output'):
-               data = json.loads(result.output)
-           else:
-               data = result
+           # Parse result - tools use typed output
+           assert result.success is True
+           data = result.data
            
            # Assertions on real data
            assert data["field"] == expected_value

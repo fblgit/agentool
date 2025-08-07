@@ -776,10 +776,9 @@ class TestCrafterNode(BaseNode[WorkflowState, None, Dict[str, Any]]):
             })
             
             validation_data = {}
-            if hasattr(val_result, 'output'):
-                val_data = json.loads(val_result.output)
-                if val_data.get('data', {}).get('exists', False):
-                    validation_data = json.loads(val_data['data']['value'])
+            # AgenTools now return typed outputs
+            if val_result.success and val_result.data.get('exists', False):
+                validation_data = json.loads(val_result.data['value'])
             
         except Exception as e:
             ctx.state.errors.append(f"Test crafter error: {str(e)}")

@@ -61,12 +61,8 @@ class BaseAgenToolAgent(Generic[T]):
                 'variables': system_variables
             })
             
-            if hasattr(result, 'output'):
-                result_data = json.loads(result.output)
-            else:
-                result_data = result.data if hasattr(result, 'data') else result
-            
-            self.system_prompt = result_data['rendered']
+            # Templates agent has use_typed_output=True, so we get typed result directly
+            self.system_prompt = result.data['rendered']
             
         except Exception as e:
             # If template doesn't exist or fails, use a default
@@ -112,12 +108,8 @@ class BaseAgenToolAgent(Generic[T]):
                 'variables': variables
             })
             
-            if hasattr(result, 'output'):
-                result_data = json.loads(result.output)
-            else:
-                result_data = result.data if hasattr(result, 'data') else result
-            
-            rendered_prompt = result_data['rendered']
+            # Templates agent has use_typed_output=True, so we get typed result directly
+            rendered_prompt = result.data['rendered']
             
         except Exception as e:
             # Fallback to direct string if template fails
@@ -217,14 +209,10 @@ class BaseAgenToolAgent(Generic[T]):
                 'key': state_ref
             })
             
-            if hasattr(result, 'output'):
-                result_data = json.loads(result.output)
-            else:
-                result_data = result.data if hasattr(result, 'data') else result
-            
-            if result_data.get('exists'):
+            # Storage_kv agent has use_typed_output=True, so we get typed result directly
+            if result.success and result.data.get('exists'):
                 # Parse the stored JSON
-                return json.loads(result_data['value'])
+                return json.loads(result.data['value'])
             else:
                 raise RuntimeError(f"State not found: {state_ref}")
                 

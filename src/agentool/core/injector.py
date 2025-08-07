@@ -26,6 +26,72 @@ from .registry import AgenToolRegistry
 T = TypeVar('T')
 
 
+# Templates for displaying available shortcuts
+_TEMPLATE_SHORT_DEFAULT_START = """
+================================================================================
+                      AgenTool Injector Shortcuts
+================================================================================
+
+Available shortcuts for common operations:
+"""
+
+_TEMPLATE_SHORT_LOGGING = """
+LOGGING
+   await injector.log("User logged in", "INFO", {"user_id": 123})
+   await injector.log("Error occurred", "ERROR", {"code": 500})
+"""
+
+_TEMPLATE_SHORT_STORAGE_KV = """
+KEY-VALUE STORAGE
+   await injector.kset("user:123", {"name": "Alice", "role": "admin"})
+   user = await injector.kget("user:123", default={})
+   success = await injector.kset("session:abc", data, ttl=3600)
+"""
+
+_TEMPLATE_SHORT_STORAGE_FS = """
+FILE STORAGE
+   content = await injector.fsread("/path/to/file")
+   success = await injector.fswrite("/path/to/file", "content")
+"""
+
+_TEMPLATE_SHORT_CONFIG = """
+CONFIGURATION
+   value = await injector.config_get("database.host")
+   success = await injector.config_set("database.host", "localhost")
+"""
+
+_TEMPLATE_SHORT_METRICS = """
+METRICS
+   await injector.metric_inc("api.requests")  # Increment by 1
+   await injector.metric_dec("connections")  # Decrement by 1
+"""
+
+_TEMPLATE_SHORT_REFERENCES = """
+REFERENCES
+   # Store content and get reference
+   ref = await injector.ref("storage_kv", "template_data", {"x": 1})
+   
+   # Resolve reference to content
+   data = await injector.unref("!ref:storage_kv:template_data")
+   file = await injector.unref("!ref:storage_fs:/path/to/file")
+   conf = await injector.unref("!ref:config:database.host")
+"""
+
+_TEMPLATE_SHORT_DEFAULT_END = """
+These shortcuts are equivalent to using injector.run() but with less boilerplate.
+All original run() functionality remains available for complex operations.
+"""
+
+# Mapping of agent names to their shortcut templates
+_SHORTCUTS_TEMPLATES = {
+    'logging': _TEMPLATE_SHORT_LOGGING,
+    'storage_kv': _TEMPLATE_SHORT_STORAGE_KV,
+    'storage_fs': _TEMPLATE_SHORT_STORAGE_FS,
+    'config': _TEMPLATE_SHORT_CONFIG,
+    'metrics': _TEMPLATE_SHORT_METRICS,
+}
+
+
 def serialize_to_json_string(data: Any) -> str:
     """
     Serialize various Python types to JSON string.
@@ -279,56 +345,49 @@ class AgenToolInjector:
                     pass  # Ignore any metrics recording errors
             
             # =================================================================
-            # TYPED OUTPUT HANDLING (Feature Flag-Based Migration)
+            # TYPED OUTPUT HANDLING 
             # =================================================================
             # 
-            # Background: The AgenTool system has a type flow issue:
+            # All AgenTools use typed outputs by default (use_typed_output=True).
+            # This provides full type safety and excellent developer experience.
+            #
+            # How it works:
             # 1. Tool functions return typed Pydantic models (e.g., StorageKvOutput)
-            # 2. These get serialized to JSON strings in AgentRunResult.output
-            # 3. Callers receive AgentRunResult with JSON string, losing type safety
+            # 2. The model gets serialized to JSON in AgentRunResult.output internally
+            # 3. The injector automatically deserializes it back to the typed model
+            # 4. Callers receive the typed object with full IDE support
             #
-            # Solution: With use_typed_output=True flag, we restore type safety by:
-            # - Parsing the JSON string from AgentRunResult.output
-            # - Reconstructing the original typed Pydantic model
-            # - Returning the typed object instead of AgentRunResult
-            #
-            # This enables gradual migration to typed outputs without breaking changes
+            # Benefits:
+            # - Direct field access: result.success, result.data, etc.
+            # - Full IDE autocomplete and type checking
+            # - Automatic validation against output schemas
             # =================================================================
             
             # Get the AgenTool's configuration from the registry
             config = AgenToolRegistry.get(agent_name)
             
-            # Check if typed output is enabled for this specific AgenTool
+            # Process typed output (default behavior for all AgenTools)
             if config and config.use_typed_output and config.output_type and hasattr(result, 'output'):
-                # The result is an AgentRunResult with JSON string in .output attribute
-                # We need to deserialize it back to the original typed object
+                # Deserialize JSON back to the original typed Pydantic model
                 try:
-                    # Step 1: Parse the JSON string to get a Python dict
-                    # AgentRunResult.output contains something like:
-                    # '{"operation": "get", "key": "test", "data": {"value": "hello"}}'
+                    # Parse JSON and reconstruct the typed Pydantic model
                     output_data = json.loads(result.output)
-                    
-                    # Step 2: Reconstruct the typed Pydantic model from the dict
-                    # This validates the data against the schema and provides type safety
-                    # Example: StorageKvOutput(**output_data) creates a StorageKvOutput instance
                     typed_output = config.output_type(**output_data)
                     
-                    # Step 3: Return the typed object instead of AgentRunResult
-                    # Callers can now use: result.data.value instead of json.loads(result.output)['data']['value']
+                    # Return the typed object for direct field access
+                    # Example: result.data['value'] with full type safety
                     return typed_output
                     
                 except (json.JSONDecodeError, TypeError, ValueError) as e:
-                    # If parsing or validation fails, fall back to returning raw AgentRunResult
-                    # This ensures backward compatibility even if data doesn't match schema
-                    # TODO: Consider logging this for debugging during migration
+                    # If parsing fails, return the raw result
+                    # This only happens if output doesn't match the expected schema
                     pass
             
-            # Default behavior: return the raw AgentRunResult (backward compatible)
-            # This happens when:
-            # - use_typed_output=False (default for gradual migration)
-            # - No output_type is defined
-            # - Result doesn't have .output attribute (not an AgentRunResult)
-            # - JSON parsing or type validation failed
+            # Return raw result only in these edge cases:
+            # - Tool doesn't define an output_type (should be rare)
+            # - Result doesn't have .output attribute
+            # - JSON parsing or validation failed
+            # - use_typed_output is explicitly set to False (discouraged)
             return result
             
         except Exception as e:
@@ -769,6 +828,467 @@ class AgenToolInjector:
             # Clear all caches
             self._completeness_cache.clear()
             self._completed_agents.clear()
+    
+    # ======================================
+    # SHORTCUT METHODS FOR COMMON OPERATIONS
+    # ======================================
+    
+    async def log(self, 
+                  message: str, 
+                  level: str = "INFO", 
+                  data: Optional[Dict] = None, 
+                  logger_name: str = "default") -> Any:
+        """
+        Shortcut for logging operations.
+        
+        Args:
+            message: The log message
+            level: Log level (DEBUG, INFO, WARN, ERROR, CRITICAL)
+            data: Optional structured data to include in the log
+            logger_name: Name of the logger to use
+            
+        Returns:
+            LoggingOutput or AgentRunResult depending on typed output configuration
+            
+        Example:
+            await injector.log("User authenticated", "INFO", {"user_id": 123})
+        """
+        return await self.run('logging', {
+            "operation": "log",
+            "level": level,
+            "message": message,
+            "data": data or {},
+            "logger_name": logger_name
+        })
+    
+    async def kget(self, 
+                   key: str, 
+                   default: Any = None, 
+                   namespace: str = "default") -> Any:
+        """
+        Get a value from key-value storage with a default fallback.
+        
+        Args:
+            key: The key to retrieve
+            default: Default value if key doesn't exist
+            namespace: Storage namespace
+            
+        Returns:
+            The stored value or default if not found
+            
+        Example:
+            user_data = await injector.kget("user:123", default={})
+        """
+        try:
+            result = await self.run('storage_kv', {
+                "operation": "get",
+                "key": key,
+                "namespace": namespace
+            })
+            
+            # All AgenTools now use typed output
+            if result.success and result.data and result.data.get("exists"):
+                return result.data.get("value", default)
+                    
+            return default
+        except:
+            return default
+    
+    async def kset(self, 
+                   key: str, 
+                   value: Any, 
+                   ttl: Optional[int] = None, 
+                   namespace: str = "default") -> bool:
+        """
+        Set a value in key-value storage with optional TTL.
+        
+        Args:
+            key: The key to set
+            value: The value to store (must be JSON serializable)
+            ttl: Optional time-to-live in seconds
+            namespace: Storage namespace
+            
+        Returns:
+            True if the value was successfully stored, False otherwise
+            
+        Example:
+            success = await injector.kset("session:abc", session_data, ttl=3600)
+        """
+        try:
+            result = await self.run('storage_kv', {
+                "operation": "set",
+                "key": key,
+                "value": value,
+                "ttl": ttl,
+                "namespace": namespace
+            })
+            
+            # All AgenTools now use typed output
+            return result.success
+        except:
+            return False
+    
+    async def metric(self, 
+                     name: str, 
+                     value: float = 1.0, 
+                     op: str = "increment",
+                     labels: Optional[Dict[str, str]] = None) -> Any:
+        """
+        Internal metric tracking method (undocumented).
+        Used by chain() and other internal operations.
+        """
+        return await self.run('metrics', {
+            "operation": op,
+            "name": name,
+            "value": value,
+            "labels": labels or {}
+        })
+    
+    async def metric_inc(self, 
+                         name: str, 
+                         value: float = 1.0,
+                         labels: Optional[Dict[str, str]] = None) -> Any:
+        """
+        Increment a metric counter.
+        
+        Args:
+            name: Metric name (e.g., "api.requests.total")
+            value: Amount to increment (default 1.0)
+            labels: Optional metric labels for dimensionality
+            
+        Returns:
+            MetricsOutput with the operation result
+            
+        Example:
+            await injector.metric_inc("api.requests")
+            await injector.metric_inc("processed.items", 5)
+        """
+        return await self.run('metrics', {
+            "operation": "increment",
+            "name": name,
+            "value": value,
+            "labels": labels or {}
+        })
+    
+    async def metric_dec(self, 
+                         name: str, 
+                         value: float = 1.0,
+                         labels: Optional[Dict[str, str]] = None) -> Any:
+        """
+        Decrement a metric counter.
+        
+        Args:
+            name: Metric name (e.g., "active.connections")
+            value: Amount to decrement (default 1.0)
+            labels: Optional metric labels for dimensionality
+            
+        Returns:
+            MetricsOutput with the operation result
+            
+        Example:
+            await injector.metric_dec("active.connections")
+            await injector.metric_dec("queue.size", 3)
+        """
+        return await self.run('metrics', {
+            "operation": "decrement",
+            "name": name,
+            "value": value,
+            "labels": labels or {}
+        })
+    
+    async def fsread(self, path: str) -> Optional[str]:
+        """
+        Read a file from filesystem storage.
+        
+        Args:
+            path: Path to the file to read
+            
+        Returns:
+            File content as string or None if file doesn't exist
+            
+        Example:
+            content = await injector.fsread("/path/to/config.json")
+        """
+        try:
+            result = await self.run('storage_fs', {
+                "operation": "read",
+                "path": path
+            })
+            return result.data.get("content") if result.success else None
+        except:
+            return None
+    
+    async def fswrite(self, 
+                      path: str, 
+                      content: str,
+                      create_parents: bool = True) -> bool:
+        """
+        Write content to a file in filesystem storage.
+        
+        Args:
+            path: Path where the file will be written
+            content: Content to write to the file
+            create_parents: Whether to create parent directories if they don't exist
+            
+        Returns:
+            True if file was successfully written, False otherwise
+            
+        Example:
+            success = await injector.fswrite("/path/to/output.txt", "Hello World")
+        """
+        try:
+            result = await self.run('storage_fs', {
+                "operation": "write",
+                "path": path,
+                "content": content,
+                "create_parents": create_parents
+            })
+            return result.success
+        except:
+            return False
+    
+    async def config_get(self, 
+                         key: str, 
+                         namespace: str = "app",
+                         default: Any = None) -> Any:
+        """
+        Get a configuration value.
+        
+        Args:
+            key: Configuration key (supports dot notation like 'database.host')
+            namespace: Configuration namespace
+            default: Default value if key doesn't exist
+            
+        Returns:
+            The configuration value or default if not found
+            
+        Example:
+            db_host = await injector.config_get("database.host", default="localhost")
+        """
+        try:
+            result = await self.run('config', {
+                "operation": "get",
+                "key": key,
+                "namespace": namespace,
+                "default": default
+            })
+            return result.data.get("value", default) if result.success else default
+        except:
+            return default
+    
+    async def config_set(self, 
+                         key: str, 
+                         value: Any,
+                         namespace: str = "app") -> bool:
+        """
+        Set a configuration value.
+        
+        Args:
+            key: Configuration key (supports dot notation like 'database.host')
+            value: The value to set
+            namespace: Configuration namespace
+            
+        Returns:
+            True if the configuration was successfully set, False otherwise
+            
+        Example:
+            success = await injector.config_set("database.host", "192.168.1.100")
+        """
+        try:
+            result = await self.run('config', {
+                "operation": "set",
+                "key": key,
+                "value": value,
+                "namespace": namespace
+            })
+            return result.success
+        except:
+            return False
+    
+    async def unref(self, reference: str) -> Any:
+        """
+        Resolve a reference string to its actual content.
+        
+        Supports reference formats:
+            - !ref:storage_kv:key_name
+            - !ref:storage_fs:/path/to/file
+            - !ref:config:config.key.path
+            
+        Args:
+            reference: The reference string to resolve
+            
+        Returns:
+            The resolved content or an error string if resolution fails
+            
+        Example:
+            content = await injector.unref("!ref:storage_kv:user_profile")
+        """
+        # Return as-is if not a reference
+        if not reference.startswith("!ref:"): 
+            return reference
+        
+        try:
+            # Parse reference format
+            parts = reference[5:].split(":", 1)
+            if len(parts) != 2: 
+                return f"<invalid_ref:{reference}>"
+            
+            ref_type, ref_key = parts
+            
+            # Resolve based on storage type
+            if ref_type == "storage_kv":
+                value = await self.kget(ref_key)
+                return value if value is not None else f"<undefined:{reference}>"
+                
+            elif ref_type == "storage_fs":
+                try:
+                    result = await self.run('storage_fs', {
+                        "operation": "read",
+                        "path": ref_key
+                    })
+                    
+                    # All AgenTools now use typed output
+                    return result.data.get("content") if result.success else f"<undefined:{reference}>"
+                except:
+                    return f"<undefined:{reference}>"
+                    
+            elif ref_type == "config":
+                try:
+                    result = await self.run('config', {
+                        "operation": "get",
+                        "key": ref_key,
+                        "namespace": "app"
+                    })
+                    
+                    # All AgenTools now use typed output
+                    return result.data.get("value") if result.success else f"<undefined:{reference}>"
+                except:
+                    return f"<undefined:{reference}>"
+                    
+            else:
+                return f"<unknown_type:{reference}>"
+                
+        except Exception as e:
+            return f"<error:{reference}:{str(e)}>"
+    
+    async def ref(self, 
+                  ref_type: str, 
+                  key: str, 
+                  content: Any) -> str:
+        """
+        Store content and return a reference string for later retrieval.
+        
+        Args:
+            ref_type: Storage type (storage_kv, storage_fs, config)
+            key: The key or path where content will be stored
+            content: The content to store
+            
+        Returns:
+            A reference string in the format !ref:type:key
+            
+        Example:
+            ref = await injector.ref("storage_kv", "template_data", {"title": "Hello"})
+            # Returns: "!ref:storage_kv:template_data"
+        """
+        if ref_type == "storage_kv":
+            await self.kset(key, content)
+            
+        elif ref_type == "storage_fs":
+            await self.run('storage_fs', {
+                "operation": "write",
+                "path": key,
+                "content": json.dumps(content) if not isinstance(content, str) else content
+            })
+            
+        elif ref_type == "config":
+            await self.run('config', {
+                "operation": "set",
+                "key": key,
+                "value": content,
+                "namespace": "app"
+            })
+            
+        return f"!ref:{ref_type}:{key}"
+    
+    def chain(self) -> 'FluentOps':
+        """
+        Internal method for chaining operations (undocumented).
+        """
+        return FluentOps(self)
+    
+    def show_shortcuts(self, dependencies: Optional[List[str]] = None) -> None:
+        """
+        Print a formatted guide of available shortcut methods.
+        
+        Args:
+            dependencies: Optional list of agent names to show shortcuts for.
+                         If None, shows all available shortcuts.
+                         
+        Example:
+            injector.show_shortcuts()  # Show all shortcuts
+            injector.show_shortcuts(['storage_kv', 'logging'])  # Show only these
+        """
+        output = _TEMPLATE_SHORT_DEFAULT_START
+        
+        # Determine which shortcuts to show
+        if dependencies is None:
+            # Show all except hidden ones (chain and base metric)
+            agents_to_show = ['logging', 'storage_kv', 'storage_fs', 'config', 'metrics']
+        else:
+            # Show only requested dependencies that have shortcuts
+            agents_to_show = [dep for dep in dependencies if dep in _SHORTCUTS_TEMPLATES]
+        
+        # Add templates for each agent
+        for agent_name in agents_to_show:
+            if agent_name in _SHORTCUTS_TEMPLATES:
+                output += _SHORTCUTS_TEMPLATES[agent_name]
+        
+        # Always show references if storage_kv, storage_fs, or config is shown
+        if any(agent in agents_to_show for agent in ['storage_kv', 'storage_fs', 'config']):
+            output += _TEMPLATE_SHORT_REFERENCES
+        
+        output += _TEMPLATE_SHORT_DEFAULT_END
+        print(output)
+
+
+class FluentOps:
+    """Fluent operations chain for batching multiple operations."""
+    
+    def __init__(self, injector: 'AgenToolInjector'):
+        self._injector = injector
+        self._ops: List[tuple] = []
+    
+    def log(self, message: str, level: str = "INFO", data: Optional[Dict] = None, 
+            logger: str = "default") -> 'FluentOps':
+        """Queue a log operation."""
+        self._ops.append(('log', [], {'message': message, 'level': level, 'data': data, 'logger': logger}))
+        return self
+    
+    def kget(self, key: str, default: Any = None, namespace: str = "default") -> 'FluentOps':
+        """Queue a KV get operation."""
+        self._ops.append(('kget', [], {'key': key, 'default': default, 'namespace': namespace}))
+        return self
+    
+    def kset(self, key: str, value: Any, ttl: Optional[int] = None, 
+             namespace: str = "default") -> 'FluentOps':
+        """Queue a KV set operation."""
+        self._ops.append(('kset', [], {'key': key, 'value': value, 'ttl': ttl, 'namespace': namespace}))
+        return self
+    
+    def metric(self, name: str, value: float = 1, op: str = "increment",
+               labels: Optional[Dict] = None) -> 'FluentOps':
+        """Queue a metric operation."""
+        self._ops.append(('metric', [], {'name': name, 'value': value, 'op': op, 'labels': labels}))
+        return self
+    
+    async def execute(self) -> List[Any]:
+        """Execute all queued operations and return results."""
+        results = []
+        for method_name, args, kwargs in self._ops:
+            method = getattr(self._injector, method_name)
+            result = await method(**kwargs)
+            results.append(result)
+        return results
 
 
 # Global injector instance
