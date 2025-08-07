@@ -610,19 +610,26 @@ def render_results_section():
         # Artifact viewer
         if st.session_state.ui_state.artifacts:
             artifact_viewer = ArtifactViewer()
-            # Flatten artifacts for viewer
-            all_artifacts = {}
+            # Convert artifacts to the format expected by artifact_viewer
+            # artifact_viewer expects: {key: {'key': key, 'data': {'type': storage_type, ...}}}
+            viewer_artifacts = {}
             for phase, artifacts in st.session_state.ui_state.artifacts.items():
                 for artifact in artifacts:
-                    # Extract key from storage reference
+                    # Extract key and type from storage reference
                     if artifact.startswith("storage_kv:"):
                         key = artifact.replace("storage_kv:", "")
-                        all_artifacts[key] = {"type": "storage_kv", "phase": phase}
+                        viewer_artifacts[key] = {
+                            'key': key,
+                            'data': {'type': 'storage_kv', 'phase': phase}
+                        }
                     elif artifact.startswith("storage_fs:"):
                         key = artifact.replace("storage_fs:", "")
-                        all_artifacts[key] = {"type": "storage_fs", "phase": phase}
+                        viewer_artifacts[key] = {
+                            'key': key,
+                            'data': {'type': 'storage_fs', 'phase': phase}
+                        }
             
-            artifact_viewer.render(all_artifacts)
+            artifact_viewer.render(viewer_artifacts)
     
     with tab3:
         # Code display - handle multiple generated tools
@@ -664,10 +671,8 @@ def render_results_section():
                                     }))
                                     
                                     # AgenTools return typed outputs
-                                    data = result_data.data if result_data.success else {}
-                                    
-                                    if data.get('data', {}).get('exists', False):
-                                        code_data = json.loads(data['data']['value'])
+                                    if result_data.success and result_data.data.get('exists', False):
+                                        code_data = json.loads(result_data.data['value'])
                                         if 'code' in code_data:
                                             code_editor.render_code(code_data['code'], key_suffix=f"tool_{impl_name}")
                                             
@@ -681,8 +686,10 @@ def render_results_section():
                                             )
                                         else:
                                             st.warning(f"No code found for {impl_name}")
+                                    elif not result_data.success:
+                                        st.error(f"Could not fetch code for {impl_name}: Operation failed")
                                     else:
-                                        st.error(f"Could not fetch code for {impl_name}")
+                                        st.error(f"Could not fetch code for {impl_name}: Key not found")
                                 except Exception as e:
                                     st.error(f"Error loading code: {e}")
                             else:
@@ -767,11 +774,9 @@ def render_test_code_section():
                             'path': path
                         }))
                         
-                        # storage_kv returns typed StorageKvOutput
-                        data = result.data if result.success else {}
-                        
-                        if data.get('data', {}).get('content'):
-                            test_files[filename] = data['data']['content']
+                        # storage_fs returns typed StorageFsOutput
+                        if result.success and result.data.get('content'):
+                            test_files[filename] = result.data['content']
                     except Exception as e:
                         st.error(f"Error loading test file {filename}: {e}")
     
@@ -799,12 +804,10 @@ def render_generation_summary():
             'path': summary_artifact_key
         }))
         
-        # storage_kv returns typed StorageKvOutput
-        data = result.data if result.success else {}
-        
-        if data.get('data', {}).get('content'):
+        # storage_fs returns typed StorageFsOutput
+        if result.success and result.data.get('content'):
             # Display the markdown content
-            st.markdown(data['data']['content'])
+            st.markdown(result.data['content'])
         else:
             st.info("No generation summary available yet. The summary will be created after the evaluation phase completes.")
     except Exception as e:
@@ -847,11 +850,9 @@ def render_test_summary():
                     'path': summary_path
                 }))
                 
-                # storage_kv returns typed StorageKvOutput
-                data = result.data if result.success else {}
-                
-                if data.get('data', {}).get('content'):
-                    st.markdown(data['data']['content'])
+                # storage_fs returns typed StorageFsOutput
+                if result.success and result.data.get('content'):
+                    st.markdown(result.data['content'])
                 else:
                     st.warning("Test summary file is empty")
             except Exception as e:
@@ -879,11 +880,9 @@ def render_test_summary():
                             'path': summary_path
                         }))
                         
-                        # storage_kv returns typed StorageKvOutput
-                        data = result.data if result.success else {}
-                        
-                        if data.get('data', {}).get('content'):
-                            st.markdown(data['data']['content'])
+                        # storage_fs returns typed StorageFsOutput
+                        if result.success and result.data.get('content'):
+                            st.markdown(result.data['content'])
                         else:
                             st.warning(f"Test summary for {tool_name} is empty")
                     except Exception as e:
@@ -1038,7 +1037,9 @@ def render_workflow_summary():
             "metadata": meta.model_dump() if meta else None,
             "artifacts": st.session_state.ui_state.artifacts,
             "results": {
-                phase: result.model_dump() if hasattr(result, 'model_dump') else result.__dict__
+                phase: result.model_dump() if hasattr(result, 'model_dump') else (
+                    result.__dict__ if hasattr(result, '__dict__') else str(result)
+                )
                 for phase, result in st.session_state.ui_state.phase_results.items()
             }
         }
