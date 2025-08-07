@@ -656,5 +656,14 @@ def create_storage_kv_agent():
     )
 
 
+def clear_all_storage():
+    """
+    Clear all storage data across all namespaces.
+    This is a convenience function for testing purposes.
+    """
+    _kv_storage.clear()
+    _kv_expiry.clear()
+
+
 # Create the agent instance when imported (auto-registers with the registry)
 agent = create_storage_kv_agent()
