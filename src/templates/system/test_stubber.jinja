@@ -32,14 +32,14 @@ Your task is to create a comprehensive test stub following the EXACT pattern fro
      * Docstring describing what is tested
      * async def run_test() inner function
      * Actual injector.run() calls with real operations
-     * Result parsing pattern (hasattr check for .output)
+     * Result parsing with typed output (result.success, result.data)
      * asyncio.run(run_test()) at the end
    - TODO comments for assertions to implement
 
 5. **Test Pattern Requirements**
    - Follow exact pattern from test_session.py
    - Use async inner functions with asyncio.run()
-   - Parse results with hasattr(result, 'output') pattern
+   - Parse results with typed output pattern (result.success, result.data)
    - Test real error cases with pytest.raises
    - Include integration tests with real dependencies
 
@@ -52,6 +52,6 @@ Your task is to create a comprehensive test stub following the EXACT pattern fro
 IMPORTANT: The stub must follow the test_session.py pattern EXACTLY:
 - No mocks, only real integrations
 - async def run_test() pattern
-- Result parsing with hasattr checks
+- Result parsing with typed output (result.success, result.data)
 - Global state clearing in setup_method
 - Complete test structure with TODOs for inline implementation

@@ -26,13 +26,13 @@ Usage Example:
 
 import json
 from typing import Dict, Any, List, Optional, Literal
-from pydantic import BaseModel, Field, validator
-from pydantic_ai import RunContext
+from pydantic import BaseModel, Field, field_validator  # DO NOT REMOVE
+from pydantic_ai import RunContext  # DO NOT REMOVE
 
-from agentool import create_agentool
-from agentool.base import BaseOperationInput
-from agentool.core.registry import RoutingConfig
-from agentool.core.injector import get_injector
+from agentool import create_agentool  # DO NOT REMOVE
+from agentool.base import BaseOperationInput  # DO NOT REMOVE
+from agentool.core.registry import RoutingConfig  # DO NOT REMOVE
+from agentool.core.injector import get_injector  # DO NOT REMOVE
 
 
 class {{ tool_name|capitalize }}Input(BaseOperationInput):
@@ -47,9 +47,10 @@ class {{ tool_name|capitalize }}Input(BaseOperationInput):
     # value: Optional[Any] = Field(None, description="Value to store")
     
     # Add validators if needed
-    # @validator('field_name')
-    # def validate_field(cls, v):
+    # @field_validator('field_name')
+    # def validate_field(cls, v, info):
     #     # Validation logic
+    #     # operation = info.data.get('operation')
     #     return v
 
 
@@ -90,22 +91,26 @@ async def {{ tool_name }}_operation1(ctx: RunContext[Any], **kwargs) -> {{ tool_
         # Example: Use other agentools
         # result = await injector.run('storage_kv', {
         #     'operation': 'get',
-        #     'key': 'some_key'
+        #     'key': 'some_key',
+        #     'namespace': 'my_namespace'
         # })
+        # assert result.success is True
+        # value = result.data.get('value')
         
         # Log the operation
         await injector.run('logging', {
             'operation': 'log',
-            'level': 'INFO',
+            'level': 'INFO', # DEBUG, INFO, WARN, ERROR, CRITICAL
             'logger_name': '{{ tool_name }}',
             'message': 'Operation1 executed successfully',
             'data': {'param': 'value'}
         })
         
-        # Track metrics
+        # Track business metrics
         await injector.run('metrics', {
             'operation': 'increment',
-            'name': 'agentool.{{ tool_name }}.operation1.count'
+            'name': 'agentool.{{ tool_name }}.my_business_metric.count',
+            'labels': {'cardinality': 'value'}
         })
         
         return {{ tool_name|capitalize }}Output(
@@ -125,10 +130,10 @@ async def {{ tool_name }}_operation1(ctx: RunContext[Any], **kwargs) -> {{ tool_
             'data': {'error': str(e)}
         })
         
-        # Track error metric
+        # Track business error metric
         await injector.run('metrics', {
             'operation': 'increment',
-            'name': 'agentool.{{ tool_name }}.operation1.errors'
+            'name': 'agentool.{{ tool_name }}.my_business_metric.errors'
         })
         
         raise
@@ -207,10 +212,10 @@ def create_{{ tool_name }}_agent():
         tools=[{{ tool_name }}_operation1, {{ tool_name }}_operation2, {{ tool_name }}_operation3],
         output_type={{ tool_name|capitalize }}Output,
         system_prompt="[System prompt describing the agent's role and capabilities]",
-        description="[One-line description of what this agent does]",
+        description="[One-line description of what this agent does including a list of operations]",
         version="1.0.0",
         tags=["tag1", "tag2", "tag3"],
-        dependencies=["storage_kv", "logging", "metrics"],  # List actual dependencies
+        dependencies=["storage_kv", "logging", "metrics"],  # List actual agentool dependencies
         examples=[
             {
                 "description": "Example of operation1",
@@ -225,7 +230,7 @@ def create_{{ tool_name }}_agent():
                     "data": {"result": "value"}
                 }
             },
-            # Add more examples for other operations
+            # Add one valid example for other operations
         ]
     )
 
