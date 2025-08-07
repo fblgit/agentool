@@ -290,11 +290,11 @@ class PhaseExecutor:
             'key': specs_key
         }))
         
-        specs_data = self._extract_result_data(specs_result)
-        if not specs_data.get('data', {}).get('exists', False):
+        # specs_result is already a typed output from storage_kv
+        if not specs_result.success or not specs_result.data.get('exists', False):
             raise RuntimeError(f"No specifications found for {phase_name}")
         
-        spec_output = json.loads(specs_data['data']['value'])
+        spec_output = json.loads(specs_result.data['value'])
         tools_processed = 0
         results = []
         
@@ -320,8 +320,8 @@ class PhaseExecutor:
                     'operation': 'exists',
                     'key': check_key
                 }))
-                check_data = self._extract_result_data(check_result)
-                if not check_data.get('data', {}).get('exists', False):
+                # check_result is already a typed output
+                if not check_result.success or not check_result.data.get('exists', False):
                     continue
             
             # Execute for this tool - add tool_name for test phases

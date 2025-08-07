@@ -322,7 +322,9 @@ def render_clickable_artifacts(artifacts: List[str], phase_key: str):
             with cols[idx % 3]:
                 key = artifact.replace('storage_kv:', '')
                 display_name = key.split('/')[-1]
-                if st.button(f"📦 {display_name}", key=f"artifact_{phase_key}_{idx}", use_container_width=True):
+                # Use the full artifact path to create unique button key
+                button_key = f"btn_{phase_key}_{artifact.replace(':', '_').replace('/', '_')}"
+                if st.button(f"📦 {display_name}", key=button_key, use_container_width=True):
                     show_artifact_content(artifact, key)
             shown_count += 1
     
@@ -333,7 +335,9 @@ def render_clickable_artifacts(artifacts: List[str], phase_key: str):
             with cols[idx % 3]:
                 path = artifact.replace('storage_fs:', '')
                 display_name = path.split('/')[-1]
-                if st.button(f"📄 {display_name}", key=f"artifact_fs_{phase_key}_{idx}", use_container_width=True):
+                # Use the full artifact path to create unique button key
+                button_key = f"btn_{phase_key}_{artifact.replace(':', '_').replace('/', '_')}"
+                if st.button(f"📄 {display_name}", key=button_key, use_container_width=True):
                     show_artifact_content(artifact, path)
             shown_count += 1
     
@@ -366,10 +370,8 @@ def show_artifact_content(artifact_ref: str, artifact_key: str):
             }))
             
             # AgenTools return typed outputs
-            data = result.data if result.success else {}
-            
-            if data.get('data', {}).get('exists', False):
-                content = json.loads(data['data']['value'])
+            if result.success and result.data.get('exists', False):
+                content = json.loads(result.data['value'])
                 
                 # Display based on content type
                 if isinstance(content, dict):
@@ -394,10 +396,8 @@ def show_artifact_content(artifact_ref: str, artifact_key: str):
             }))
             
             # AgenTools return typed outputs
-            data = result.data if result.success else {}
-            
-            if data.get('data', {}).get('content'):
-                content = data['data']['content']
+            if result.success and result.data.get('content'):
+                content = result.data['content']
                 
                 # Display based on file type
                 if key.endswith('.py'):
