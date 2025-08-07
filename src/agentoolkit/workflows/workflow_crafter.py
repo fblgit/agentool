@@ -227,7 +227,7 @@ async def craft_single_tool(
         'labels': {
             'workflow_id': workflow_id,
             'agent': 'workflow_crafter',
-            'tool': spec_key,
+            'tool': tool_spec.name,
             'model': model
         }
     })
@@ -239,7 +239,7 @@ async def craft_single_tool(
         'labels': {
             'workflow_id': workflow_id,
             'agent': 'workflow_crafter',
-            'tool': spec_key,
+            'tool': tool_spec.name,
             'model': model
         }
     })
@@ -251,7 +251,7 @@ async def craft_single_tool(
         'labels': {
             'workflow_id': workflow_id,
             'agent': 'workflow_crafter',
-            'tool': spec_key,
+            'tool': tool_spec.name,
             'model': model
         }
     })

@@ -318,7 +318,7 @@ async def evaluate_code(
                         'labels': {
                             'workflow_id': workflow_id,
                             'agent': 'workflow_evaluator',
-                            'tool': tool_name,
+                            'tool': tool_spec.name,
                             'model': model
                         }
                     })
@@ -330,7 +330,7 @@ async def evaluate_code(
                         'labels': {
                             'workflow_id': workflow_id,
                             'agent': 'workflow_evaluator',
-                            'tool': tool_name,
+                            'tool': tool_spec.name,
                             'model': model
                         }
                     })
@@ -342,7 +342,7 @@ async def evaluate_code(
                         'labels': {
                             'workflow_id': workflow_id,
                             'agent': 'workflow_evaluator',
-                            'tool': tool_name,
+                            'tool': tool_spec.name,
                             'model': model
                         }
                     })

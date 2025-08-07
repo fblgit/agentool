@@ -18,7 +18,7 @@ from agentool.core.injector import get_injector, AgenToolInjector
 import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../'))
-from agents.models import SpecificationOutput, ToolSpecification, AnalyzerOutput
+from agents.models import SpecificationOutput, ToolSpecification, ToolSpecificationLLM, AnalyzerOutput
 
 
 class WorkflowSpecifierInput(BaseOperationInput):
@@ -122,12 +122,12 @@ async def create_specifications(
                 state_ref=f'workflow/{workflow_id}/specs'
             )
         
-        # Load system prompt with schema
+        # Load system prompt with schema - use LLM version with renamed fields
         template_result = await injector.run('templates', {
             'operation': 'render',
             'template_name': 'system/specification',
             'variables': {
-                'schema_json': json.dumps(ToolSpecification.model_json_schema(), indent=2)
+                'schema_json': json.dumps(ToolSpecificationLLM.model_json_schema(), indent=2)
             }
         })
         
@@ -135,11 +135,12 @@ async def create_specifications(
         assert template_result.success is True
         system_prompt = template_result.data.get('rendered', 'You are an expert AgenTool specification designer.')
         
-        # Create LLM agent for specification
+        # Create LLM agent for specification - use LLM version to avoid OpenAI field conflicts
         agent = Agent(
             model,
-            output_type=ToolSpecification,
-            system_prompt=system_prompt
+            output_type=ToolSpecificationLLM,
+            system_prompt=system_prompt,
+            retries=3  # Increased retries for better reliability with structured output
         )
         
         # Get and store COMPLETE registry records for existing tools
@@ -238,9 +239,12 @@ async def create_specifications(
             assert prompt_result.success is True
             user_prompt = prompt_result.data.get('rendered', f"Create specification for {missing_tool.name}")
             
-            # Generate specification
+            # Generate specification (returns ToolSpecificationLLM)
             result = await agent.run(user_prompt)
-            spec = result.output
+            spec_llm = result.output
+            
+            # Transform from LLM format to internal format
+            spec = spec_llm.to_tool_specification()
             
             # Capture and record token usage
             usage = result.usage()

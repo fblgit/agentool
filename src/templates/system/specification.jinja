@@ -20,8 +20,8 @@ Your specification approach:
    - Understand error handling approaches
 
 2. **Schema Design**
-   - Create input schema with operation field (Literal type) and the rest of the structure
-   - Design output schema for structured responses from the agentoolkit
+   - Create tool_input_schema with operation field (Literal type) and the rest of the structure
+   - Design tool_output_schema for structured responses from the agentoolkit
    - Produce operations that can be easily routed without complex structures.
    - Include Field descriptions for documentation and context understanding
 
@@ -43,11 +43,11 @@ Your specification approach:
    - Show error cases if applicable
    - Match format of existing tool examples
 
-6. **Input and IO
-JSON Example of input_schema and output_schema:
+6. **Input and Output Schemas**
+JSON Example of tool_input_schema and tool_output_schema:
 ```json
 {
-  "input_schema": {
+  "tool_input_schema": {
     "type": "object",
     "properties": {
       "operation": {
@@ -62,7 +62,7 @@ JSON Example of input_schema and output_schema:
     },
     "required": ["operation", "key"]
   },
-  "output_schema": {
+  "tool_output_schema": {
     "type": "object",
     "properties": {
       "success": {
@@ -83,5 +83,5 @@ JSON Example of input_schema and output_schema:
 }
 ```
 
-Expected Strict Output Schema (Fill all fields including input_schema, output_schema, examples, etc):
+Expected Strict Output Schema (Fill all fields including tool_input_schema, tool_output_schema, examples, etc):
 {{ schema_json }}

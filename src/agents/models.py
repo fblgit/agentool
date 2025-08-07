@@ -195,6 +195,95 @@ class ToolSpecification(BaseModel):
     )
 
 
+class ToolSpecificationLLM(BaseModel):
+    """LLM-compatible version of ToolSpecification with renamed schema fields.
+    
+    This version is used when interacting with OpenAI's structured output feature
+    which reserves 'input_schema' and 'output_schema' field names for internal use.
+    The fields are renamed to 'tool_input_schema' and 'tool_output_schema' to avoid conflicts.
+    """
+    name: str = Field(
+        description="AgenTool name following lowercase_underscore convention (e.g., 'storage_kv', 'auth_manager')"
+    )
+    description: str = Field(
+        description="Clear one-sentence description of what this tool does (e.g., 'Manages key-value storage with TTL support')"
+    )
+    tool_input_schema: Dict[str, Any] = Field(
+        description="""JSON Schema for the Pydantic input model. Must include:
+        - type: 'object'
+        - properties: Dict with 'operation' field (enum/Literal) plus other fields
+        - required: List of required field names
+        - Field descriptions for each property
+        Example: {
+            "type": "object",
+            "properties": {
+                "operation": {"type": "string", "enum": ["get", "set", "delete"], "description": "Operation to perform"},
+                "key": {"type": "string", "description": "Storage key"},
+                "value": {"type": ["string", "object", "null"], "description": "Value to store (for set operation)"}
+            },
+            "required": ["operation", "key"]
+        }"""
+    )
+    tool_output_schema: Dict[str, Any] = Field(
+        description="""JSON Schema for the Pydantic output model. Must include:
+        - type: 'object'
+        - properties: Dict with at least 'success', 'message', and 'data' fields
+        - required: List of required field names (usually ['success', 'message'])
+        Example: {
+            "type": "object",
+            "properties": {
+                "success": {"type": "boolean", "description": "Whether operation succeeded"},
+                "message": {"type": "string", "description": "Human-readable result message"},
+                "data": {"type": ["object", "null"], "description": "Operation-specific return data"}
+            },
+            "required": ["success", "message"]
+        }"""
+    )
+    examples: List[Dict[str, Any]] = Field(
+        description="""List of input/output examples covering all operations. Each example must have:
+        - description: What this example demonstrates
+        - input: Complete input JSON matching tool_input_schema
+        - output: Expected output JSON matching tool_output_schema
+        Example: [
+            {
+                "description": "Get a value from storage",
+                "input": {"operation": "get", "key": "user:123"},
+                "output": {"success": true, "message": "Retrieved value", "data": {"name": "Alice"}}
+            },
+            {
+                "description": "Handle missing key",
+                "input": {"operation": "get", "key": "nonexistent"},
+                "output": {"success": false, "message": "Key not found", "data": null}
+            }
+        ]"""
+    )
+    errors: List[str] = Field(
+        description="List of specific error conditions to handle (e.g., 'KeyError when key not found', 'ValueError for invalid TTL', 'ConnectionError for storage backend')"
+    )
+    extended_intents: List[str] = Field(
+        description="Additional capabilities beyond basic operations (e.g., 'Support batch operations', 'Handle TTL expiration', 'Provide namespace isolation')"
+    )
+    required_tools: List[str] = Field(
+        description="Names of existing AgenTools this tool depends on (e.g., ['storage_kv', 'logging', 'metrics']). Must be exact registered names.",
+        default_factory=list
+    )
+    dependencies: List[str] = Field(
+        description="External Python packages needed (e.g., ['redis==4.5.0', 'numpy>=1.20.0']). Use exact versions or ranges.",
+        default_factory=list
+    )
+    implementation_guidelines: List[str] = Field(
+        description="Specific implementation requirements (e.g., 'Use async/await for all I/O operations', 'Follow existing error handling patterns', 'Include proper logging at INFO level')"
+    )
+    
+    def to_tool_specification(self) -> ToolSpecification:
+        """Convert to internal ToolSpecification format with original field names."""
+        data = self.model_dump()
+        # Rename fields back to original names
+        data['input_schema'] = data.pop('tool_input_schema')
+        data['output_schema'] = data.pop('tool_output_schema')
+        return ToolSpecification(**data)
+
+
 class SpecificationOutput(BaseModel):
     """Collection of all specifications for missing tools.
     
