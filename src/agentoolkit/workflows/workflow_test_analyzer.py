@@ -296,6 +296,46 @@ async def analyze_test_requirements(
         result = await agent.run(user_prompt)
         test_analysis = result.output
         
+        # Capture and record token usage
+        usage = result.usage()
+        
+        # Store token metrics with tool label
+        await injector.run('metrics', {
+            'operation': 'increment',
+            'name': 'agentool.workflow.tokens.request',
+            'value': usage.request_tokens,
+            'labels': {
+                'workflow_id': workflow_id,
+                'agent': 'workflow_test_analyzer',
+                'tool': tool_name,
+                'model': model
+            }
+        })
+        
+        await injector.run('metrics', {
+            'operation': 'increment',
+            'name': 'agentool.workflow.tokens.response',
+            'value': usage.response_tokens,
+            'labels': {
+                'workflow_id': workflow_id,
+                'agent': 'workflow_test_analyzer',
+                'tool': tool_name,
+                'model': model
+            }
+        })
+        
+        await injector.run('metrics', {
+            'operation': 'increment',
+            'name': 'agentool.workflow.tokens.total',
+            'value': usage.total_tokens,
+            'labels': {
+                'workflow_id': workflow_id,
+                'agent': 'workflow_test_analyzer',
+                'tool': tool_name,
+                'model': model
+            }
+        })
+        
         # Log LLM test analysis completion
         await injector.run('logging', {
             'operation': 'log',

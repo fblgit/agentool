@@ -216,6 +216,46 @@ async def craft_single_tool(
     result = await agent.run(user_prompt)
     raw_output = result.output
     
+    # Capture and record token usage
+    usage = result.usage()
+    
+    # Store token metrics with tool label
+    await injector.run('metrics', {
+        'operation': 'increment',
+        'name': 'agentool.workflow.tokens.request',
+        'value': usage.request_tokens,
+        'labels': {
+            'workflow_id': workflow_id,
+            'agent': 'workflow_crafter',
+            'tool': spec_key,
+            'model': model
+        }
+    })
+    
+    await injector.run('metrics', {
+        'operation': 'increment',
+        'name': 'agentool.workflow.tokens.response',
+        'value': usage.response_tokens,
+        'labels': {
+            'workflow_id': workflow_id,
+            'agent': 'workflow_crafter',
+            'tool': spec_key,
+            'model': model
+        }
+    })
+    
+    await injector.run('metrics', {
+        'operation': 'increment',
+        'name': 'agentool.workflow.tokens.total',
+        'value': usage.total_tokens,
+        'labels': {
+            'workflow_id': workflow_id,
+            'agent': 'workflow_crafter',
+            'tool': spec_key,
+            'model': model
+        }
+    })
+    
     # Extract code from markdown code block
     import re
     code_match = re.search(r'```python\n(.*?)```', raw_output, re.DOTALL)

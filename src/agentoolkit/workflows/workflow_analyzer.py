@@ -189,6 +189,43 @@ async def analyze_task(
         result = await agent.run(user_prompt)
         analysis = result.output
         
+        # Capture and record token usage
+        usage = result.usage()
+        
+        # Store token metrics
+        await injector.run('metrics', {
+            'operation': 'increment',
+            'name': 'agentool.workflow.tokens.request',
+            'value': usage.request_tokens,
+            'labels': {
+                'workflow_id': workflow_id,
+                'agent': 'workflow_analyzer',
+                'model': model
+            }
+        })
+        
+        await injector.run('metrics', {
+            'operation': 'increment',
+            'name': 'agentool.workflow.tokens.response',
+            'value': usage.response_tokens,
+            'labels': {
+                'workflow_id': workflow_id,
+                'agent': 'workflow_analyzer',
+                'model': model
+            }
+        })
+        
+        await injector.run('metrics', {
+            'operation': 'increment',
+            'name': 'agentool.workflow.tokens.total',
+            'value': usage.total_tokens,
+            'labels': {
+                'workflow_id': workflow_id,
+                'agent': 'workflow_analyzer',
+                'model': model
+            }
+        })
+        
         # Log LLM analysis completion
         await injector.run('logging', {
             'operation': 'log',

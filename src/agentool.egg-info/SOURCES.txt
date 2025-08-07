@@ -15,7 +15,6 @@ src/agents/base.py
 src/agents/crafter_agent.py
 src/agents/evaluator_agent.py
 src/agents/models.py
-src/agents/rag_agent.py
 src/agents/specification_agent.py
 src/agents/workflow.py
 src/templates/answer_synthesizer.j2
@@ -43,6 +42,7 @@ src/ui/stream_handlers.py
 src/ui/test_ui.py
 src/ui/workflow_runner.py
 src/ui/workflow_ui.py
+src/ui/workflow_ui_v2.py
 tests/test_a2a.py
 tests/test_ag_ui.py
 tests/test_agent.py

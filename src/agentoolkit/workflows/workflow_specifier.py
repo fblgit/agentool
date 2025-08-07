@@ -242,6 +242,46 @@ async def create_specifications(
             result = await agent.run(user_prompt)
             spec = result.output
             
+            # Capture and record token usage
+            usage = result.usage()
+            
+            # Store token metrics with tool label
+            await injector.run('metrics', {
+                'operation': 'increment',
+                'name': 'agentool.workflow.tokens.request',
+                'value': usage.request_tokens,
+                'labels': {
+                    'workflow_id': workflow_id,
+                    'agent': 'workflow_specifier',
+                    'tool': missing_tool.name,
+                    'model': model
+                }
+            })
+            
+            await injector.run('metrics', {
+                'operation': 'increment',
+                'name': 'agentool.workflow.tokens.response',
+                'value': usage.response_tokens,
+                'labels': {
+                    'workflow_id': workflow_id,
+                    'agent': 'workflow_specifier',
+                    'tool': missing_tool.name,
+                    'model': model
+                }
+            })
+            
+            await injector.run('metrics', {
+                'operation': 'increment',
+                'name': 'agentool.workflow.tokens.total',
+                'value': usage.total_tokens,
+                'labels': {
+                    'workflow_id': workflow_id,
+                    'agent': 'workflow_specifier',
+                    'tool': missing_tool.name,
+                    'model': model
+                }
+            })
+            
             # Ensure consistency with analysis
             spec.name = missing_tool.name
             spec.required_tools = missing_tool.required_tools

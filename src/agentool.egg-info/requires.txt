@@ -3,6 +3,7 @@ pydantic-ai>=0.0.1
 typing-extensions>=4.0.0
 jinja2>=3.1.0
 pyyaml>=6.0
+APScheduler==3.11.0
 
 [all]
 agentool[auth,crypto,graph,http,observability,rag,storage,templates,ui]
@@ -53,5 +54,9 @@ pgvector>=0.2.0
 jinja2>=3.1.0
 
 [ui]
-streamlit>=1.29.0
+streamlit>=1.39.0
 pandas>=2.0.0
+streamlit-mermaid==0.3.0
+streamlit-elements>=0.1.0
+plotly>=5.0.0
+pyperclip>=1.8.0

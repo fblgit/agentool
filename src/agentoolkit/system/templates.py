@@ -396,7 +396,7 @@ async def templates_save(ctx: RunContext[Any], template_name: str, template_cont
                 injector = get_injector()
                 await injector.run('metrics', {
                     "operation": "set",
-                    "name": "agentool.templates.count",
+                    "name": "agentool.templates.loaded.current",
                     "value": len(_templates)
                 })
             except Exception:

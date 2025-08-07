@@ -292,15 +292,44 @@ async def metrics_increment(ctx: RunContext[Any], name: str, value: float,
         if meta_result.data is None:
             # Auto-create metrics for automatic tracking
             if name.startswith("agentool."):
-                # Determine metric type
+                # Determine metric type and unit based on naming patterns
                 if name == "agentool.templates.count":
+                    # Special case: templates count uses gauge (can go up/down)
                     metric_type = MetricType.GAUGE
-                else:
+                    unit = "count"
+                elif ".tokens." in name or name.endswith(".tokens"):
+                    # Token metrics: always counters with "tokens" unit
                     metric_type = MetricType.COUNTER
+                    unit = "tokens"
+                elif ".duration" in name or name.endswith(".seconds"):
+                    # Duration metrics: should be timers (but this is wrong operation)
+                    # Log warning and skip auto-creation
+                    raise ValueError(f"Cannot increment duration metric '{name}' - use 'observe' operation instead")
+                else:
+                    # Default: counter metrics with "count" unit
+                    # Covers: executions.total, executions.success, executions.failure, 
+                    #         {operation}.count, {operation}.errors, errors.{type}
+                    metric_type = MetricType.COUNTER
+                    unit = "count"
                 
                 # Create the metric automatically
                 await metrics_create(ctx, name, metric_type, 
-                                   f"Auto-created metric for {name}", "count")
+                                   f"Auto-created {metric_type.value} for {name}", unit)
+                
+                # Log the auto-creation
+                await injector.run('logging', {
+                    'operation': 'log',
+                    'level': 'INFO',
+                    'logger_name': 'metrics.auto_create',
+                    'message': f"Auto-created metric '{name}' with type {metric_type.value} and unit '{unit}'",
+                    'data': {
+                        'metric_name': name,
+                        'metric_type': metric_type.value,
+                        'unit': unit,
+                        'operation': 'increment',
+                        'auto_created': True
+                    }
+                })
                 
                 # Get the newly created metric
                 meta_result = await injector.run('storage_kv', {
@@ -491,10 +520,27 @@ async def metrics_set(ctx: RunContext[Any], name: str, value: float,
         # Check if metric exists (data is None when not found)
         if meta_result.data is None:
             # Auto-create gauge metrics for automatic tracking
-            if name.startswith("agentool.") and name == "agentool.templates.count":
-                # Create the gauge metric automatically
-                await metrics_create(ctx, name, MetricType.GAUGE, 
-                                   f"Auto-created gauge metric for {name}", "count")
+            if name.startswith("agentool."):
+                # Only specific metrics can be set (gauges)
+                if ".active" in name or ".current" in name or ".level" in name:
+                    # Other gauge-like metrics (active connections, current state, etc.)
+                    await metrics_create(ctx, name, MetricType.GAUGE,
+                                       f"Auto-created gauge for {name}", "count")
+                    
+                    # Log the auto-creation
+                    await injector.run('logging', {
+                        'operation': 'log',
+                        'level': 'INFO',
+                        'logger_name': 'metrics.auto_create',
+                        'message': f"Auto-created metric '{name}' with type GAUGE and unit 'count'",
+                        'data': {
+                            'metric_name': name,
+                            'metric_type': 'GAUGE',
+                            'unit': 'count',
+                            'operation': 'set',
+                            'auto_created': True
+                        }
+                    })
                 
                 # Get the newly created metric
                 meta_result = await injector.run('storage_kv', {
@@ -585,10 +631,45 @@ async def metrics_observe(ctx: RunContext[Any], name: str, value: float,
         # Check if metric exists (data is None when not found)
         if meta_result.data is None:
             # Auto-create timer/histogram metrics for automatic tracking
-            if name.startswith("agentool.") and ("duration" in name or name.endswith(".seconds")):
-                # Create the metric automatically as a timer
-                await metrics_create(ctx, name, MetricType.TIMER, 
-                                   f"Auto-created timer for {name}", "seconds")
+            if name.startswith("agentool."):
+                metric_type = None
+                unit = None
+                
+                if ".duration" in name or name.endswith(".seconds") or name.endswith(".time"):
+                    # Duration/time metrics: create as timer
+                    metric_type = MetricType.TIMER
+                    unit = "seconds"
+                elif ".latency" in name or ".response_time" in name:
+                    # Latency metrics: also timers
+                    metric_type = MetricType.TIMER
+                    unit = "milliseconds"
+                elif ".size" in name or ".bytes" in name:
+                    # Size metrics: create as histogram
+                    metric_type = MetricType.HISTOGRAM
+                    unit = "bytes"
+                elif ".distribution" in name or ".histogram" in name:
+                    # Explicit distribution metrics
+                    metric_type = MetricType.HISTOGRAM
+                    unit = "count"
+                
+                if metric_type:
+                    await metrics_create(ctx, name, metric_type,
+                                       f"Auto-created {metric_type.value} for {name}", unit)
+                    
+                    # Log the auto-creation
+                    await injector.run('logging', {
+                        'operation': 'log',
+                        'level': 'INFO',
+                        'logger_name': 'metrics.auto_create',
+                        'message': f"Auto-created metric '{name}' with type {metric_type.value} and unit '{unit}'",
+                        'data': {
+                            'metric_name': name,
+                            'metric_type': metric_type.value,
+                            'unit': unit,
+                            'operation': 'observe',
+                            'auto_created': True
+                        }
+                    })
                 
                 # Get the newly created metric
                 meta_result = await injector.run('storage_kv', {
