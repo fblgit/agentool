@@ -193,7 +193,7 @@ def render_sidebar():
         )
         
         model_map = {
-            "OpenAI": ["gpt-4o", "o4-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
+            "OpenAI": ["gpt-4.1-nano", "gpt-4o", "o4-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
             "Anthropic": ["claude-4-opus", "claude-4-sonnet", "claude-3-opus", "claude-3-sonnet", "claude-3-haiku"],
             "Google": ["gemini-2.5-pro", "gemini-1.5-pro", "gemini-1.5-flash"],
             "Groq": ["mixtral-8x7b", "llama-3-70b"]
@@ -308,6 +308,9 @@ def reset_workflow():
 
 def render_clickable_artifacts(artifacts: List[str], phase_key: str):
     """Render artifacts as clickable buttons that show content in a modal."""
+    # Check if workflow is running - disable buttons during execution
+    is_running = st.session_state.ui_state.workflow_running
+    
     # Group artifacts by type
     kv_artifacts = [a for a in artifacts if a.startswith('storage_kv:')]
     fs_artifacts = [a for a in artifacts if a.startswith('storage_fs:')]
@@ -324,8 +327,17 @@ def render_clickable_artifacts(artifacts: List[str], phase_key: str):
                 display_name = key.split('/')[-1]
                 # Use the full artifact path to create unique button key
                 button_key = f"btn_{phase_key}_{artifact.replace(':', '_').replace('/', '_')}"
-                if st.button(f"📦 {display_name}", key=button_key, use_container_width=True):
-                    show_artifact_content(artifact, key)
+                
+                # Disable button if workflow is running
+                if is_running:
+                    st.button(f"📦 {display_name}", 
+                             key=button_key, 
+                             use_container_width=True,
+                             disabled=True,
+                             help="Cannot view artifacts while workflow is running")
+                else:
+                    if st.button(f"📦 {display_name}", key=button_key, use_container_width=True):
+                        show_artifact_content(artifact, key)
             shown_count += 1
     
     if fs_artifacts:
@@ -337,12 +349,25 @@ def render_clickable_artifacts(artifacts: List[str], phase_key: str):
                 display_name = path.split('/')[-1]
                 # Use the full artifact path to create unique button key
                 button_key = f"btn_{phase_key}_{artifact.replace(':', '_').replace('/', '_')}"
-                if st.button(f"📄 {display_name}", key=button_key, use_container_width=True):
-                    show_artifact_content(artifact, path)
+                
+                # Disable button if workflow is running
+                if is_running:
+                    st.button(f"📄 {display_name}", 
+                             key=button_key, 
+                             use_container_width=True,
+                             disabled=True,
+                             help="Cannot view artifacts while workflow is running")
+                else:
+                    if st.button(f"📄 {display_name}", key=button_key, use_container_width=True):
+                        show_artifact_content(artifact, path)
             shown_count += 1
     
     if len(artifacts) > 5:
         st.caption(f"... and {len(artifacts) - 5} more artifacts")
+    
+    # Show info message if workflow is running
+    if is_running:
+        st.info("🔄 Artifact viewing is disabled while workflow is running to prevent interruption.")
 
 
 @st.dialog("Artifact Content", width="large")
