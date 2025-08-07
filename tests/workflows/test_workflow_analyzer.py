@@ -22,11 +22,62 @@ class TestWorkflowAnalyzer:
         AgenToolRegistry.clear()
         get_injector().clear()
         
-        # Import and create the workflow agents
-        from agentoolkit.workflows import initialize_workflow_agents
-        agents = initialize_workflow_agents()
+        # Import and create all required agents in dependency order
+        from agentoolkit.storage.fs import create_storage_fs_agent
+        from agentoolkit.storage.kv import create_storage_kv_agent, _kv_storage, _kv_expiry
+        from agentoolkit.observability.metrics import create_metrics_agent
+        from agentoolkit.system.logging import create_logging_agent, _logging_config
+        from agentoolkit.system.templates import create_templates_agent
+        from agentoolkit.management.agentool import create_agentool_management_agent
+        from agentoolkit.workflows.workflow_analyzer import create_workflow_analyzer_agent
+        
+        # Clear global state
+        _kv_storage.clear()
+        _kv_expiry.clear()
+        _logging_config.clear()
+        
+        # Clear any previous workflow storage keys
+        import os
+        test_keys = [
+            'workflow/test-workflow-001/catalog',
+            'workflow/test-workflow-001/analysis', 
+            'workflow/test-workflow-001/missing_tools/0',
+            'workflow/test-workflow-002/catalog',
+            'workflow/test-workflow-003/catalog',
+            'workflow/test-workflow-003/analysis',
+            'workflow/test-workflow-003/missing_tools/0'
+        ]
+        
+        # Initialize agents in dependency order
+        templates_dir = os.path.join(os.path.dirname(__file__), '../../src/templates')
+        
+        self.storage_fs_agent = create_storage_fs_agent()      # No dependencies
+        self.storage_kv_agent = create_storage_kv_agent()      # No dependencies
+        self.metrics_agent = create_metrics_agent()            # Depends on storage_kv
+        self.logging_agent = create_logging_agent()            # Depends on storage_fs, metrics
+        self.templates_agent = create_templates_agent(templates_dir)  # Depends on storage_fs
+        self.management_agent = create_agentool_management_agent()  # Depends on logging
+        
+        # Create workflow analyzer agent individually (not via batch initialization)
+        self.workflow_analyzer_agent = create_workflow_analyzer_agent()
     
-    def test_analyze_task(self):
+    def teardown_method(self):
+        """Clean up after each test."""
+        # Clear any remaining storage keys that may have been created during tests
+        try:
+            injector = get_injector()
+            test_keys = [
+                'workflow/test-workflow-001/catalog',
+                'workflow/test-workflow-001/analysis', 
+                'workflow/test-workflow-002/catalog',
+                'workflow/test-workflow-003/catalog',
+                'workflow/test-workflow-003/analysis',
+            ]
+            # Note: We don't run async cleanup in teardown to avoid event loop issues
+        except:
+            pass  # Ignore cleanup errors
+    
+    def test_analyze_task(self, allow_model_requests):
         """Test task analysis against catalog."""
         
         async def run_test():
@@ -40,17 +91,12 @@ class TestWorkflowAnalyzer:
                 "model": "openai:gpt-4o"
             })
             
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result.data if hasattr(result, 'data') else result
-            
-            # Verify success
-            assert data['success'] is True
-            assert 'analysis' in data['data']
+            # workflow_analyzer returns typed WorkflowAnalyzerOutput
+            assert result.success is True
+            assert result.data is not None
             
             # Check analysis structure
-            analysis = data['data']
+            analysis = result.data
             assert 'name' in analysis
             assert 'description' in analysis
             assert 'existing_tools' in analysis
@@ -62,12 +108,9 @@ class TestWorkflowAnalyzer:
                 'key': 'workflow/test-workflow-001/catalog'
             })
             
-            if hasattr(catalog_result, 'output'):
-                catalog_data = json.loads(catalog_result.output)
-            else:
-                catalog_data = catalog_result.data if hasattr(catalog_result, 'data') else catalog_result
-            
-            assert catalog_data.get('exists', False) is True
+            # storage_kv returns typed StorageKvOutput
+            assert catalog_result.success is True
+            assert catalog_result.data['exists'] is True
             
             # Verify analysis was stored
             analysis_result = await injector.run('storage_kv', {
@@ -75,12 +118,9 @@ class TestWorkflowAnalyzer:
                 'key': 'workflow/test-workflow-001/analysis'
             })
             
-            if hasattr(analysis_result, 'output'):
-                analysis_data = json.loads(analysis_result.output)
-            else:
-                analysis_data = analysis_result.data if hasattr(analysis_result, 'data') else analysis_result
-            
-            assert analysis_data.get('exists', False) is True
+            # storage_kv returns typed StorageKvOutput
+            assert analysis_result.success is True
+            assert analysis_result.data['exists'] is True
             
             # Verify missing tools were stored individually
             if analysis['missing_tools']:
@@ -89,16 +129,13 @@ class TestWorkflowAnalyzer:
                     'key': 'workflow/test-workflow-001/missing_tools/0'
                 })
                 
-                if hasattr(missing_tool_result, 'output'):
-                    missing_tool_data = json.loads(missing_tool_result.output)
-                else:
-                    missing_tool_data = missing_tool_result.data if hasattr(missing_tool_result, 'data') else missing_tool_result
-                
-                assert missing_tool_data.get('exists', False) is True
+                # storage_kv returns typed StorageKvOutput
+                assert missing_tool_result.success is True
+                assert missing_tool_result.data['exists'] is True
         
         asyncio.run(run_test())
     
-    def test_catalog_storage(self):
+    def test_catalog_storage(self, allow_model_requests):
         """Test that complete catalog is stored without mutation."""
         
         async def run_test():
@@ -110,10 +147,9 @@ class TestWorkflowAnalyzer:
                 'format': 'json'
             })
             
-            if hasattr(catalog_result, 'output'):
-                original_catalog = json.loads(catalog_result.output)['catalog']
-            else:
-                original_catalog = catalog_result.data['catalog'] if hasattr(catalog_result, 'data') else catalog_result['catalog']
+            # agentool_mgmt returns typed ManagementOutput
+            assert catalog_result.success is True
+            original_catalog = catalog_result.data['catalog']
             
             # Run analysis
             await injector.run('workflow_analyzer', {
@@ -129,12 +165,9 @@ class TestWorkflowAnalyzer:
                 'key': 'workflow/test-workflow-002/catalog'
             })
             
-            if hasattr(stored_result, 'output'):
-                stored_data = json.loads(stored_result.output)
-            else:
-                stored_data = stored_result.data if hasattr(stored_result, 'data') else stored_result
-            
-            stored_catalog = json.loads(stored_data['value'])
+            # storage_kv returns typed StorageKvOutput
+            assert stored_result.success is True
+            stored_catalog = json.loads(stored_result.data['value'])
             
             # Verify catalog is complete and unmutated
             assert 'agentools' in stored_catalog
@@ -150,7 +183,7 @@ class TestWorkflowAnalyzer:
         
         asyncio.run(run_test())
     
-    def test_missing_tools_storage(self):
+    def test_missing_tools_storage(self, allow_model_requests):
         """Test individual storage of missing tools."""
         
         async def run_test():
@@ -164,12 +197,9 @@ class TestWorkflowAnalyzer:
                 "model": "openai:gpt-4o"
             })
             
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result.data if hasattr(result, 'data') else result
-            
-            analysis = data['data']
+            # workflow_analyzer returns typed WorkflowAnalyzerOutput
+            assert result.success is True
+            analysis = result.data
             
             # If there are missing tools, verify they're stored individually
             if analysis.get('missing_tools'):
@@ -180,14 +210,11 @@ class TestWorkflowAnalyzer:
                         'key': key
                     })
                     
-                    if hasattr(tool_result, 'output'):
-                        tool_data = json.loads(tool_result.output)
-                    else:
-                        tool_data = tool_result.data if hasattr(tool_result, 'data') else tool_result
+                    # storage_kv returns typed StorageKvOutput
+                    assert tool_result.success is True
+                    assert tool_result.data['exists'] is True
                     
-                    assert tool_data.get('exists', False) is True
-                    
-                    stored_tool = json.loads(tool_data['value'])
+                    stored_tool = json.loads(tool_result.data['value'])
                     assert stored_tool['name'] == missing_tool['name']
         
         asyncio.run(run_test())

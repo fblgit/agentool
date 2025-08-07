@@ -48,7 +48,10 @@ Your analysis approach:
 * orchestrator_
 * manager_
 * agentoolkits does not have a prefix
-Ultimately, everything is an agentool with different name but same framework internals, use `missing_tools` to put all the agentool's missing and sort them by layers order starting from the lowest. Determine how many layers you will need and what will be the dependencies between them. You will need to include in your analysis the segregation of responsibilities between the layers and how they interact with each other.
+Ultimately, everything is an agentool with different name but same framework internals, use `missing_tools` to put all the agentool's missing and sort them by layers order starting from the lowest. 
+Determine how many layers you will need and what will be the dependencies between them. You will need to include in your analysis the segregation of responsibilities between the layers and how they interact with each other.
+
+**IMPORTANT** You must not duplicate features/capabilities across layers. Each layer should have a unique purpose and functionality, layering is about complexity encapsulation.
 
 Expected Strict Output Schema:
 {{ schema_json }}

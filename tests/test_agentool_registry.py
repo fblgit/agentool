@@ -486,6 +486,313 @@ class TestEnhancedRegistry:
         assert op_endpoint['operationId'] == 'api_test_double'
         assert 'double' in op_endpoint['tags']
     
+    def test_metrics_configuration(self):
+        """Test metrics configuration methods."""
+        from src.agentool.core.registry import MetricsConfig
+        
+        # Test set_metrics_config
+        new_config = MetricsConfig(
+            enabled=False,
+            export_format='prometheus',
+            max_observations=500,
+            disabled_agents={'test_agent'}
+        )
+        AgenToolRegistry.set_metrics_config(new_config)
+        
+        # Verify config was set
+        assert not AgenToolRegistry.is_metrics_enabled()
+        assert AgenToolRegistry.get_metrics_export_format() == 'prometheus'
+        
+        # Test update_metrics_config
+        AgenToolRegistry.update_metrics_config(
+            enabled=True,
+            export_format='json',
+            max_observations=200
+        )
+        assert AgenToolRegistry.is_metrics_enabled()
+        assert AgenToolRegistry.get_metrics_export_format() == 'json'
+        
+        # Test invalid config update
+        with pytest.raises(ValueError, match="Invalid metrics config setting"):
+            AgenToolRegistry.update_metrics_config(invalid_field=True)
+        
+        # Test enable/disable metrics
+        AgenToolRegistry.enable_metrics(False)
+        assert not AgenToolRegistry.is_metrics_enabled()
+        
+        AgenToolRegistry.enable_metrics(True)
+        assert AgenToolRegistry.is_metrics_enabled()
+        
+        # Test disabled agents management
+        AgenToolRegistry.add_disabled_agent('disabled_tool')
+        config = AgenToolRegistry._metrics_config
+        assert 'disabled_tool' in config.disabled_agents
+        
+        AgenToolRegistry.remove_disabled_agent('disabled_tool')
+        assert 'disabled_tool' not in config.disabled_agents
+        
+        # Test removing non-existent agent (should not error)
+        AgenToolRegistry.remove_disabled_agent('non_existent')
+    
+    def test_unregister_method(self):
+        """Test unregistering AgenTools from registry."""
+        class UnregisterTestModel(BaseModel):
+            value: str
+        
+        # Register a tool
+        config = AgenToolConfig(
+            input_schema=UnregisterTestModel,
+            routing_config=RoutingConfig(operation_map={}),
+            description="Tool to be unregistered"
+        )
+        AgenToolRegistry.register("unregister_test", config)
+        
+        # Verify it exists
+        assert "unregister_test" in AgenToolRegistry.list_names()
+        
+        # Unregister it
+        result = AgenToolRegistry.unregister("unregister_test")
+        assert result is True
+        assert "unregister_test" not in AgenToolRegistry.list_names()
+        
+        # Try to unregister non-existent tool
+        result = AgenToolRegistry.unregister("non_existent")
+        assert result is False
+    
+    def test_update_method(self):
+        """Test updating AgenTool configurations."""
+        class UpdateTestModel(BaseModel):
+            value: str
+        
+        # Register a tool
+        config = AgenToolConfig(
+            input_schema=UpdateTestModel,
+            routing_config=RoutingConfig(operation_map={}),
+            description="Original description",
+            version="1.0.0",
+            tags=["original"],
+            dependencies=["dep1"],
+            examples=[{"input": "test", "output": "result"}]
+        )
+        AgenToolRegistry.register("update_test", config)
+        
+        # Update valid fields
+        result = AgenToolRegistry.update(
+            "update_test",
+            description="Updated description",
+            version="2.0.0",
+            tags=["updated", "modified"],
+            dependencies=["dep1", "dep2"],
+            examples=[{"input": "new", "output": "updated"}]
+        )
+        assert result is True
+        
+        # Verify updates
+        updated_config = AgenToolRegistry.get("update_test")
+        assert updated_config.description == "Updated description"
+        assert updated_config.version == "2.0.0"
+        assert updated_config.tags == ["updated", "modified"]
+        assert updated_config.dependencies == ["dep1", "dep2"]
+        assert len(updated_config.examples) == 1
+        assert updated_config.examples[0]["input"] == "new"
+        
+        # Test updating non-existent tool
+        result = AgenToolRegistry.update("non_existent", description="Test")
+        assert result is False
+        
+        # Test updating invalid field
+        with pytest.raises(ValueError, match="Field 'input_schema' cannot be updated"):
+            AgenToolRegistry.update("update_test", input_schema=UpdateTestModel)
+    
+    def test_validate_config(self):
+        """Test configuration validation."""
+        # Test valid config
+        valid_config = {
+            'name': 'test_tool',
+            'input_schema': BaseModel,
+            'routing_config': RoutingConfig(operation_map={}),
+            'version': '1.0.0',
+            'tags': ['test', 'validation'],
+            'dependencies': ['dep1', 'dep2'],
+            'examples': [
+                {'input': {'test': 'data'}, 'output': 'result'}
+            ]
+        }
+        is_valid, errors = AgenToolRegistry.validate_config(valid_config)
+        assert is_valid is True
+        assert len(errors) == 0
+        
+        # Test missing required fields
+        invalid_config = {'version': '1.0.0'}
+        is_valid, errors = AgenToolRegistry.validate_config(invalid_config)
+        assert is_valid is False
+        assert "Missing required field: name" in errors
+        assert "Missing required field: input_schema" in errors
+        assert "Missing required field: routing_config" in errors
+        
+        # Test invalid name
+        config_invalid_name = {
+            'name': '',  # Empty name
+            'input_schema': BaseModel,
+            'routing_config': RoutingConfig(operation_map={})
+        }
+        is_valid, errors = AgenToolRegistry.validate_config(config_invalid_name)
+        assert is_valid is False
+        assert "Name must be a non-empty string" in errors
+        
+        # Test name too long
+        config_long_name = {
+            'name': 'a' * 101,  # 101 characters
+            'input_schema': BaseModel,
+            'routing_config': RoutingConfig(operation_map={})
+        }
+        is_valid, errors = AgenToolRegistry.validate_config(config_long_name)
+        assert is_valid is False
+        assert "Name must be 100 characters or less" in errors
+        
+        # Test invalid version type
+        config_invalid_version = {
+            'name': 'test',
+            'input_schema': BaseModel,
+            'routing_config': RoutingConfig(operation_map={}),
+            'version': 123  # Should be string
+        }
+        is_valid, errors = AgenToolRegistry.validate_config(config_invalid_version)
+        assert is_valid is False
+        assert "Version must be a string" in errors
+        
+        # Test invalid tags
+        config_invalid_tags = {
+            'name': 'test',
+            'input_schema': BaseModel,
+            'routing_config': RoutingConfig(operation_map={}),
+            'tags': 'not_a_list'  # Should be list
+        }
+        is_valid, errors = AgenToolRegistry.validate_config(config_invalid_tags)
+        assert is_valid is False
+        assert "Tags must be a list" in errors
+        
+        # Test tags with non-string items
+        config_bad_tag_items = {
+            'name': 'test',
+            'input_schema': BaseModel,
+            'routing_config': RoutingConfig(operation_map={}),
+            'tags': ['valid', 123, 'another']  # 123 is not a string
+        }
+        is_valid, errors = AgenToolRegistry.validate_config(config_bad_tag_items)
+        assert is_valid is False
+        assert "All tags must be strings" in errors
+        
+        # Test invalid dependencies
+        config_invalid_deps = {
+            'name': 'test',
+            'input_schema': BaseModel,
+            'routing_config': RoutingConfig(operation_map={}),
+            'dependencies': {'not': 'a_list'}  # Should be list
+        }
+        is_valid, errors = AgenToolRegistry.validate_config(config_invalid_deps)
+        assert is_valid is False
+        assert "Dependencies must be a list" in errors
+        
+        # Test dependencies with non-string items
+        config_bad_dep_items = {
+            'name': 'test',
+            'input_schema': BaseModel,
+            'routing_config': RoutingConfig(operation_map={}),
+            'dependencies': ['valid', {'invalid': 'dict'}]
+        }
+        is_valid, errors = AgenToolRegistry.validate_config(config_bad_dep_items)
+        assert is_valid is False
+        assert "All dependencies must be strings" in errors
+        
+        # Test invalid examples
+        config_invalid_examples = {
+            'name': 'test',
+            'input_schema': BaseModel,
+            'routing_config': RoutingConfig(operation_map={}),
+            'examples': 'not_a_list'  # Should be list
+        }
+        is_valid, errors = AgenToolRegistry.validate_config(config_invalid_examples)
+        assert is_valid is False
+        assert "Examples must be a list" in errors
+        
+        # Test examples with non-dict items
+        config_bad_example_items = {
+            'name': 'test',
+            'input_schema': BaseModel,
+            'routing_config': RoutingConfig(operation_map={}),
+            'examples': ['not_a_dict']
+        }
+        is_valid, errors = AgenToolRegistry.validate_config(config_bad_example_items)
+        assert is_valid is False
+        assert "Example 0 must be a dictionary" in errors
+        
+        # Test examples without input field
+        config_example_no_input = {
+            'name': 'test',
+            'input_schema': BaseModel,
+            'routing_config': RoutingConfig(operation_map={}),
+            'examples': [{'output': 'result'}]  # Missing 'input'
+        }
+        is_valid, errors = AgenToolRegistry.validate_config(config_example_no_input)
+        assert is_valid is False
+        assert "Example 0 must have an 'input' field" in errors
+    
+    def test_dependency_graph_with_tools(self):
+        """Test dependency graph generation with include_tools=True."""
+        class DependencyTestModel(BaseModel):
+            value: str
+        
+        # Create tools with references
+        async def tool_x(ctx: RunContext[Any], data: str) -> dict:
+            return {"result": data}
+        
+        async def tool_y(ctx: RunContext[Any], data: str) -> dict:
+            return {"result": data}
+        
+        # Register AgenTool with tool references
+        config = AgenToolConfig(
+            input_schema=DependencyTestModel,
+            routing_config=RoutingConfig(
+                operation_map={
+                    'use_x': ('tool_x', lambda x: {}),
+                    'use_y': ('tool_y', lambda x: {})
+                }
+            ),
+            tools_metadata=[
+                ToolMetadata(
+                    name="tool_x",
+                    description="Tool X",
+                    is_async=True,
+                    parameters=["data"],
+                    parameter_types={"data": "str"},
+                    return_type="dict"
+                ),
+                ToolMetadata(
+                    name="tool_y",
+                    description="Tool Y",
+                    is_async=True,
+                    parameters=["data"],
+                    parameter_types={"data": "str"},
+                    return_type="dict"
+                )
+            ],
+            dependencies=["pydantic"]
+        )
+        AgenToolRegistry.register("tool_with_deps", config)
+        
+        # Generate graph with tools included
+        graph = AgenToolRegistry.generate_dependency_graph(include_tools=True)
+        
+        # Verify tools are included
+        assert 'tools' in graph
+        assert 'tool_with_deps' in graph['tools']
+        
+        # Should include both referenced tools
+        tool_deps = graph['tools']['tool_with_deps']
+        assert 'tool_x' in tool_deps
+        assert 'tool_y' in tool_deps
+    
     def test_full_enhanced_agentool_creation(self):
         """Test creating an AgenTool with all enhanced features."""
         # Define comprehensive tools

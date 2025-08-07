@@ -1,16 +1,18 @@
 """
-Vector Storage AgenTool - PGVector operations for RAG.
+Vector Storage AgenTool - PGVector operations for embeddings.
 
 This AgenTool provides vector storage operations using PostgreSQL with pgvector extension.
-Supports embedding storage, similarity search, and metadata management.
+Supports embedding storage, similarity search, and metadata management for machine learning applications.
 """
 
 import json
 import asyncio
 import asyncpg
 from typing import Dict, Any, Optional, List, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_ai import RunContext
+
+from agentool.base import BaseOperationInput
 from agentool import create_agentool
 from agentool.core.registry import RoutingConfig
 
@@ -26,9 +28,11 @@ DB_CONFIG = {
     "password": "postgres"
 }
 
-class VectorStorageInput(BaseModel):
+class StorageVectorInput(BaseOperationInput):
     """Input schema for vector storage operations."""
-    operation: Literal['init_collection', 'upsert', 'search', 'delete', 'list_collections']
+    operation: Literal['init_collection', 'upsert', 'search', 'delete', 'list_collections', 'collection_exists'] = Field(
+        description="The vector storage operation to perform"
+    )
     collection: str = Field("default", description="Collection/table name")
     # For upsert
     embeddings: Optional[List[List[float]]] = Field(None, description="Vector embeddings")
@@ -41,13 +45,41 @@ class VectorStorageInput(BaseModel):
     filter: Optional[Dict[str, Any]] = Field(None, description="Metadata filter")
     # For delete
     doc_ids: Optional[List[str]] = Field(None, description="IDs to delete")
+    
+    @field_validator('collection')
+    def validate_collection(cls, v, info):
+        """Validate collection name is provided and not empty."""
+        if not v or not v.strip():
+            raise ValueError("collection name is required and cannot be empty")
+        return v.strip()
+    
+    @model_validator(mode='after')
+    def validate_operation_requirements(self):
+        """Validate operation-specific required fields."""
+        operation = self.operation
+        
+        if operation == 'upsert':
+            if not self.embeddings:
+                raise ValueError("embeddings is required for upsert operation")
+            if not self.ids:
+                raise ValueError("ids is required for upsert operation")
+        
+        elif operation == 'search':
+            if not self.query_embedding:
+                raise ValueError("query_embedding is required for search operation")
+        
+        elif operation == 'delete':
+            if not self.doc_ids:
+                raise ValueError("doc_ids is required for delete operation")
+        
+        return self
 
-class VectorStorageOutput(BaseModel):
-    """Output schema for vector storage operations."""
-    success: bool
-    message: str
-    data: Optional[Any] = None
-    count: Optional[int] = None
+class StorageVectorOutput(BaseModel):
+    """Structured output for vector storage operations."""
+    success: bool = Field(description="Whether the operation succeeded")
+    operation: str = Field(description="The operation that was performed")
+    message: str = Field(description="Human-readable result message")
+    data: Optional[Dict[str, Any]] = Field(None, description="Operation-specific data")
 
 async def get_connection() -> asyncpg.Pool:
     """Get or create database connection pool."""
@@ -56,7 +88,7 @@ async def get_connection() -> asyncpg.Pool:
         _pool = await asyncpg.create_pool(**DB_CONFIG)
     return _pool
 
-async def init_collection(ctx: RunContext[Any], collection: str) -> VectorStorageOutput:
+async def init_collection(ctx: RunContext[Any], collection: str) -> StorageVectorOutput:
     """Initialize a vector collection (table) with pgvector."""
     pool = await get_connection()
     
@@ -86,8 +118,9 @@ async def init_collection(ctx: RunContext[Any], collection: str) -> VectorStorag
                 WITH (lists = 100)
             """)
             
-            return VectorStorageOutput(
+            return StorageVectorOutput(
                 success=True,
+                operation="init_collection",
                 message=f"Collection '{collection}' initialized successfully",
                 data={"collection": collection, "table": table_name}
             )
@@ -101,7 +134,7 @@ async def upsert(
     ids: List[str],
     metadata: Optional[List[Dict[str, Any]]] = None,
     contents: Optional[List[str]] = None
-) -> VectorStorageOutput:
+) -> StorageVectorOutput:
     """Upsert vectors with metadata into collection."""
     if len(embeddings) != len(ids):
         raise ValueError("Number of embeddings must match number of IDs")
@@ -135,11 +168,11 @@ async def upsert(
                         updated_at = NOW()
                 """, vec_id, content, embedding_str, meta_json)
             
-            return VectorStorageOutput(
+            return StorageVectorOutput(
                 success=True,
+                operation="upsert",
                 message=f"Upserted {len(ids)} vectors to collection '{collection}'",
-                count=len(ids),
-                data={"collection": collection, "ids": ids}
+                data={"collection": collection, "ids": ids, "count": len(ids)}
             )
     except Exception as e:
         raise RuntimeError(f"Failed to upsert vectors: {e}") from e
@@ -150,7 +183,7 @@ async def search(
     query_embedding: List[float],
     top_k: int = 5,
     filter: Optional[Dict[str, Any]] = None
-) -> VectorStorageOutput:
+) -> StorageVectorOutput:
     """Search for similar vectors using cosine similarity."""
     pool = await get_connection()
     table_name = f"vectors_{collection}"
@@ -197,16 +230,25 @@ async def search(
                     "similarity": float(row["similarity"])
                 })
             
-            return VectorStorageOutput(
+            # Discovery pattern: return success=False when no results found
+            if not results:
+                return StorageVectorOutput(
+                    success=False,
+                    operation="search",
+                    message=f"No vectors found in collection '{collection}'",
+                    data={"results": [], "collection": collection, "count": 0}
+                )
+            
+            return StorageVectorOutput(
                 success=True,
+                operation="search",
                 message=f"Found {len(results)} similar vectors",
-                count=len(results),
-                data={"results": results, "collection": collection}
+                data={"results": results, "collection": collection, "count": len(results)}
             )
     except Exception as e:
         raise RuntimeError(f"Failed to search vectors: {e}") from e
 
-async def delete(ctx: RunContext[Any], collection: str, doc_ids: List[str]) -> VectorStorageOutput:
+async def delete(ctx: RunContext[Any], collection: str, doc_ids: List[str]) -> StorageVectorOutput:
     """Delete vectors by IDs."""
     pool = await get_connection()
     table_name = f"vectors_{collection}"
@@ -222,16 +264,16 @@ async def delete(ctx: RunContext[Any], collection: str, doc_ids: List[str]) -> V
             # Extract number of deleted rows
             deleted_count = int(result.split()[-1])
             
-            return VectorStorageOutput(
+            return StorageVectorOutput(
                 success=True,
+                operation="delete",
                 message=f"Deleted {deleted_count} vectors from collection '{collection}'",
-                count=deleted_count,
-                data={"collection": collection, "deleted_ids": doc_ids[:deleted_count]}
+                data={"collection": collection, "deleted_ids": doc_ids[:deleted_count], "count": deleted_count}
             )
     except Exception as e:
         raise RuntimeError(f"Failed to delete vectors: {e}") from e
 
-async def list_collections(ctx: RunContext[Any]) -> VectorStorageOutput:
+async def list_collections(ctx: RunContext[Any]) -> StorageVectorOutput:
     """List all vector collections."""
     pool = await get_connection()
     
@@ -250,14 +292,50 @@ async def list_collections(ctx: RunContext[Any]) -> VectorStorageOutput:
                 for row in rows
             ]
             
-            return VectorStorageOutput(
+            return StorageVectorOutput(
                 success=True,
+                operation="list_collections",
                 message=f"Found {len(collections)} collections",
-                count=len(collections),
-                data={"collections": collections}
+                data={"collections": collections, "count": len(collections)}
             )
     except Exception as e:
         raise RuntimeError(f"Failed to list collections: {e}") from e
+
+
+async def collection_exists(ctx: RunContext[Any], collection: str) -> StorageVectorOutput:
+    """Check if a collection exists. Discovery operation."""
+    pool = await get_connection()
+    table_name = f"vectors_{collection}"
+    
+    try:
+        async with pool.acquire() as conn:
+            # Check if table exists
+            rows = await conn.fetch("""
+                SELECT table_name 
+                FROM information_schema.tables 
+                WHERE table_schema = 'public' 
+                AND table_name = $1
+            """, table_name)
+            
+            exists = len(rows) > 0
+            
+            if not exists:
+                # Discovery pattern: return success=False when collection not found
+                return StorageVectorOutput(
+                    success=False,
+                    operation="collection_exists",
+                    message=f"Collection '{collection}' does not exist",
+                    data={"collection": collection, "exists": False}
+                )
+            
+            return StorageVectorOutput(
+                success=True,
+                operation="collection_exists",
+                message=f"Collection '{collection}' exists",
+                data={"collection": collection, "exists": True}
+            )
+    except Exception as e:
+        raise RuntimeError(f"Failed to check collection existence: {e}") from e
 
 # Routing configuration
 routing = RoutingConfig(
@@ -281,22 +359,26 @@ routing = RoutingConfig(
             'collection': x.collection,
             'doc_ids': x.doc_ids
         }),
-        'list_collections': ('list_collections', lambda x: {})
+        'list_collections': ('list_collections', lambda x: {}),
+        'collection_exists': ('collection_exists', lambda x: {
+            'collection': x.collection
+        })
     }
 )
 
-def create_storage_vector_agent():
+def create_vector_agent():
     """Create and return the vector storage AgenTool."""
     return create_agentool(
         name='storage_vector',
-        input_schema=VectorStorageInput,
+        input_schema=StorageVectorInput,
+        output_type=StorageVectorOutput,
+        use_typed_output=True,
         routing_config=routing,
-        tools=[init_collection, upsert, search, delete, list_collections],
-        output_type=VectorStorageOutput,
-        system_prompt="Manage vector embeddings with PGVector for RAG applications.",
+        tools=[init_collection, upsert, search, delete, list_collections, collection_exists],
+        system_prompt="Manage vector embeddings with PGVector for similarity search applications.",
         description="Vector storage operations for similarity search and retrieval",
         version="1.0.0",
-        tags=["storage", "vector", "pgvector", "rag", "embeddings"],
+        tags=["storage", "vector", "pgvector", "embeddings", "similarity"],
         dependencies=[],
         examples=[
             {
@@ -327,8 +409,6 @@ def create_storage_vector_agent():
         ]
     )
 
-# Export
-agent = create_storage_vector_agent()
 
 # TODO: Phase 2 Features
 # - Add support for Chromadb backend

@@ -10,7 +10,7 @@ import sys
 import os
 from typing import Any, Dict, List, Optional, Literal, Union
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_ai import RunContext
 
 # Add the parent directories to path for imports
@@ -66,19 +66,41 @@ class AgenToolManagementInput(BaseModel):
     # Additional parameters for various operations
     detailed: Optional[bool] = Field(False, description="Include detailed information")
     include_tools: Optional[bool] = Field(True, description="Include tool information")
+    
+    @field_validator('agentool_name', mode='before')
+    def validate_agentool_name(cls, v, info):
+        """Validate agentool_name is provided for operations that require it."""
+        operation = info.data.get('operation') if info.data else None
+        if operation in ['get_agentool_info', 'get_agentool_schema', 'get_operations', 
+                         'get_tools_info', 'get_routing_config', 'get_examples', 
+                         'generate_usage_guide'] and (v is None or v == '' or not v):
+            raise ValueError(f"agentool_name is required for {operation} operation")
+        return v
+
+
+class ManagementOutput(BaseModel):
+    """Structured output for management operations."""
+    success: bool = Field(description="Whether the operation succeeded")
+    operation: str = Field(description="The operation that was performed")
+    message: str = Field(description="Human-readable result message")
+    data: Optional[Dict[str, Any]] = Field(None, description="Operation-specific data")
 
 
 # Registry Introspection Operations
 
-async def list_agentools(ctx: RunContext[Any], detailed: bool = False) -> Dict[str, Any]:
+async def list_agentools(ctx: RunContext[Any], detailed: bool = False) -> ManagementOutput:
     """List all registered AgenTools with basic or detailed information."""
     if detailed:
         agentools = AgenToolRegistry.list_detailed()
-        return {
-            "success": True,
-            "count": len(agentools),
-            "agentools": agentools
-        }
+        return ManagementOutput(
+            success=True,
+            operation="list_agentools",
+            message=f"Found {len(agentools)} AgenTools",
+            data={
+                "count": len(agentools),
+                "agentools": agentools
+            }
+        )
     else:
         names = AgenToolRegistry.list_names()
         basic_info = []
@@ -94,21 +116,27 @@ async def list_agentools(ctx: RunContext[Any], detailed: bool = False) -> Dict[s
                     "tags": config.tags
                 })
         
-        return {
-            "success": True,
-            "count": len(names),
-            "agentools": basic_info
-        }
+        return ManagementOutput(
+            success=True,
+            operation="list_agentools",
+            message=f"Found {len(names)} AgenTools",
+            data={
+                "count": len(names),
+                "agentools": basic_info
+            }
+        )
 
 
-async def get_agentool_info(ctx: RunContext[Any], agentool_name: str, detailed: bool = True) -> Dict[str, Any]:
+async def get_agentool_info(ctx: RunContext[Any], agentool_name: str, detailed: bool = True) -> ManagementOutput:
     """Get detailed information about a specific AgenTool."""
     config = AgenToolRegistry.get(agentool_name)
     if not config:
-        return {
-            "success": False,
-            "error": f"AgenTool '{agentool_name}' not found in registry"
-        }
+        return ManagementOutput(
+            success=False,
+            operation="get_agentool_info",
+            message=f"AgenTool '{agentool_name}' not found in registry",
+            data=None
+        )
     
     info = {
         "name": agentool_name,
@@ -139,30 +167,38 @@ async def get_agentool_info(ctx: RunContext[Any], agentool_name: str, detailed: 
             "output_type": str(config.output_type) if config.output_type else None
         })
     
-    return {
-        "success": True,
-        "agentool": info
-    }
+    return ManagementOutput(
+        success=True,
+        operation="get_agentool_info",
+        message=f"Retrieved info for AgenTool '{agentool_name}'",
+        data={"agentool": info}
+    )
 
 
-async def get_agentool_schema(ctx: RunContext[Any], agentool_name: str) -> Dict[str, Any]:
+async def get_agentool_schema(ctx: RunContext[Any], agentool_name: str) -> ManagementOutput:
     """Get the JSON schema for an AgenTool's input."""
     schema = AgenToolRegistry.get_schema(agentool_name)
     if not schema:
-        return {
-            "success": False,
-            "error": f"AgenTool '{agentool_name}' not found in registry"
-        }
+        return ManagementOutput(
+            success=False,
+            operation="get_agentool_schema",
+            message=f"AgenTool '{agentool_name}' not found in registry",
+            data=None
+        )
     
-    return {
-        "success": True,
-        "agentool_name": agentool_name,
-        "schema": schema
-    }
+    return ManagementOutput(
+        success=True,
+        operation="get_agentool_schema",
+        message=f"Retrieved schema for AgenTool '{agentool_name}'",
+        data={
+            "agentool_name": agentool_name,
+            "schema": schema
+        }
+    )
 
 
 async def search_agentools(ctx: RunContext[Any], tags: Optional[List[str]] = None, 
-                          name_pattern: Optional[str] = None) -> Dict[str, Any]:
+                          name_pattern: Optional[str] = None) -> ManagementOutput:
     """Search AgenTools by tags or name pattern."""
     results = AgenToolRegistry.search(tags=tags, name_pattern=name_pattern)
     
@@ -179,57 +215,75 @@ async def search_agentools(ctx: RunContext[Any], tags: Optional[List[str]] = Non
                 "operations": list(config.routing_config.operation_map.keys())
             })
     
-    return {
-        "success": True,
-        "search_criteria": {
-            "tags": tags,
-            "name_pattern": name_pattern
-        },
-        "count": len(results),
-        "results": detailed_results
-    }
+    return ManagementOutput(
+        success=True,
+        operation="search_agentools",
+        message=f"Found {len(results)} matching AgenTools",
+        data={
+            "search_criteria": {
+                "tags": tags,
+                "name_pattern": name_pattern
+            },
+            "count": len(results),
+            "results": detailed_results
+        }
+    )
 
 
-async def get_operations(ctx: RunContext[Any], agentool_name: str) -> Dict[str, Any]:
+async def get_operations(ctx: RunContext[Any], agentool_name: str) -> ManagementOutput:
     """Get available operations for an AgenTool."""
     operations = AgenToolRegistry.get_operations(agentool_name)
     if operations is None:
-        return {
-            "success": False,
-            "error": f"AgenTool '{agentool_name}' not found in registry"
-        }
+        return ManagementOutput(
+            success=False,
+            operation="get_operations",
+            message=f"AgenTool '{agentool_name}' not found in registry",
+            data=None
+        )
     
-    return {
-        "success": True,
-        "agentool_name": agentool_name,
-        "operations": operations
-    }
+    return ManagementOutput(
+        success=True,
+        operation="get_operations",
+        message=f"Retrieved operations for AgenTool '{agentool_name}'",
+        data={
+            "agentool_name": agentool_name,
+            "operations": operations
+        }
+    )
 
 
-async def get_tools_info(ctx: RunContext[Any], agentool_name: str) -> Dict[str, Any]:
+async def get_tools_info(ctx: RunContext[Any], agentool_name: str) -> ManagementOutput:
     """Get information about tools used by an AgenTool."""
     tools_info = AgenToolRegistry.get_tools_info(agentool_name)
     if tools_info is None:
-        return {
-            "success": False,
-            "error": f"AgenTool '{agentool_name}' not found in registry"
-        }
+        return ManagementOutput(
+            success=False,
+            operation="get_tools_info",
+            message=f"AgenTool '{agentool_name}' not found in registry",
+            data=None
+        )
     
-    return {
-        "success": True,
-        "agentool_name": agentool_name,
-        "tools": tools_info
-    }
+    return ManagementOutput(
+        success=True,
+        operation="get_tools_info",
+        message=f"Retrieved tools info for AgenTool '{agentool_name}'",
+        data={
+            "agentool_name": agentool_name,
+            "tools": tools_info
+        }
+    )
 
 
-async def get_routing_config(ctx: RunContext[Any], agentool_name: str) -> Dict[str, Any]:
+async def get_routing_config(ctx: RunContext[Any], agentool_name: str) -> ManagementOutput:
     """Get the routing configuration for an AgenTool."""
     config = AgenToolRegistry.get(agentool_name)
     if not config:
-        return {
-            "success": False,
-            "error": f"AgenTool '{agentool_name}' not found in registry"
-        }
+        return ManagementOutput(
+            success=False,
+            operation="get_routing_config",
+            message=f"AgenTool '{agentool_name}' not found in registry",
+            data=None
+        )
     
     # Extract routing configuration details
     routing_info = {
@@ -252,29 +306,37 @@ async def get_routing_config(ctx: RunContext[Any], agentool_name: str) -> Dict[s
             "has_mapper": mapper_func is not None
         }
     
-    return {
-        "success": True,
-        "agentool_name": agentool_name,
-        "routing_config": routing_info,
-        "total_operations": len(routing_info["operations"])
-    }
+    return ManagementOutput(
+        success=True,
+        operation="get_routing_config",
+        message=f"Retrieved routing config for AgenTool '{agentool_name}'",
+        data={
+            "agentool_name": agentool_name,
+            "routing_config": routing_info,
+            "total_operations": len(routing_info["operations"])
+        }
+    )
 
 
 # Analysis and Documentation Operations
 
-async def generate_dependency_graph(ctx: RunContext[Any], include_tools: bool = True) -> Dict[str, Any]:
+async def generate_dependency_graph(ctx: RunContext[Any], include_tools: bool = True) -> ManagementOutput:
     """Generate a dependency graph showing relationships between AgenTools."""
     graph = AgenToolRegistry.generate_dependency_graph(include_tools=include_tools)
     
-    return {
-        "success": True,
-        "generated_at": datetime.now().isoformat(),
-        "include_tools": include_tools,
-        "dependency_graph": graph
-    }
+    return ManagementOutput(
+        success=True,
+        operation="generate_dependency_graph",
+        message="Generated dependency graph",
+        data={
+            "generated_at": datetime.now().isoformat(),
+            "include_tools": include_tools,
+            "dependency_graph": graph
+        }
+    )
 
 
-async def analyze_agentool_usage(ctx: RunContext[Any], agentool_name: Optional[str] = None) -> Dict[str, Any]:
+async def analyze_agentool_usage(ctx: RunContext[Any], agentool_name: Optional[str] = None) -> ManagementOutput:
     """Analyze usage patterns and relationships for AgenTools."""
     if agentool_name:
         # Analyze specific AgenTool
@@ -339,13 +401,15 @@ async def analyze_agentool_usage(ctx: RunContext[Any], agentool_name: Optional[s
         most_deps = sorted(dependency_counts.items(), key=lambda x: x[1], reverse=True)[:5]
         analysis["most_dependencies"] = [{"name": name, "dependency_count": count} for name, count in most_deps]
     
-    return {
-        "success": True,
-        "analysis": analysis
-    }
+    return ManagementOutput(
+        success=True,
+        operation="analyze_agentool_usage",
+        message="Usage analysis complete",
+        data={"analysis": analysis}
+    )
 
 
-async def validate_dependencies(ctx: RunContext[Any], agentool_name: Optional[str] = None) -> Dict[str, Any]:
+async def validate_dependencies(ctx: RunContext[Any], agentool_name: Optional[str] = None) -> ManagementOutput:
     """Validate that all dependencies for AgenTools are available."""
     results = []
     
@@ -385,14 +449,18 @@ async def validate_dependencies(ctx: RunContext[Any], agentool_name: Optional[st
     
     all_valid = all(result["valid"] for result in results)
     
-    return {
-        "success": True,
-        "all_valid": all_valid,
-        "validation_results": results
-    }
+    return ManagementOutput(
+        success=True,
+        operation="validate_dependencies",
+        message="Dependencies validated" if all_valid else "Some dependencies are missing",
+        data={
+            "all_valid": all_valid,
+            "validation_results": results
+        }
+    )
 
 
-async def get_api_specification(ctx: RunContext[Any], format: str = 'json') -> Dict[str, Any]:
+async def get_api_specification(ctx: RunContext[Any], format: str = 'json') -> ManagementOutput:
     """Generate an OpenAPI-like specification for all AgenTools."""
     spec = AgenToolRegistry.generate_api_spec()
     
@@ -401,32 +469,40 @@ async def get_api_specification(ctx: RunContext[Any], format: str = 'json') -> D
             import yaml
             spec_formatted = yaml.dump(spec, default_flow_style=False)
         except ImportError:
-            return {
-                "success": False,
-                "error": "PyYAML not available for YAML format"
-            }
+            return ManagementOutput(
+                success=False,
+                operation="get_api_specification",
+                message="PyYAML not available for YAML format",
+                data=None
+            )
     else:
         spec_formatted = spec
     
-    return {
-        "success": True,
-        "format": format,
-        "specification": spec_formatted
-    }
+    return ManagementOutput(
+        success=True,
+        operation="get_api_specification",
+        message=f"Generated API specification in {format} format",
+        data={
+            "format": format,
+            "specification": spec_formatted
+        }
+    )
 
 
 async def generate_docs(ctx: RunContext[Any], format: str = 'markdown', 
-                       agentool_name: Optional[str] = None) -> Dict[str, Any]:
+                       agentool_name: Optional[str] = None) -> ManagementOutput:
     """Generate documentation for AgenTools."""
     if format.lower() == 'markdown':
         if agentool_name:
             # Generate docs for specific AgenTool
             config = AgenToolRegistry.get(agentool_name)
             if not config:
-                return {
-                    "success": False,
-                    "error": f"AgenTool '{agentool_name}' not found in registry"
-                }
+                return ManagementOutput(
+                    success=False,
+                    operation="generate_docs",
+                    message=f"AgenTool '{agentool_name}' not found in registry",
+                    data=None
+                )
             
             # Create single AgenTool markdown doc
             lines = [f"# {agentool_name}", ""]
@@ -464,40 +540,52 @@ async def generate_docs(ctx: RunContext[Any], format: str = 'markdown',
             # Generate docs for all AgenTools
             docs = AgenToolRegistry.generate_markdown_docs()
         
-        return {
-            "success": True,
-            "format": "markdown",
-            "documentation": docs
-        }
+        return ManagementOutput(
+            success=True,
+            operation="generate_docs",
+            message="Generated documentation in markdown format",
+            data={
+                "format": "markdown",
+                "documentation": docs
+            }
+        )
     else:
         # JSON format
         if agentool_name:
             detailed = AgenToolRegistry.list_detailed()
             agentool_docs = next((a for a in detailed if a["name"] == agentool_name), None)
             if not agentool_docs:
-                return {
-                    "success": False,
-                    "error": f"AgenTool '{agentool_name}' not found in registry"
-                }
+                return ManagementOutput(
+                    success=False,
+                    operation="generate_docs",
+                    message=f"AgenTool '{agentool_name}' not found in registry",
+                    data=None
+                )
             docs = agentool_docs
         else:
             docs = AgenToolRegistry.list_detailed()
         
-        return {
-            "success": True,
-            "format": "json",
-            "documentation": docs
-        }
+        return ManagementOutput(
+            success=True,
+            operation="generate_docs",
+            message="Generated documentation in JSON format",
+            data={
+                "format": "json",
+                "documentation": docs
+            }
+        )
 
 
-async def get_examples(ctx: RunContext[Any], agentool_name: str) -> Dict[str, Any]:
+async def get_examples(ctx: RunContext[Any], agentool_name: str) -> ManagementOutput:
     """Get usage examples for a specific AgenTool."""
     config = AgenToolRegistry.get(agentool_name)
     if not config:
-        return {
-            "success": False,
-            "error": f"AgenTool '{agentool_name}' not found in registry"
-        }
+        return ManagementOutput(
+            success=False,
+            operation="get_examples",
+            message=f"AgenTool '{agentool_name}' not found in registry",
+            data=None
+        )
     
     examples = config.examples if config.examples else []
     
@@ -513,14 +601,18 @@ async def get_examples(ctx: RunContext[Any], agentool_name: str) -> Dict[str, An
             })
         examples = generated_examples
     
-    return {
-        "success": True,
-        "agentool_name": agentool_name,
-        "examples": examples
-    }
+    return ManagementOutput(
+        success=True,
+        operation="get_examples",
+        message=f"Retrieved examples for AgenTool '{agentool_name}'",
+        data={
+            "agentool_name": agentool_name,
+            "examples": examples
+        }
+    )
 
 
-async def export_catalog(ctx: RunContext[Any], format: str = 'json') -> Dict[str, Any]:
+async def export_catalog(ctx: RunContext[Any], format: str = 'json') -> ManagementOutput:
     """Export the full AgenTool catalog."""
     catalog = AgenToolRegistry.export_catalog()
     
@@ -529,28 +621,36 @@ async def export_catalog(ctx: RunContext[Any], format: str = 'json') -> Dict[str
             import yaml
             catalog_formatted = yaml.dump(catalog, default_flow_style=False)
         except ImportError:
-            return {
-                "success": False,
-                "error": "PyYAML not available for YAML format"
-            }
+            return ManagementOutput(
+                success=False,
+                operation="export_catalog",
+                message="PyYAML not available for YAML format",
+                data=None
+            )
     else:
         catalog_formatted = catalog
     
-    return {
-        "success": True,
-        "format": format,
-        "catalog": catalog_formatted
-    }
+    return ManagementOutput(
+        success=True,
+        operation="export_catalog",
+        message=f"Exported catalog in {format} format",
+        data={
+            "format": format,
+            "catalog": catalog_formatted
+        }
+    )
 
 
-async def generate_usage_guide(ctx: RunContext[Any], agentool_name: str) -> Dict[str, Any]:
+async def generate_usage_guide(ctx: RunContext[Any], agentool_name: str) -> ManagementOutput:
     """Generate a usage guide for a specific AgenTool."""
     config = AgenToolRegistry.get(agentool_name)
     if not config:
-        return {
-            "success": False,
-            "error": f"AgenTool '{agentool_name}' not found in registry"
-        }
+        return ManagementOutput(
+            success=False,
+            operation="generate_usage_guide",
+            message=f"AgenTool '{agentool_name}' not found in registry",
+            data=None
+        )
     
     guide = {
         "agentool_name": agentool_name,
@@ -577,10 +677,12 @@ async def generate_usage_guide(ctx: RunContext[Any], agentool_name: str) -> Dict
         }
         guide["available_operations"].append(op_info)
     
-    return {
-        "success": True,
-        "usage_guide": guide
-    }
+    return ManagementOutput(
+        success=True,
+        operation="generate_usage_guide",
+        message=f"Generated usage guide for AgenTool '{agentool_name}'",
+        data={"usage_guide": guide}
+    )
 
 
 # Main routing function
@@ -597,92 +699,191 @@ async def manage_agentool(ctx: RunContext[Any],
                          include_examples: Optional[bool] = True,
                          include_schemas: Optional[bool] = True,
                          detailed: Optional[bool] = False,
-                         include_tools: Optional[bool] = True) -> Dict[str, Any]:
+                         include_tools: Optional[bool] = True) -> ManagementOutput:
     """Main routing function for AgenTool management operations."""
     
+    # Get injector for logging
+    from agentool.core.injector import get_injector
+    injector = get_injector()
+    
+    # Log the operation start
+    await injector.run('logging', {
+        'operation': 'log',
+        'level': 'INFO',
+        'logger_name': 'management',
+        'message': f"Management operation '{operation}' started",
+        'data': {
+            'operation': operation,
+            'agentool_name': agentool_name,
+            'tags': tags,
+            'detailed': detailed,
+            'format': format
+        }
+    })
+    
     try:
+        result = None
+        
         # Registry introspection operations
         if operation == 'list_agentools':
-            return await list_agentools(ctx, detailed=detailed)
+            result = await list_agentools(ctx, detailed=detailed)
         
         elif operation == 'get_agentool_info':
             if not agentool_name:
-                return {"success": False, "error": "agentool_name is required for this operation"}
-            return await get_agentool_info(ctx, agentool_name, detailed=detailed)
+                result = ManagementOutput(
+                    success=False,
+                    operation=operation,
+                    message="agentool_name is required for this operation",
+                    data=None
+                )
+            else:
+                result = await get_agentool_info(ctx, agentool_name, detailed=detailed)
         
         elif operation == 'get_agentool_schema':
             if not agentool_name:
-                return {"success": False, "error": "agentool_name is required for this operation"}
-            return await get_agentool_schema(ctx, agentool_name)
+                result = ManagementOutput(
+                    success=False,
+                    operation=operation,
+                    message="agentool_name is required for this operation",
+                    data=None
+                )
+            else:
+                result = await get_agentool_schema(ctx, agentool_name)
         
         elif operation == 'search_agentools':
-            return await search_agentools(ctx, tags=tags, name_pattern=name_pattern)
+            result = await search_agentools(ctx, tags=tags, name_pattern=name_pattern)
         
         elif operation == 'get_operations':
             if not agentool_name:
-                return {"success": False, "error": "agentool_name is required for this operation"}
-            return await get_operations(ctx, agentool_name)
+                result = ManagementOutput(
+                    success=False,
+                    operation=operation,
+                    message="agentool_name is required for this operation",
+                    data=None
+                )
+            else:
+                result = await get_operations(ctx, agentool_name)
         
         elif operation == 'get_tools_info':
             if not agentool_name:
-                return {"success": False, "error": "agentool_name is required for this operation"}
-            return await get_tools_info(ctx, agentool_name)
+                result = ManagementOutput(
+                    success=False,
+                    operation=operation,
+                    message="agentool_name is required for this operation",
+                    data=None
+                )
+            else:
+                result = await get_tools_info(ctx, agentool_name)
         
         elif operation == 'get_routing_config':
             if not agentool_name:
-                return {"success": False, "error": "agentool_name is required for this operation"}
-            return await get_routing_config(ctx, agentool_name)
+                result = ManagementOutput(
+                    success=False,
+                    operation=operation,
+                    message="agentool_name is required for this operation",
+                    data=None
+                )
+            else:
+                result = await get_routing_config(ctx, agentool_name)
         
         # Analysis and documentation operations
         elif operation == 'generate_dependency_graph':
-            return await generate_dependency_graph(ctx, include_tools=include_tools)
+            result = await generate_dependency_graph(ctx, include_tools=include_tools)
         
         elif operation == 'analyze_agentool_usage':
-            return await analyze_agentool_usage(ctx, agentool_name=agentool_name)
+            result = await analyze_agentool_usage(ctx, agentool_name=agentool_name)
         
         elif operation == 'validate_dependencies':
-            return await validate_dependencies(ctx, agentool_name=agentool_name)
+            result = await validate_dependencies(ctx, agentool_name=agentool_name)
         
         elif operation == 'get_api_specification':
-            return await get_api_specification(ctx, format=format)
+            result = await get_api_specification(ctx, format=format)
         
         elif operation == 'generate_docs':
-            return await generate_docs(ctx, format=format, agentool_name=agentool_name)
+            result = await generate_docs(ctx, format=format, agentool_name=agentool_name)
         
         elif operation == 'get_examples':
             if not agentool_name:
-                return {"success": False, "error": "agentool_name is required for this operation"}
-            return await get_examples(ctx, agentool_name)
+                result = ManagementOutput(
+                    success=False,
+                    operation=operation,
+                    message="agentool_name is required for this operation",
+                    data=None
+                )
+            else:
+                result = await get_examples(ctx, agentool_name)
         
         elif operation == 'export_catalog':
-            return await export_catalog(ctx, format=format)
+            result = await export_catalog(ctx, format=format)
         
         elif operation == 'generate_usage_guide':
             if not agentool_name:
-                return {"success": False, "error": "agentool_name is required for this operation"}
-            return await generate_usage_guide(ctx, agentool_name)
+                result = ManagementOutput(
+                    success=False,
+                    operation=operation,
+                    message="agentool_name is required for this operation",
+                    data=None
+                )
+            else:
+                result = await generate_usage_guide(ctx, agentool_name)
         
         # Placeholder for future operations
         elif operation in ['create_agentool_config', 'update_agentool_config', 
                           'register_agentool', 'unregister_agentool', 'validate_agentool_config',
                           'create_simple_agentool', 'create_tool_function',
                           'validate_tool_signature', 'infer_routing_config']:
-            return {
-                "success": False,
-                "error": f"Operation '{operation}' is not yet implemented"
-            }
+            result = ManagementOutput(
+                success=False,
+                operation=operation,
+                message=f"Operation '{operation}' is not yet implemented",
+                data=None
+            )
         
         else:
-            return {
-                "success": False,
-                "error": f"Unknown operation: {operation}"
+            result = ManagementOutput(
+                success=False,
+                operation=operation,
+                message=f"Unknown operation: {operation}",
+                data=None
+            )
+        
+        # Log successful completion
+        await injector.run('logging', {
+            'operation': 'log',
+            'level': 'INFO',
+            'logger_name': 'management',
+            'message': f"Management operation '{operation}' completed successfully",
+            'data': {
+                'operation': operation,
+                'agentool_name': agentool_name,
+                'success': result.success,
+                'message': result.message
             }
+        })
+        
+        return result
     
     except Exception as e:
-        return {
-            "success": False,
-            "error": f"Error executing operation '{operation}': {str(e)}"
-        }
+        # Log error
+        await injector.run('logging', {
+            'operation': 'log',
+            'level': 'ERROR',
+            'logger_name': 'management',
+            'message': f"Management operation '{operation}' failed with error",
+            'data': {
+                'operation': operation,
+                'agentool_name': agentool_name,
+                'error': str(e),
+                'error_type': type(e).__name__
+            }
+        })
+        
+        return ManagementOutput(
+            success=False,
+            operation=operation,
+            message=f"Error executing operation '{operation}': {str(e)}",
+            data=None
+        )
 
 
 def create_agentool_management_agent():
@@ -809,12 +1010,15 @@ def create_agentool_management_agent():
     agent = create_agentool(
         name='agentool_mgmt',
         input_schema=AgenToolManagementInput,
+        output_type=ManagementOutput,
+        use_typed_output=True,  # Enable typed output for management (Tier 4 - no dependencies)
         routing_config=routing_config,
         tools=[manage_agentool],
         system_prompt="Manage and introspect AgenTool registry operations with comprehensive capabilities.",
         description="Comprehensive management and introspection toolkit for AgenTool registry system",
         version="1.0.0",
-        tags=["management", "introspection", "registry", "documentation"]
+        tags=["management", "introspection", "registry", "documentation"],
+        dependencies=["logging"]  # Uses logging for operation tracking
     )
     
     return agent

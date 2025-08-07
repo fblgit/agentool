@@ -193,7 +193,7 @@ def render_sidebar():
         )
         
         model_map = {
-            "OpenAI": ["gpt-4o", "o4-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
+            "OpenAI": ["gpt-4.1-nano", "gpt-4o", "o4-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
             "Anthropic": ["claude-4-opus", "claude-4-sonnet", "claude-3-opus", "claude-3-sonnet", "claude-3-haiku"],
             "Google": ["gemini-2.5-pro", "gemini-1.5-pro", "gemini-1.5-flash"],
             "Groq": ["mixtral-8x7b", "llama-3-70b"]
@@ -308,6 +308,9 @@ def reset_workflow():
 
 def render_clickable_artifacts(artifacts: List[str], phase_key: str):
     """Render artifacts as clickable buttons that show content in a modal."""
+    # Check if workflow is running - disable buttons during execution
+    is_running = st.session_state.ui_state.workflow_running
+    
     # Group artifacts by type
     kv_artifacts = [a for a in artifacts if a.startswith('storage_kv:')]
     fs_artifacts = [a for a in artifacts if a.startswith('storage_fs:')]
@@ -322,8 +325,19 @@ def render_clickable_artifacts(artifacts: List[str], phase_key: str):
             with cols[idx % 3]:
                 key = artifact.replace('storage_kv:', '')
                 display_name = key.split('/')[-1]
-                if st.button(f"📦 {display_name}", key=f"artifact_{phase_key}_{idx}", use_container_width=True):
-                    show_artifact_content(artifact, key)
+                # Use the full artifact path to create unique button key
+                button_key = f"btn_{phase_key}_{artifact.replace(':', '_').replace('/', '_')}"
+                
+                # Disable button if workflow is running
+                if is_running:
+                    st.button(f"📦 {display_name}", 
+                             key=button_key, 
+                             use_container_width=True,
+                             disabled=True,
+                             help="Cannot view artifacts while workflow is running")
+                else:
+                    if st.button(f"📦 {display_name}", key=button_key, use_container_width=True):
+                        show_artifact_content(artifact, key)
             shown_count += 1
     
     if fs_artifacts:
@@ -333,12 +347,27 @@ def render_clickable_artifacts(artifacts: List[str], phase_key: str):
             with cols[idx % 3]:
                 path = artifact.replace('storage_fs:', '')
                 display_name = path.split('/')[-1]
-                if st.button(f"📄 {display_name}", key=f"artifact_fs_{phase_key}_{idx}", use_container_width=True):
-                    show_artifact_content(artifact, path)
+                # Use the full artifact path to create unique button key
+                button_key = f"btn_{phase_key}_{artifact.replace(':', '_').replace('/', '_')}"
+                
+                # Disable button if workflow is running
+                if is_running:
+                    st.button(f"📄 {display_name}", 
+                             key=button_key, 
+                             use_container_width=True,
+                             disabled=True,
+                             help="Cannot view artifacts while workflow is running")
+                else:
+                    if st.button(f"📄 {display_name}", key=button_key, use_container_width=True):
+                        show_artifact_content(artifact, path)
             shown_count += 1
     
     if len(artifacts) > 5:
         st.caption(f"... and {len(artifacts) - 5} more artifacts")
+    
+    # Show info message if workflow is running
+    if is_running:
+        st.info("🔄 Artifact viewing is disabled while workflow is running to prevent interruption.")
 
 
 @st.dialog("Artifact Content", width="large")
@@ -365,13 +394,9 @@ def show_artifact_content(artifact_ref: str, artifact_key: str):
                 'key': key
             }))
             
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result.data if hasattr(result, 'data') else result
-            
-            if data.get('data', {}).get('exists', False):
-                content = json.loads(data['data']['value'])
+            # AgenTools return typed outputs
+            if result.success and result.data.get('exists', False):
+                content = json.loads(result.data['value'])
                 
                 # Display based on content type
                 if isinstance(content, dict):
@@ -395,13 +420,9 @@ def show_artifact_content(artifact_ref: str, artifact_key: str):
                 'path': key
             }))
             
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result.data if hasattr(result, 'data') else result
-            
-            if data.get('data', {}).get('content'):
-                content = data['data']['content']
+            # AgenTools return typed outputs
+            if result.success and result.data.get('content'):
+                content = result.data['content']
                 
                 # Display based on file type
                 if key.endswith('.py'):
@@ -614,19 +635,26 @@ def render_results_section():
         # Artifact viewer
         if st.session_state.ui_state.artifacts:
             artifact_viewer = ArtifactViewer()
-            # Flatten artifacts for viewer
-            all_artifacts = {}
+            # Convert artifacts to the format expected by artifact_viewer
+            # artifact_viewer expects: {key: {'key': key, 'data': {'type': storage_type, ...}}}
+            viewer_artifacts = {}
             for phase, artifacts in st.session_state.ui_state.artifacts.items():
                 for artifact in artifacts:
-                    # Extract key from storage reference
+                    # Extract key and type from storage reference
                     if artifact.startswith("storage_kv:"):
                         key = artifact.replace("storage_kv:", "")
-                        all_artifacts[key] = {"type": "storage_kv", "phase": phase}
+                        viewer_artifacts[key] = {
+                            'key': key,
+                            'data': {'type': 'storage_kv', 'phase': phase}
+                        }
                     elif artifact.startswith("storage_fs:"):
                         key = artifact.replace("storage_fs:", "")
-                        all_artifacts[key] = {"type": "storage_fs", "phase": phase}
+                        viewer_artifacts[key] = {
+                            'key': key,
+                            'data': {'type': 'storage_fs', 'phase': phase}
+                        }
             
-            artifact_viewer.render(all_artifacts)
+            artifact_viewer.render(viewer_artifacts)
     
     with tab3:
         # Code display - handle multiple generated tools
@@ -667,13 +695,9 @@ def render_results_section():
                                         'key': impl_key
                                     }))
                                     
-                                    if hasattr(result_data, 'output'):
-                                        data = json.loads(result_data.output)
-                                    else:
-                                        data = result_data.data if hasattr(result_data, 'data') else result_data
-                                    
-                                    if data.get('data', {}).get('exists', False):
-                                        code_data = json.loads(data['data']['value'])
+                                    # AgenTools return typed outputs
+                                    if result_data.success and result_data.data.get('exists', False):
+                                        code_data = json.loads(result_data.data['value'])
                                         if 'code' in code_data:
                                             code_editor.render_code(code_data['code'], key_suffix=f"tool_{impl_name}")
                                             
@@ -687,8 +711,10 @@ def render_results_section():
                                             )
                                         else:
                                             st.warning(f"No code found for {impl_name}")
+                                    elif not result_data.success:
+                                        st.error(f"Could not fetch code for {impl_name}: Operation failed")
                                     else:
-                                        st.error(f"Could not fetch code for {impl_name}")
+                                        st.error(f"Could not fetch code for {impl_name}: Key not found")
                                 except Exception as e:
                                     st.error(f"Error loading code: {e}")
                             else:
@@ -773,13 +799,9 @@ def render_test_code_section():
                             'path': path
                         }))
                         
-                        if hasattr(result, 'output'):
-                            data = json.loads(result.output)
-                        else:
-                            data = result.data if hasattr(result, 'data') else result
-                        
-                        if data.get('data', {}).get('content'):
-                            test_files[filename] = data['data']['content']
+                        # storage_fs returns typed StorageFsOutput
+                        if result.success and result.data.get('content'):
+                            test_files[filename] = result.data['content']
                     except Exception as e:
                         st.error(f"Error loading test file {filename}: {e}")
     
@@ -807,14 +829,10 @@ def render_generation_summary():
             'path': summary_artifact_key
         }))
         
-        if hasattr(result, 'output'):
-            data = json.loads(result.output)
-        else:
-            data = result.data if hasattr(result, 'data') else result
-        
-        if data.get('data', {}).get('content'):
+        # storage_fs returns typed StorageFsOutput
+        if result.success and result.data.get('content'):
             # Display the markdown content
-            st.markdown(data['data']['content'])
+            st.markdown(result.data['content'])
         else:
             st.info("No generation summary available yet. The summary will be created after the evaluation phase completes.")
     except Exception as e:
@@ -857,13 +875,9 @@ def render_test_summary():
                     'path': summary_path
                 }))
                 
-                if hasattr(result, 'output'):
-                    data = json.loads(result.output)
-                else:
-                    data = result.data if hasattr(result, 'data') else result
-                
-                if data.get('data', {}).get('content'):
-                    st.markdown(data['data']['content'])
+                # storage_fs returns typed StorageFsOutput
+                if result.success and result.data.get('content'):
+                    st.markdown(result.data['content'])
                 else:
                     st.warning("Test summary file is empty")
             except Exception as e:
@@ -891,13 +905,9 @@ def render_test_summary():
                             'path': summary_path
                         }))
                         
-                        if hasattr(result, 'output'):
-                            data = json.loads(result.output)
-                        else:
-                            data = result.data if hasattr(result, 'data') else result
-                        
-                        if data.get('data', {}).get('content'):
-                            st.markdown(data['data']['content'])
+                        # storage_fs returns typed StorageFsOutput
+                        if result.success and result.data.get('content'):
+                            st.markdown(result.data['content'])
                         else:
                             st.warning(f"Test summary for {tool_name} is empty")
                     except Exception as e:
@@ -1052,7 +1062,9 @@ def render_workflow_summary():
             "metadata": meta.model_dump() if meta else None,
             "artifacts": st.session_state.ui_state.artifacts,
             "results": {
-                phase: result.model_dump() if hasattr(result, 'model_dump') else result.__dict__
+                phase: result.model_dump() if hasattr(result, 'model_dump') else (
+                    result.__dict__ if hasattr(result, '__dict__') else str(result)
+                )
                 for phase, result in st.session_state.ui_state.phase_results.items()
             }
         }

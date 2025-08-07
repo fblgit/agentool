@@ -283,12 +283,8 @@ class WorkflowRunner:
                 'pattern': f'workflow/{self.state.workflow_id}/*'
             })
             
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result.data if hasattr(result, 'data') else result
-            
-            keys = data.get('data', {}).get('keys', [])
+            # AgenTools return typed outputs
+            keys = result.data.get('keys', []) if result.success else []
             
             # Retrieve each artifact
             for key in keys:
@@ -298,14 +294,10 @@ class WorkflowRunner:
                         'key': key
                     })
                     
-                    if hasattr(get_result, 'output'):
-                        value_data = json.loads(get_result.output)
-                    else:
-                        value_data = get_result.data if hasattr(get_result, 'data') else get_result
-                    
-                    if value_data.get('data', {}).get('exists'):
+                    # storage_kv returns typed StorageKvOutput
+                    if get_result.success and get_result.data.get('exists'):
                         artifact_name = key.split('/')[-1]
-                        artifacts[artifact_name] = json.loads(value_data['data']['value'])
+                        artifacts[artifact_name] = json.loads(get_result.data['value'])
                 except:
                     pass
         

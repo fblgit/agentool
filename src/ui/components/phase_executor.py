@@ -290,11 +290,11 @@ class PhaseExecutor:
             'key': specs_key
         }))
         
-        specs_data = self._extract_result_data(specs_result)
-        if not specs_data.get('data', {}).get('exists', False):
+        # specs_result is already a typed output from storage_kv
+        if not specs_result.success or not specs_result.data.get('exists', False):
             raise RuntimeError(f"No specifications found for {phase_name}")
         
-        spec_output = json.loads(specs_data['data']['value'])
+        spec_output = json.loads(specs_result.data['value'])
         tools_processed = 0
         results = []
         
@@ -320,8 +320,8 @@ class PhaseExecutor:
                     'operation': 'exists',
                     'key': check_key
                 }))
-                check_data = self._extract_result_data(check_result)
-                if not check_data.get('data', {}).get('exists', False):
+                # check_result is already a typed output
+                if not check_result.success or not check_result.data.get('exists', False):
                     continue
             
             # Execute for this tool - add tool_name for test phases
@@ -348,13 +348,12 @@ class PhaseExecutor:
         }
     
     def _extract_result_data(self, result: Any) -> Dict[str, Any]:
-        """Extract data from various result formats."""
-        if hasattr(result, 'output'):
-            return json.loads(result.output)
-        elif hasattr(result, 'data'):
-            return result.data
-        else:
-            return result
+        """Extract data from typed result formats."""
+        # All AgenTools now return typed outputs with success and data fields
+        if hasattr(result, 'success') and hasattr(result, 'data'):
+            return {'success': result.success, 'data': result.data} if result.success else {'success': False}
+        # Fallback for non-AgenTool results
+        return result if isinstance(result, dict) else {}
     
     def _capture_artifacts(self, config: PhaseConfig, workflow_id: str, 
                           extracted_data: Optional[Dict[str, Any]] = None) -> List[str]:

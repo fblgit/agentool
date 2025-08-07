@@ -100,13 +100,13 @@ class TestAgentIntegration:
             assert hasattr(agentool_calc, 'run_sync')
             assert hasattr(agentool_calc, 'run_stream')
             
-            # Test AgenTool returns results with .output
+            # Test AgenTool returns results with .output (when use_typed_output is not specified)
             agentool_res = await agentool_calc.run(json.dumps({
                 "operation": "add",
                 "a": 5,
                 "b": 3
             }))
-            assert hasattr(agentool_res, 'output')
+            assert hasattr(agentool_res, 'output')  # Expected behavior when use_typed_output is not specified
             
             # Verify output
             agentool_output = json.loads(agentool_res.output)

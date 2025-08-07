@@ -22,7 +22,7 @@ class TestStorageVector:
         get_injector().clear()
         
         # Import and create the agent
-        from agentoolkit.storage.vector import create_storage_vector_agent, _pool
+        from agentoolkit.storage.vector import create_vector_agent, _pool
         
         # Clear connection pool
         if _pool is not None:
@@ -31,7 +31,7 @@ class TestStorageVector:
             vector._pool = None
         
         # Register agent
-        agent = create_storage_vector_agent()
+        agent = create_vector_agent()
     
     def teardown_method(self):
         """Clean up resources after each test."""
@@ -54,14 +54,10 @@ class TestStorageVector:
                 "collection": collection
             })
             
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result
-            
-            assert data.get("success") is True
-            assert f"Collection '{collection}' initialized" in data.get("message", "")
-            assert data.get("data", {}).get("collection") == collection
+            # storage_vector returns typed StorageVectorOutput
+            assert result.success is True
+            assert f"Collection '{collection}' initialized" in result.message
+            assert result.data["collection"] == collection
         
         asyncio.run(run_test())
     
@@ -102,13 +98,9 @@ class TestStorageVector:
                 "contents": contents
             })
             
-            if hasattr(upsert_result, 'output'):
-                upsert_data = json.loads(upsert_result.output)
-            else:
-                upsert_data = upsert_result
-            
-            assert upsert_data.get("success") is True
-            assert upsert_data.get("count") == 3
+            # storage_vector returns typed StorageVectorOutput
+            assert upsert_result.success is True
+            assert upsert_result.data["count"] == 3
             
             # Search for similar vectors
             query_embedding = [0.15] * 1536  # Should be closest to vec1
@@ -120,21 +112,16 @@ class TestStorageVector:
                 "top_k": 2
             })
             
-            if hasattr(search_result, 'output'):
-                search_data = json.loads(search_result.output)
-            else:
-                search_data = search_result
-            
-            assert search_data.get("success") is True
-            assert search_data.get("count") == 2
-            results = search_data.get("data", {}).get("results", [])
+            # storage_vector returns typed StorageVectorOutput
+            assert search_result.success is True
+            assert search_result.data["count"] == 2
+            results = search_result.data["results"]
             assert len(results) == 2
             
             # Check first result is most similar
-            if results:
-                assert results[0]["id"] == "vec1"  # Closest to query
-                assert "similarity" in results[0]
-                assert results[0]["content"] == "First document"
+            assert results[0]["id"] == "vec1"  # Closest to query
+            assert "similarity" in results[0]
+            assert results[0]["content"] == "First document"
         
         asyncio.run(run_test())
     
@@ -168,13 +155,9 @@ class TestStorageVector:
                 "doc_ids": ["del1"]
             })
             
-            if hasattr(delete_result, 'output'):
-                delete_data = json.loads(delete_result.output)
-            else:
-                delete_data = delete_result
-            
-            assert delete_data.get("success") is True
-            assert delete_data.get("count") >= 1
+            # storage_vector returns typed StorageVectorOutput
+            assert delete_result.success is True
+            assert delete_result.data["count"] >= 1
             
             # Verify deletion with search
             search_result = await injector.run('storage_vector', {
@@ -184,15 +167,13 @@ class TestStorageVector:
                 "top_k": 10
             })
             
-            if hasattr(search_result, 'output'):
-                search_data = json.loads(search_result.output)
-            else:
-                search_data = search_result
-            
-            results = search_data.get("data", {}).get("results", [])
-            # Should not find del1
-            for result in results:
-                assert result["id"] != "del1"
+            # storage_vector returns typed StorageVectorOutput  
+            # Should not find del1 (with updated discovery pattern, might return success=False if no results)
+            if search_result.success:
+                results = search_result.data["results"]
+                for result in results:
+                    assert result["id"] != "del1"
+            # If success=False, no results found which is also acceptable after deletion
         
         asyncio.run(run_test())
     
@@ -215,13 +196,9 @@ class TestStorageVector:
                 "operation": "list_collections"
             })
             
-            if hasattr(list_result, 'output'):
-                list_data = json.loads(list_result.output)
-            else:
-                list_data = list_result
-            
-            assert list_data.get("success") is True
-            found_collections = list_data.get("data", {}).get("collections", [])
+            # storage_vector returns typed StorageVectorOutput
+            assert list_result.success is True
+            found_collections = list_result.data["collections"]
             
             # Check our test collections are listed
             for col in collections:
@@ -269,13 +246,9 @@ class TestStorageVector:
                 "filter": {"category": "tech"}
             })
             
-            if hasattr(search_result, 'output'):
-                search_data = json.loads(search_result.output)
-            else:
-                search_data = search_result
-            
+            # storage_vector returns typed StorageVectorOutput
             # Basic check - filter implementation is TODO Phase 2
-            assert search_data.get("success") is True
+            assert search_result.success is True
         
         asyncio.run(run_test())
     
@@ -310,7 +283,56 @@ class TestStorageVector:
                 pass  # Expected
         
         asyncio.run(run_test())
-
-
+    
+    def test_discovery_operations(self):
+        """Test discovery operations - collection_exists and search with no results."""
+        
+        async def run_test():
+            injector = get_injector()
+            
+            # Test collection_exists with non-existent collection (should return success=False)
+            result = await injector.run('storage_vector', {
+                "operation": "collection_exists",
+                "collection": "nonexistent_collection"
+            })
+            
+            # Discovery pattern: success=False for not found
+            assert result.success is False
+            assert result.operation == "collection_exists"
+            assert "does not exist" in result.message
+            assert result.data["exists"] is False
+            
+            # Create a collection and verify it exists
+            await injector.run('storage_vector', {
+                "operation": "init_collection",
+                "collection": "test_exists"
+            })
+            
+            # Now test that it exists
+            result = await injector.run('storage_vector', {
+                "operation": "collection_exists", 
+                "collection": "test_exists"
+            })
+            
+            assert result.success is True
+            assert result.data["exists"] is True
+            
+            # Test search with no results (empty collection)
+            search_result = await injector.run('storage_vector', {
+                "operation": "search",
+                "collection": "test_exists",
+                "query_embedding": [0.1] * 1536,
+                "top_k": 5
+            })
+            
+            # Discovery pattern: success=False when no results found
+            assert search_result.success is False
+            assert search_result.operation == "search"
+            assert "No vectors found" in search_result.message
+            assert search_result.data["count"] == 0
+            assert search_result.data["results"] == []
+        
+        asyncio.run(run_test())
+    
 # Note: These tests require PostgreSQL with pgvector running
 # Run: docker run --rm -e POSTGRES_PASSWORD=postgres -p 54320:5432 pgvector/pgvector:pg17

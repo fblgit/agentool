@@ -10,7 +10,7 @@ from typing import Dict, Any, List, Literal
 from pydantic import BaseModel, Field
 from pydantic_ai import RunContext, Agent
 
-from agentool import create_agentool
+from agentool import create_agentool, BaseOperationInput
 from agentool.core.registry import RoutingConfig
 from agentool.core.injector import get_injector
 
@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../'))
 from agents.models import CodeOutput, AnalyzerOutput, SpecificationOutput, ExistingToolInfo
 
 
-class WorkflowCrafterInput(BaseModel):
+class WorkflowCrafterInput(BaseOperationInput):
     """Input schema for workflow crafter operations."""
     operation: Literal['craft', 'craft_multi'] = Field(
         description="Operation to perform (craft single or multiple tools)"
@@ -38,6 +38,7 @@ class WorkflowCrafterInput(BaseModel):
 class WorkflowCrafterOutput(BaseModel):
     """Output from workflow code generation."""
     success: bool = Field(description="Whether code generation succeeded")
+    operation: str = Field(description="Operation that was performed")
     message: str = Field(description="Status message")
     data: Dict[str, Any] = Field(description="Generated code and metadata")
     state_ref: str = Field(description="Reference to stored state in storage_kv")
@@ -72,13 +73,10 @@ async def update_tool_transition(injector: Any, workflow_id: str, tool_name: str
         'key': spec_key
     })
     
-    if hasattr(spec_result, 'output'):
-        spec_data = json.loads(spec_result.output)
-    else:
-        spec_data = spec_result.data if hasattr(spec_result, 'data') else spec_result
-    
-    if spec_data.get('data', {}).get('exists', False):
-        spec = json.loads(spec_data['data']['value'])
+    # storage_kv returns typed StorageKvOutput
+    assert spec_result.success is True
+    if spec_result.data.get('exists', False):
+        spec = json.loads(spec_result.data['value'])
         new_tool_registry['description'] = spec.get('description', new_tool_registry['description'])
         new_tool_registry['input_schema'] = spec.get('input_schema', {})
         new_tool_registry['output_schema'] = spec.get('output_schema', {})
@@ -100,14 +98,11 @@ async def update_tool_transition(injector: Any, workflow_id: str, tool_name: str
         'key': existing_tools_key
     })
     
-    if hasattr(existing_tools_result, 'output'):
-        existing_tools_data = json.loads(existing_tools_result.output)
-    else:
-        existing_tools_data = existing_tools_result.data if hasattr(existing_tools_result, 'data') else existing_tools_result
-    
+    # storage_kv returns typed StorageKvOutput
+    assert existing_tools_result.success is True
     existing_tools = {}
-    if existing_tools_data.get('data', {}).get('exists', False):
-        existing_tools = json.loads(existing_tools_data['data']['value'])
+    if existing_tools_result.data.get('exists', False):
+        existing_tools = json.loads(existing_tools_result.data['value'])
     
     # Add the new tool
     existing_tools[tool_name] = new_tool_registry
@@ -161,16 +156,9 @@ async def craft_single_tool(
         }
     })
     
-    if hasattr(skeleton_result, 'output'):
-        skeleton_data = json.loads(skeleton_result.output)
-    else:
-        skeleton_data = skeleton_result.data if hasattr(skeleton_result, 'data') else skeleton_result
-    
-    # Extract rendered content from the data field
-    if isinstance(skeleton_data, dict) and 'data' in skeleton_data:
-        skeleton = skeleton_data['data'].get('rendered', '')
-    else:
-        skeleton = skeleton_data.get('rendered', '')
+    # templates returns typed TemplatesOutput
+    assert skeleton_result.success is True
+    skeleton = skeleton_result.data.get('rendered', '')
     
     # Load system prompt
     system_result = await injector.run('templates', {
@@ -179,16 +167,9 @@ async def craft_single_tool(
         'variables': {}
     })
     
-    if hasattr(system_result, 'output'):
-        system_data = json.loads(system_result.output)
-    else:
-        system_data = system_result.data if hasattr(system_result, 'data') else system_result
-    
-    # Extract rendered content from the data field
-    if isinstance(system_data, dict) and 'data' in system_data:
-        system_prompt = system_data['data'].get('rendered', 'You are an expert AgenTool implementation crafter.')
-    else:
-        system_prompt = system_data.get('rendered', 'You are an expert AgenTool implementation crafter.')
+    # templates returns typed TemplatesOutput
+    assert system_result.success is True
+    system_prompt = system_result.data.get('rendered', 'You are an expert AgenTool implementation crafter.')
     
     # Create LLM agent for code generation (returns string)
     agent = Agent(
@@ -227,16 +208,9 @@ async def craft_single_tool(
         }
     })
     
-    if hasattr(prompt_result, 'output'):
-        prompt_data = json.loads(prompt_result.output)
-    else:
-        prompt_data = prompt_result.data if hasattr(prompt_result, 'data') else prompt_result
-    
-    # Extract rendered content from the data field
-    if isinstance(prompt_data, dict) and 'data' in prompt_data:
-        user_prompt = prompt_data['data'].get('rendered', 'Generate AgenTool implementation')
-    else:
-        user_prompt = prompt_data.get('rendered', 'Generate AgenTool implementation')
+    # templates returns typed TemplatesOutput
+    assert prompt_result.success is True
+    user_prompt = prompt_result.data.get('rendered', 'Generate AgenTool implementation')
     
     # Generate implementation
     result = await agent.run(user_prompt)
@@ -329,6 +303,18 @@ async def craft_implementation(
     injector = get_injector()
     
     try:
+        # Log crafting phase start
+        await injector.run('logging', {
+            'operation': 'log',
+            'level': 'INFO',
+            'logger_name': 'workflow',
+            'message': 'Code crafting phase started',
+            'data': {
+                'workflow_id': workflow_id,
+                'operation': 'craft',
+                'model': model
+            }
+        })
         # Load analysis from storage_kv
         analysis_key = f'workflow/{workflow_id}/analysis'
         analysis_result = await injector.run('storage_kv', {
@@ -336,15 +322,25 @@ async def craft_implementation(
             'key': analysis_key
         })
         
-        if hasattr(analysis_result, 'output'):
-            analysis_data = json.loads(analysis_result.output)
-        else:
-            analysis_data = analysis_result.data if hasattr(analysis_result, 'data') else analysis_result
-        
-        if not analysis_data.get('data', {}).get('exists', False):
+        # storage_kv returns typed StorageKvOutput
+        assert analysis_result.success is True
+        if not analysis_result.data.get('exists', False):
             raise ValueError(f"No analysis found for workflow {workflow_id}")
         
-        analysis = AnalyzerOutput(**json.loads(analysis_data['data']['value']))
+        analysis = AnalyzerOutput(**json.loads(analysis_result.data['value']))
+        
+        # Log data loaded
+        await injector.run('logging', {
+            'operation': 'log',
+            'level': 'DEBUG',
+            'logger_name': 'workflow',
+            'message': 'Analysis and specifications loaded for crafting',
+            'data': {
+                'workflow_id': workflow_id,
+                'existing_tools_count': len(analysis.existing_tools),
+                'missing_tools_count': len(analysis.missing_tools)
+            }
+        })
         
         # Load specifications
         specs_key = f'workflow/{workflow_id}/specs'
@@ -353,15 +349,26 @@ async def craft_implementation(
             'key': specs_key
         })
         
-        if hasattr(specs_result, 'output'):
-            specs_data = json.loads(specs_result.output)
-        else:
-            specs_data = specs_result.data if hasattr(specs_result, 'data') else specs_result
-        
-        if not specs_data.get('data', {}).get('exists', False):
+        # storage_kv returns typed StorageKvOutput
+        assert specs_result.success is True
+        if not specs_result.data.get('exists', False):
             raise ValueError(f"No specifications found for workflow {workflow_id}")
         
-        spec_output = SpecificationOutput(**json.loads(specs_data['data']['value']))
+        spec_output = SpecificationOutput(**json.loads(specs_result.data['value']))
+        
+        # Log LLM code generation start
+        await injector.run('logging', {
+            'operation': 'log',
+            'level': 'INFO',
+            'logger_name': 'workflow',
+            'message': 'Starting LLM code generation',
+            'data': {
+                'workflow_id': workflow_id,
+                'model': model,
+                'tools_to_implement': len(spec_output.specifications),
+                'tool_names': [spec.name for spec in spec_output.specifications]
+            }
+        })
         
         # For each tool to implement, generate code
         if not spec_output.specifications:
@@ -414,6 +421,19 @@ async def craft_implementation(
             'value': json.dumps(summary_data)
         })
         
+        # Log state storage completion
+        await injector.run('logging', {
+            'operation': 'log',
+            'level': 'DEBUG',
+            'logger_name': 'workflow',
+            'message': 'Code crafting state stored successfully',
+            'data': {
+                'workflow_id': workflow_id,
+                'summary_key': summary_key,
+                'implementations_stored': len(implementations)
+            }
+        })
+        
         # Log overall completion
         await injector.run('logging', {
             'operation': 'log',
@@ -429,6 +449,7 @@ async def craft_implementation(
         
         return WorkflowCrafterOutput(
             success=True,
+            operation="craft",  # Default to craft operation
             message=f"Generated {len(implementations)} implementations",
             data=summary_data,
             state_ref=summary_key
@@ -477,6 +498,7 @@ def create_workflow_crafter_agent():
         routing_config=routing,
         tools=[craft_implementation],
         output_type=WorkflowCrafterOutput,
+        use_typed_output=True,  # Enable typed output for workflow_crafter
         system_prompt="Generate production-ready AgenTool implementations from specifications.",
         description="Crafts complete AgenTool code following best practices and patterns",
         version="1.0.0",
@@ -490,6 +512,7 @@ def create_workflow_crafter_agent():
                 },
                 "output": {
                     "success": True,
+                    "operation": "craft",
                     "message": "Generated implementation: src/agentoolkit/generated/session_manager.py",
                     "data": {
                         "code": "# Complete implementation...",

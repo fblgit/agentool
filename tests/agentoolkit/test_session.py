@@ -25,15 +25,21 @@ class TestSession:
         # Import and create the agents
         from agentoolkit.storage.kv import create_storage_kv_agent, _kv_storage, _kv_expiry
         from agentoolkit.auth.session import create_session_agent, _sessions
+        from agentoolkit.observability.metrics import create_metrics_agent
+        from agentoolkit.system.logging import create_logging_agent
+        from agentoolkit.storage.fs import create_storage_fs_agent
         
         # Clear global storage
         _kv_storage.clear()
         _kv_expiry.clear()
         _sessions.clear()
         
-        # Create agents (storage_kv first as session depends on it)
-        storage_agent = create_storage_kv_agent()
-        session_agent = create_session_agent()
+        # Create agents in dependency order
+        storage_kv_agent = create_storage_kv_agent()  # No dependencies
+        storage_fs_agent = create_storage_fs_agent()  # No dependencies (needed by logging)
+        metrics_agent = create_metrics_agent()  # Depends on storage_kv
+        logging_agent = create_logging_agent()  # Depends on storage_fs
+        session_agent = create_session_agent()  # Depends on storage_kv, uses metrics and logging
     
     def test_session_create(self):
         """Test session creation."""
@@ -52,18 +58,14 @@ class TestSession:
                 "ttl": 3600  # 1 hour
             })
             
-            if hasattr(create_result, 'output'):
-                create_data = json.loads(create_result.output)
-            else:
-                create_data = create_result
+            # session returns typed SessionOutput
+            assert create_result.success is True
+            assert create_result.operation == "create"
+            assert "session_id" in create_result.data
+            assert create_result.data["user_id"] == "user123"
+            assert create_result.data["ttl"] == 3600
             
-            assert "success" not in create_data
-            assert create_data["operation"] == "create"
-            assert "session_id" in create_data["data"]
-            assert create_data["data"]["user_id"] == "user123"
-            assert create_data["data"]["ttl"] == 3600
-            
-            session_id = create_data["data"]["session_id"]
+            session_id = create_result.data["session_id"]
             assert len(session_id) > 0
             
             # Verify session exists
@@ -72,14 +74,10 @@ class TestSession:
                 "session_id": session_id
             })
             
-            if hasattr(get_result, 'output'):
-                get_data = json.loads(get_result.output)
-            else:
-                get_data = get_result
-            
-            assert "success" not in get_data
-            assert get_data["data"]["user_id"] == "user123"
-            assert get_data["data"]["metadata"]["ip"] == "192.168.1.1"
+            # session returns typed SessionOutput
+            assert get_result.success is True
+            assert get_result.data["user_id"] == "user123"
+            assert get_result.data["metadata"]["ip"] == "192.168.1.1"
         
         asyncio.run(run_test())
     
@@ -96,12 +94,8 @@ class TestSession:
                 "ttl": 3600
             })
             
-            if hasattr(create_result, 'output'):
-                create_data = json.loads(create_result.output)
-            else:
-                create_data = create_result
-            
-            session_id = create_data["data"]["session_id"]
+            # session returns typed SessionOutput
+            session_id = create_result.data["session_id"]
             
             # Validate the session
             validate_result = await injector.run('session', {
@@ -109,14 +103,10 @@ class TestSession:
                 "session_id": session_id
             })
             
-            if hasattr(validate_result, 'output'):
-                validate_data = json.loads(validate_result.output)
-            else:
-                validate_data = validate_result
-            
-            assert "success" not in validate_data
-            assert validate_data["data"]["valid"] is True
-            assert validate_data["data"]["user_id"] == "user456"
+            # session returns typed SessionOutput
+            assert validate_result.success is True
+            assert validate_result.data["valid"] is True
+            assert validate_result.data["user_id"] == "user456"
             
             # Validate non-existent session
             invalid_result = await injector.run('session', {
@@ -124,13 +114,9 @@ class TestSession:
                 "session_id": "invalid_session_id"
             })
             
-            if hasattr(invalid_result, 'output'):
-                invalid_data = json.loads(invalid_result.output)
-            else:
-                invalid_data = invalid_result
-            
-            assert "success" not in invalid_data
-            assert invalid_data["data"]["valid"] is False
+            # session returns typed SessionOutput
+            assert invalid_result.success is False  # Discovery operation - session not found
+            assert invalid_result.data["valid"] is False
         
         asyncio.run(run_test())
     
@@ -146,12 +132,8 @@ class TestSession:
                 "user_id": "user789"
             })
             
-            if hasattr(create_result, 'output'):
-                create_data = json.loads(create_result.output)
-            else:
-                create_data = create_result
-            
-            session_id = create_data["data"]["session_id"]
+            # session returns typed SessionOutput
+            session_id = create_result.data["session_id"]
             
             # Update session data
             update_result = await injector.run('session', {
@@ -163,13 +145,9 @@ class TestSession:
                 }
             })
             
-            if hasattr(update_result, 'output'):
-                update_data = json.loads(update_result.output)
-            else:
-                update_data = update_result
-            
-            assert "success" not in update_data
-            assert update_data["data"]["updated_fields"] == ["cart_items", "last_page"]
+            # session returns typed SessionOutput
+            assert update_result.success is True
+            assert update_result.data["updated_fields"] == ["cart_items", "last_page"]
             
             # Get session to verify update
             get_result = await injector.run('session', {
@@ -177,13 +155,10 @@ class TestSession:
                 "session_id": session_id
             })
             
-            if hasattr(get_result, 'output'):
-                get_data = json.loads(get_result.output)
-            else:
-                get_data = get_result
-            
-            assert get_data["data"]["data"]["cart_items"] == 3
-            assert get_data["data"]["data"]["last_page"] == "/products"
+            # session returns typed SessionOutput
+            assert get_result.success is True
+            assert get_result.data["data"]["cart_items"] == 3
+            assert get_result.data["data"]["last_page"] == "/products"
         
         asyncio.run(run_test())
     
@@ -200,13 +175,9 @@ class TestSession:
                 "ttl": 60  # 1 minute
             })
             
-            if hasattr(create_result, 'output'):
-                create_data = json.loads(create_result.output)
-            else:
-                create_data = create_result
-            
-            session_id = create_data["data"]["session_id"]
-            original_expires = create_data["data"]["expires_at"]
+            # session returns typed SessionOutput
+            session_id = create_result.data["session_id"]
+            original_expires = create_result.data["expires_at"]
             
             # Renew the session
             renew_result = await injector.run('session', {
@@ -215,15 +186,11 @@ class TestSession:
                 "ttl": 7200  # 2 hours
             })
             
-            if hasattr(renew_result, 'output'):
-                renew_data = json.loads(renew_result.output)
-            else:
-                renew_data = renew_result
+            # session returns typed SessionOutput
+            assert renew_result.success is True
+            assert renew_result.data["ttl"] == 7200
             
-            assert "success" not in renew_data
-            assert renew_data["data"]["ttl"] == 7200
-            
-            new_expires = renew_data["data"]["new_expires_at"]
+            new_expires = renew_result.data["new_expires_at"]
             assert new_expires != original_expires
         
         asyncio.run(run_test())
@@ -240,12 +207,8 @@ class TestSession:
                 "user_id": "user_delete"
             })
             
-            if hasattr(create_result, 'output'):
-                create_data = json.loads(create_result.output)
-            else:
-                create_data = create_result
-            
-            session_id = create_data["data"]["session_id"]
+            # session returns typed SessionOutput
+            session_id = create_result.data["session_id"]
             
             # Delete the session
             delete_result = await injector.run('session', {
@@ -253,23 +216,19 @@ class TestSession:
                 "session_id": session_id
             })
             
-            if hasattr(delete_result, 'output'):
-                delete_data = json.loads(delete_result.output)
-            else:
-                delete_data = delete_result
+            # session returns typed SessionOutput
+            assert delete_result.success is True
+            assert delete_result.data["existed"] is True
             
-            assert "success" not in delete_data
-            assert delete_data["data"]["existed"] is True
+            # Verify session is gone - should return success=False
+            get_result = await injector.run('session', {
+                "operation": "get",
+                "session_id": session_id
+            })
             
-            # Verify session is gone - should raise KeyError
-            with pytest.raises(Exception) as exc_info:
-                await injector.run('session', {
-                    "operation": "get",
-                    "session_id": session_id
-                })
-            
-            # Check that it's a KeyError about session not existing
-            assert "does not exist" in str(exc_info.value)
+            # Check that session was not found (discovery operation)
+            assert get_result.success is False
+            assert "does not exist" in get_result.message
         
         asyncio.run(run_test())
     
@@ -289,12 +248,8 @@ class TestSession:
                     "metadata": {"session_num": i}
                 })
                 
-                if hasattr(create_result, 'output'):
-                    create_data = json.loads(create_result.output)
-                else:
-                    create_data = create_result
-                
-                session_ids.append(create_data["data"]["session_id"])
+                # Session agent has use_typed_output=True, so we get typed result directly
+                session_ids.append(create_result.data["session_id"])
             
             # Create a session for different user
             await injector.run('session', {
@@ -308,16 +263,12 @@ class TestSession:
                 "user_id": user_id
             })
             
-            if hasattr(list_result, 'output'):
-                list_data = json.loads(list_result.output)
-            else:
-                list_data = list_result
-            
-            assert "success" not in list_data
-            assert list_data["data"]["count"] == 3
+            # session returns typed SessionOutput
+            assert list_result.success is True
+            assert list_result.data["count"] == 3
             
             # Verify all sessions belong to the user
-            for session in list_data["data"]["sessions"]:
+            for session in list_result.data["sessions"]:
                 assert session["user_id"] == user_id
                 assert session["session_id"] in session_ids
         
@@ -338,12 +289,8 @@ class TestSession:
                     "user_id": user_id
                 })
                 
-                if hasattr(create_result, 'output'):
-                    create_data = json.loads(create_result.output)
-                else:
-                    create_data = create_result
-                
-                session_ids.append(create_data["data"]["session_id"])
+                # Session agent has use_typed_output=True, so we get typed result directly
+                session_ids.append(create_result.data["session_id"])
             
             # Invalidate all sessions
             invalidate_result = await injector.run('session', {
@@ -351,21 +298,18 @@ class TestSession:
                 "user_id": user_id
             })
             
-            if hasattr(invalidate_result, 'output'):
-                invalidate_data = json.loads(invalidate_result.output)
-            else:
-                invalidate_data = invalidate_result
-            
-            assert "success" not in invalidate_data
-            assert invalidate_data["data"]["invalidated_count"] == 3
+            # session returns typed SessionOutput
+            assert invalidate_result.success is True
+            assert invalidate_result.data["invalidated_count"] == 3
             
             # Verify all sessions are gone
             for session_id in session_ids:
-                with pytest.raises(Exception):
-                    await injector.run('session', {
-                        "operation": "get",
-                        "session_id": session_id
-                    })
+                get_result = await injector.run('session', {
+                    "operation": "get",
+                    "session_id": session_id
+                })
+                # Should return success=False for not found
+                assert get_result.success is False
         
         asyncio.run(run_test())
     
@@ -389,17 +333,13 @@ class TestSession:
                 "operation": "get_active"
             })
             
-            if hasattr(active_result, 'output'):
-                active_data = json.loads(active_result.output)
-            else:
-                active_data = active_result
-            
-            assert "success" not in active_data
-            assert active_data["data"]["total_active"] == 6
-            assert active_data["data"]["unique_users"] == 3
+            # session returns typed SessionOutput
+            assert active_result.success is True
+            assert active_result.data["total_active"] == 6
+            assert active_result.data["unique_users"] == 3
             
             # Verify user session counts
-            users_data = active_data["data"]["users"]
+            users_data = active_result.data["users"]
             for user in users:
                 assert users_data[user] == 2
         
@@ -418,24 +358,21 @@ class TestSession:
                 "ttl": 1  # 1 second
             })
             
-            if hasattr(create_result, 'output'):
-                create_data = json.loads(create_result.output)
-            else:
-                create_data = create_result
-            
-            session_id = create_data["data"]["session_id"]
+            # session returns typed SessionOutput
+            session_id = create_result.data["session_id"]
             
             # Wait for expiration
             time.sleep(2)
             
-            # Try to get expired session - should raise RuntimeError
-            with pytest.raises(Exception) as exc_info:
-                await injector.run('session', {
-                    "operation": "get",
-                    "session_id": session_id
-                })
+            # Try to get expired session - should return success=False
+            get_result = await injector.run('session', {
+                "operation": "get",
+                "session_id": session_id
+            })
             
-            assert "expired" in str(exc_info.value)
+            # Check that session is expired (discovery operation)
+            assert get_result.success is False
+            assert "expired" in get_result.message
         
         asyncio.run(run_test())
     
@@ -468,12 +405,8 @@ class TestSession:
                 "session_id": "non_existent"
             })
             
-            if hasattr(delete_result, 'output'):
-                delete_data = json.loads(delete_result.output)
-            else:
-                delete_data = delete_result
-            
-            assert "success" not in delete_data
-            assert delete_data["data"]["existed"] is False
+            # session returns typed SessionOutput
+            assert delete_result.success is True  # Delete is idempotent
+            assert delete_result.data["existed"] is False
         
         asyncio.run(run_test())

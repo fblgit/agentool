@@ -277,6 +277,15 @@ def vcr_config():
 @pytest.fixture(autouse=True)
 async def close_cached_httpx_client(anyio_backend: str) -> AsyncIterator[None]:
     yield
+    # Only attempt cleanup if the event loop is still running and in good state
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_closed():
+            return
+    except RuntimeError:
+        # No event loop is running, skip cleanup
+        return
+        
     for provider in [
         'openai',
         'anthropic',
@@ -289,7 +298,11 @@ async def close_cached_httpx_client(anyio_backend: str) -> AsyncIterator[None]:
         'deepseek',
         None,
     ]:
-        await cached_async_http_client(provider=provider).aclose()
+        try:
+            await cached_async_http_client(provider=provider).aclose()
+        except Exception:
+            # Ignore cleanup errors as they don't affect test results
+            pass
 
 
 @pytest.fixture(scope='session')

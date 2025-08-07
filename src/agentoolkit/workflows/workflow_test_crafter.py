@@ -11,7 +11,7 @@ from typing import Dict, Any, List, Literal
 from pydantic import BaseModel, Field
 from pydantic_ai import RunContext, Agent
 
-from agentool import create_agentool
+from agentool import create_agentool, BaseOperationInput
 from agentool.core.registry import RoutingConfig
 from agentool.core.injector import get_injector
 
@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../'))
 from agents.models import TestImplementationOutput, TestAnalysisOutput, TestStubOutput
 
 
-class WorkflowTestCrafterInput(BaseModel):
+class WorkflowTestCrafterInput(BaseOperationInput):
     """Input schema for workflow test crafter operations."""
     operation: Literal['craft'] = Field(
         description="Operation to perform"
@@ -42,6 +42,7 @@ class WorkflowTestCrafterInput(BaseModel):
 class WorkflowTestCrafterOutput(BaseModel):
     """Output from workflow test implementation."""
     success: bool = Field(description="Whether implementation succeeded")
+    operation: str = Field(description="Operation that was performed")
     message: str = Field(description="Status message")
     data: Dict[str, Any] = Field(description="Test implementation results")
     state_ref: str = Field(description="Reference to stored state in storage_kv")
@@ -107,6 +108,19 @@ async def craft_test_implementation(
     injector = get_injector()
     
     try:
+        # Log test crafting phase start
+        await injector.run('logging', {
+            'operation': 'log',
+            'level': 'INFO',
+            'logger_name': 'workflow',
+            'message': 'Test crafting phase started',
+            'data': {
+                'workflow_id': workflow_id,
+                'operation': 'craft',
+                'tool_name': tool_name,
+                'model': model
+            }
+        })
         # Load test stub
         stub_key = f'workflow/{workflow_id}/test_stub/{tool_name}'
         stub_result = await injector.run('storage_kv', {
@@ -114,15 +128,12 @@ async def craft_test_implementation(
             'key': stub_key
         })
         
-        if hasattr(stub_result, 'output'):
-            stub_data = json.loads(stub_result.output)
-        else:
-            stub_data = stub_result.data if hasattr(stub_result, 'data') else stub_result
-        
-        if not stub_data.get('data', {}).get('exists', False):
+        # storage_kv returns typed StorageKvOutput
+        assert stub_result.success is True
+        if not stub_result.data.get('exists', False):
             raise ValueError(f"No test stub found for tool {tool_name}")
         
-        test_stub = TestStubOutput(**json.loads(stub_data['data']['value']))
+        test_stub = TestStubOutput(**json.loads(stub_result.data['value']))
         
         # Load test analysis
         analysis_key = f'workflow/{workflow_id}/test_analysis/{tool_name}'
@@ -131,15 +142,12 @@ async def craft_test_implementation(
             'key': analysis_key
         })
         
-        if hasattr(analysis_result, 'output'):
-            analysis_data = json.loads(analysis_result.output)
-        else:
-            analysis_data = analysis_result.data if hasattr(analysis_result, 'data') else analysis_result
-        
-        if not analysis_data.get('data', {}).get('exists', False):
+        # storage_kv returns typed StorageKvOutput
+        assert analysis_result.success is True
+        if not analysis_result.data.get('exists', False):
             raise ValueError(f"No test analysis found for tool {tool_name}")
         
-        test_analysis = TestAnalysisOutput(**json.loads(analysis_data['data']['value']))
+        test_analysis = TestAnalysisOutput(**json.loads(analysis_result.data['value']))
         
         # Load final code
         validation_key = f'workflow/{workflow_id}/validations/{tool_name}'
@@ -148,14 +156,11 @@ async def craft_test_implementation(
             'key': validation_key
         })
         
-        if hasattr(validation_result, 'output'):
-            validation_data = json.loads(validation_result.output)
-        else:
-            validation_data = validation_result.data if hasattr(validation_result, 'data') else validation_result
-        
+        # storage_kv returns typed StorageKvOutput
+        assert validation_result.success is True
         final_code = ""
-        if validation_data.get('data', {}).get('exists', False):
-            validation = json.loads(validation_data['data']['value'])
+        if validation_result.data.get('exists', False):
+            validation = json.loads(validation_result.data['value'])
             final_code = validation.get('final_code', '')
         
         # Load specifications
@@ -165,14 +170,11 @@ async def craft_test_implementation(
             'key': spec_key
         })
         
-        if hasattr(spec_result, 'output'):
-            spec_data = json.loads(spec_result.output)
-        else:
-            spec_data = spec_result.data if hasattr(spec_result, 'data') else spec_result
-        
+        # storage_kv returns typed StorageKvOutput
+        assert spec_result.success is True
         specification = None
-        if spec_data.get('data', {}).get('exists', False):
-            specification = json.loads(spec_data['data']['value'])
+        if spec_result.data.get('exists', False):
+            specification = json.loads(spec_result.data['value'])
         
         # Load all specifications
         all_specs_key = f'workflow/{workflow_id}/specs'
@@ -181,14 +183,11 @@ async def craft_test_implementation(
             'key': all_specs_key
         })
         
-        if hasattr(all_specs_result, 'output'):
-            all_specs_data = json.loads(all_specs_result.output)
-        else:
-            all_specs_data = all_specs_result.data if hasattr(all_specs_result, 'data') else all_specs_result
-        
+        # storage_kv returns typed StorageKvOutput
+        assert all_specs_result.success is True
         all_specifications = None
-        if all_specs_data.get('data', {}).get('exists', False):
-            all_specifications = json.loads(all_specs_data['data']['value'])
+        if all_specs_result.data.get('exists', False):
+            all_specifications = json.loads(all_specs_result.data['value'])
         
         # Load existing tools
         existing_tools_key = f'workflow/{workflow_id}/existing_tools'
@@ -197,14 +196,11 @@ async def craft_test_implementation(
             'key': existing_tools_key
         })
         
-        if hasattr(existing_tools_result, 'output'):
-            existing_tools_data = json.loads(existing_tools_result.output)
-        else:
-            existing_tools_data = existing_tools_result.data if hasattr(existing_tools_result, 'data') else existing_tools_result
-        
+        # storage_kv returns typed StorageKvOutput
+        assert existing_tools_result.success is True
         existing_tools = {}
-        if existing_tools_data.get('data', {}).get('exists', False):
-            existing_tools = json.loads(existing_tools_data['data']['value'])
+        if existing_tools_result.data.get('exists', False):
+            existing_tools = json.loads(existing_tools_result.data['value'])
         
         # Load system prompt
         system_result = await injector.run('templates', {
@@ -213,16 +209,25 @@ async def craft_test_implementation(
             'variables': {}
         })
         
-        if hasattr(system_result, 'output'):
-            system_data = json.loads(system_result.output)
-        else:
-            system_data = system_result.data if hasattr(system_result, 'data') else system_result
+        # templates returns typed TemplatesOutput
+        assert system_result.success is True
+        system_prompt = system_result.data.get('rendered', 'You are an expert test implementation crafter.')
         
-        # Extract rendered content from the data field
-        if isinstance(system_data, dict) and 'data' in system_data:
-            system_prompt = system_data['data'].get('rendered', 'You are an expert test implementation crafter.')
-        else:
-            system_prompt = system_data.get('rendered', 'You are an expert test implementation crafter.')
+        # Log data loading complete
+        await injector.run('logging', {
+            'operation': 'log',
+            'level': 'DEBUG',
+            'logger_name': 'workflow',
+            'message': 'Test data loaded for crafting',
+            'data': {
+                'workflow_id': workflow_id,
+                'tool_name': tool_name,
+                'test_cases_count': len(test_analysis.test_cases),
+                'has_final_code': bool(final_code),
+                'has_specification': specification is not None,
+                'existing_tools_count': len(existing_tools)
+            }
+        })
         
         # Create LLM agent for test implementation (returns string)
         agent = Agent(
@@ -255,16 +260,9 @@ async def craft_test_implementation(
             }
         })
         
-        if hasattr(skeleton_result, 'output'):
-            skeleton_data = json.loads(skeleton_result.output)
-        else:
-            skeleton_data = skeleton_result.data if hasattr(skeleton_result, 'data') else skeleton_result
-        
-        # Extract rendered content from the data field
-        if isinstance(skeleton_data, dict) and 'data' in skeleton_data:
-            skeleton = skeleton_data['data'].get('rendered', '')
-        else:
-            skeleton = skeleton_data.get('rendered', '')
+        # templates returns typed TemplatesOutput
+        assert skeleton_result.success is True
+        skeleton = skeleton_result.data.get('rendered', '')
         
         skeleton_key = f'workflow/{workflow_id}/test_craft/skeleton/{tool_name}'
         await injector.run('storage_kv', {
@@ -289,20 +287,41 @@ async def craft_test_implementation(
             }
         })
         
-        if hasattr(prompt_result, 'output'):
-            prompt_data = json.loads(prompt_result.output)
-        else:
-            prompt_data = prompt_result.data if hasattr(prompt_result, 'data') else prompt_result
+        # templates returns typed TemplatesOutput
+        assert prompt_result.success is True
+        user_prompt = prompt_result.data.get('rendered', f'Implement tests for {tool_name}')
         
-        # Extract rendered content from the data field
-        if isinstance(prompt_data, dict) and 'data' in prompt_data:
-            user_prompt = prompt_data['data'].get('rendered', f'Implement tests for {tool_name}')
-        else:
-            user_prompt = prompt_data.get('rendered', f'Implement tests for {tool_name}')
+        # Log LLM generation start
+        await injector.run('logging', {
+            'operation': 'log',
+            'level': 'DEBUG',
+            'logger_name': 'workflow',
+            'message': 'Starting LLM test generation',
+            'data': {
+                'workflow_id': workflow_id,
+                'tool_name': tool_name,
+                'model': model,
+                'prompt_length': len(user_prompt)
+            }
+        })
         
         # Generate test implementation
         result = await agent.run(user_prompt)
         raw_output = result.output
+        
+        # Log LLM generation complete
+        await injector.run('logging', {
+            'operation': 'log',
+            'level': 'INFO',
+            'logger_name': 'workflow',
+            'message': 'LLM test generation completed',
+            'data': {
+                'workflow_id': workflow_id,
+                'tool_name': tool_name,
+                'output_length': len(raw_output),
+                'has_code_block': '```python' in raw_output
+            }
+        })
         
         # Extract code from markdown code block
         code_match = re.search(r'```python\n(.*?)```', raw_output, re.DOTALL)
@@ -414,6 +433,7 @@ async def craft_test_implementation(
         
         return WorkflowTestCrafterOutput(
             success=True,
+            operation="craft",
             message=f"Test implementation complete: {test_count} tests with {coverage_achieved.get('overall', 0):.1f}% coverage",
             data=test_implementation.model_dump(),
             state_ref=state_key
@@ -460,6 +480,7 @@ def create_workflow_test_crafter_agent():
         routing_config=routing,
         tools=[craft_test_implementation],
         output_type=WorkflowTestCrafterOutput,
+        use_typed_output=True,  # Enable typed output for workflow_test_crafter
         system_prompt="Implement complete test logic with assertions, real dependencies, and test data following No-Mocks policy.",
         description="Completes test implementation by filling in stub placeholders with actual test logic",
         version="1.0.0",
@@ -474,6 +495,7 @@ def create_workflow_test_crafter_agent():
                 },
                 "output": {
                     "success": True,
+                    "operation": "craft",
                     "message": "Test implementation complete: 15 tests with 93.3% coverage",
                     "data": {
                         "code": "# Complete test implementation...",

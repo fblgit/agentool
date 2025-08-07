@@ -10,9 +10,9 @@ from typing import Dict, Any, List, Literal, Optional
 from pydantic import BaseModel, Field
 from pydantic_ai import RunContext, Agent
 
-from agentool import create_agentool
+from agentool import create_agentool, BaseOperationInput
 from agentool.core.registry import RoutingConfig
-from agentool.core.injector import get_injector
+from agentool.core.injector import get_injector, AgenToolInjector
 
 # Import the data models
 import sys
@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../'))
 from agents.models import SpecificationOutput, ToolSpecification, AnalyzerOutput
 
 
-class WorkflowSpecifierInput(BaseModel):
+class WorkflowSpecifierInput(BaseOperationInput):
     """Input schema for workflow specifier operations."""
     operation: Literal['specify'] = Field(
         description="Operation to perform"
@@ -38,6 +38,7 @@ class WorkflowSpecifierInput(BaseModel):
 class WorkflowSpecifierOutput(BaseModel):
     """Output from workflow specification."""
     success: bool = Field(description="Whether specification succeeded")
+    operation: str = Field(description="Operation that was performed")
     message: str = Field(description="Status message")
     data: Dict[str, Any] = Field(description="Specification results")
     state_ref: str = Field(description="Reference to stored state in storage_kv")
@@ -68,9 +69,21 @@ async def create_specifications(
     Raises:
         RuntimeError: If analysis loading or specification fails
     """
-    injector = get_injector()
+    injector: AgenToolInjector = get_injector()
     
     try:
+        # Log specification phase start
+        await injector.run('logging', {
+            'operation': 'log',
+            'level': 'INFO',
+            'logger_name': 'workflow',
+            'message': 'Specification phase started',
+            'data': {
+                'workflow_id': workflow_id,
+                'operation': 'specify',
+                'model': model
+            }
+        })
         # Load analysis from storage_kv
         analysis_key = f'workflow/{workflow_id}/analysis'
         analysis_result = await injector.run('storage_kv', {
@@ -78,22 +91,32 @@ async def create_specifications(
             'key': analysis_key
         })
         
-        if hasattr(analysis_result, 'output'):
-            analysis_data = json.loads(analysis_result.output)
-        else:
-            analysis_data = analysis_result.data if hasattr(analysis_result, 'data') else analysis_result
-        
-        # Check if the key exists in the data structure
-        if not analysis_data.get('data', {}).get('exists', False):
+        # storage_kv returns typed StorageKvOutput
+        assert analysis_result.success is True
+        if not analysis_result.data.get('exists', False):
             raise ValueError(f"No analysis found for workflow {workflow_id}")
         
         # Parse analysis - the value is in data.value
-        analysis = AnalyzerOutput(**json.loads(analysis_data['data']['value']))
+        analysis = AnalyzerOutput(**json.loads(analysis_result.data['value']))
+        
+        # Log analysis loaded
+        await injector.run('logging', {
+            'operation': 'log',
+            'level': 'DEBUG',
+            'logger_name': 'workflow',
+            'message': 'Analysis loaded for specification',
+            'data': {
+                'workflow_id': workflow_id,
+                'missing_tools_count': len(analysis.missing_tools),
+                'existing_tools_count': len(analysis.existing_tools)
+            }
+        })
         
         # If no missing tools, return early
         if not analysis.missing_tools:
             return WorkflowSpecifierOutput(
                 success=True,
+                operation="specify",
                 message="No tools to specify - all required tools exist",
                 data={'specifications': []},
                 state_ref=f'workflow/{workflow_id}/specs'
@@ -108,16 +131,9 @@ async def create_specifications(
             }
         })
         
-        if hasattr(template_result, 'output'):
-            template_data = json.loads(template_result.output)
-        else:
-            template_data = template_result.data if hasattr(template_result, 'data') else template_result
-        
-        # Extract rendered content from the data field
-        if isinstance(template_data, dict) and 'data' in template_data:
-            system_prompt = template_data['data'].get('rendered', 'You are an expert AgenTool specification designer.')
-        else:
-            system_prompt = template_data.get('rendered', 'You are an expert AgenTool specification designer.')
+        # templates returns typed TemplatesOutput
+        assert template_result.success is True
+        system_prompt = template_result.data.get('rendered', 'You are an expert AgenTool specification designer.')
         
         # Create LLM agent for specification
         agent = Agent(
@@ -127,8 +143,8 @@ async def create_specifications(
         )
         
         # Get and store COMPLETE registry records for existing tools
-        existing_tools_refs = []
-        existing_tools_data = {}  # Collect all tools data
+        existing_tools_refs: List[str] = []
+        existing_tools_data: Dict[str, Any] = {}  # Collect all tools data
         
         for tool_name in analysis.existing_tools:
             try:
@@ -139,21 +155,17 @@ async def create_specifications(
                     'detailed': True
                 })
                 
-                if hasattr(info_result, 'output'):
-                    info_data = json.loads(info_result.output)
-                else:
-                    info_data = info_result.data if hasattr(info_result, 'data') else info_result
-                
-                if info_data.get('success'):
-                    # Store COMPLETE config as-is - no mutation!
-                    tool_key = f'workflow/{workflow_id}/existing_tools/{tool_name}'
-                    await injector.run('storage_kv', {
-                        'operation': 'set',
-                        'key': tool_key,
-                        'value': json.dumps(info_data['agentool'])  # Full registry record
-                    })
-                    existing_tools_refs.append(f'!ref:storage_kv:{tool_key}')
-                    existing_tools_data[tool_name] = info_data['agentool']
+                # agentool_mgmt returns typed ManagementOutput
+                assert info_result.success is True
+                # Store COMPLETE config as-is - no mutation!
+                tool_key = f'workflow/{workflow_id}/existing_tools/{tool_name}'
+                await injector.run('storage_kv', {
+                    'operation': 'set',
+                    'key': tool_key,
+                    'value': json.dumps(info_result.data['agentool'])  # Full registry record
+                })
+                existing_tools_refs.append(f'!ref:storage_kv:{tool_key}')
+                existing_tools_data[tool_name] = info_result.data['agentool']
                     
             except Exception as e:
                 # Log but continue
@@ -172,8 +184,35 @@ async def create_specifications(
             'value': json.dumps(existing_tools_data)
         })
         
+        # Log existing tools collection
+        await injector.run('logging', {
+            'operation': 'log',
+            'level': 'DEBUG',
+            'logger_name': 'workflow',
+            'message': 'Existing tools data collected',
+            'data': {
+                'workflow_id': workflow_id,
+                'tools_collected': len(existing_tools_data),
+                'tool_names': list(existing_tools_data.keys())
+            }
+        })
+        
+        # Log LLM specification generation start
+        await injector.run('logging', {
+            'operation': 'log',
+            'level': 'INFO',
+            'logger_name': 'workflow',
+            'message': 'Starting LLM specification generation',
+            'data': {
+                'workflow_id': workflow_id,
+                'model': model,
+                'tools_to_specify': len(analysis.missing_tools),
+                'tool_names': [tool.name for tool in analysis.missing_tools]
+            }
+        })
+        
         # Generate specification for each missing tool
-        specifications = []
+        specifications: List[ToolSpecification] = []
         
         for missing_tool in analysis.missing_tools:
             # Store the missing tool data for template reference
@@ -195,20 +234,13 @@ async def create_specifications(
                 }
             })
             
-            if hasattr(prompt_result, 'output'):
-                prompt_data = json.loads(prompt_result.output)
-            else:
-                prompt_data = prompt_result.data if hasattr(prompt_result, 'data') else prompt_result
-            
-            # Extract rendered content from the data field
-            if isinstance(prompt_data, dict) and 'data' in prompt_data:
-                user_prompt = prompt_data['data'].get('rendered', f"Create specification for {missing_tool.name}")
-            else:
-                user_prompt = prompt_data.get('rendered', f"Create specification for {missing_tool.name}")
+            # templates returns typed TemplatesOutput
+            assert prompt_result.success is True
+            user_prompt = prompt_result.data.get('rendered', f"Create specification for {missing_tool.name}")
             
             # Generate specification
             result = await agent.run(user_prompt)
-            spec = result.data
+            spec = result.output
             
             # Ensure consistency with analysis
             spec.name = missing_tool.name
@@ -249,6 +281,19 @@ async def create_specifications(
             'value': json.dumps(spec_output.model_dump())
         })
         
+        # Log state storage completion
+        await injector.run('logging', {
+            'operation': 'log',
+            'level': 'DEBUG',
+            'logger_name': 'workflow',
+            'message': 'Specification state stored successfully',
+            'data': {
+                'workflow_id': workflow_id,
+                'state_key': state_key,
+                'specifications_stored': len(specifications)
+            }
+        })
+        
         # Log completion
         await injector.run('logging', {
             'operation': 'log',
@@ -264,6 +309,7 @@ async def create_specifications(
         
         return WorkflowSpecifierOutput(
             success=True,
+            operation="specify",
             message=f"Created {len(specifications)} tool specifications",
             data=spec_output.model_dump(),
             state_ref=state_key
@@ -308,6 +354,7 @@ def create_workflow_specifier_agent():
         routing_config=routing,
         tools=[create_specifications],
         output_type=WorkflowSpecifierOutput,
+        use_typed_output=True,  # Enable typed output for workflow_specifier
         system_prompt="Create detailed specifications for AgenTools based on analysis.",
         description="Generates complete specifications for missing tools including schemas, operations, and examples",
         version="1.0.0",
@@ -321,6 +368,7 @@ def create_workflow_specifier_agent():
                 },
                 "output": {
                     "success": True,
+                    "operation": "specify",
                     "message": "Created 2 tool specifications",
                     "data": {
                         "specifications": [

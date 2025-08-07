@@ -49,12 +49,8 @@ class AnalyzerAgent(BaseAgenToolAgent[AnalyzerOutput]):
             'format': 'json'
         })
         
-        if hasattr(catalog_result, 'output'):
-            catalog_data = json.loads(catalog_result.output)
-        else:
-            catalog_data = catalog_result.data if hasattr(catalog_result, 'data') else catalog_result
-        
-        catalog = catalog_data.get('catalog', {})
+        # Management agent has use_typed_output=True, so we get typed result directly
+        catalog = catalog_result.data.get('catalog', {})
         
         # Get detailed information about all tools
         detailed_tools = []
@@ -66,13 +62,9 @@ class AnalyzerAgent(BaseAgenToolAgent[AnalyzerOutput]):
                     'detailed': True
                 })
                 
-                if hasattr(tool_info_result, 'output'):
-                    tool_data = json.loads(tool_info_result.output)
-                else:
-                    tool_data = tool_info_result.data if hasattr(tool_info_result, 'data') else tool_info_result
-                
-                if tool_data.get('success'):
-                    detailed_tools.append(tool_data.get('agentool', {}))
+                # Management agent has use_typed_output=True, so we get typed result directly
+                if tool_info_result.success:
+                    detailed_tools.append(tool_info_result.data.get('agentool', {}))
             except Exception as e:
                 print(f"Warning: Could not get details for {tool_name}: {e}")
         

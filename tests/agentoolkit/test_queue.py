@@ -36,12 +36,25 @@ class TestQueue:
         _message_registry.clear()
         _dlq.clear()
         
-        # Create both queue and scheduler agents due to cross-dependencies
+        # Create all required agents in dependency order
+        from agentoolkit.storage.fs import create_storage_fs_agent
+        from agentoolkit.storage.kv import create_storage_kv_agent, _kv_storage, _kv_expiry
+        from agentoolkit.observability.metrics import create_metrics_agent
+        from agentoolkit.system.logging import create_logging_agent, _logging_config
         from agentoolkit.system.scheduler import create_scheduler_agent
         
-        # Initialize both agents
-        self.queue_agent = create_queue_agent()
-        self.scheduler_agent = create_scheduler_agent()
+        # Clear additional global state
+        _kv_storage.clear()
+        _kv_expiry.clear()
+        _logging_config.clear()
+        
+        # Initialize agents in dependency order
+        self.storage_fs_agent = create_storage_fs_agent()  # No dependencies
+        self.storage_kv_agent = create_storage_kv_agent()  # No dependencies
+        self.metrics_agent = create_metrics_agent()        # Depends on storage_kv
+        self.logging_agent = create_logging_agent()        # Depends on storage_fs, metrics
+        self.scheduler_agent = create_scheduler_agent()    # Depends on logging
+        self.queue_agent = create_queue_agent()            # Depends on scheduler
         
         # Create a simple test AgenTool for auto-execution tests
         from agentool import create_agentool
@@ -84,16 +97,13 @@ class TestQueue:
                 "message": message
             })
             
-            if hasattr(enqueue_result, 'output'):
-                enqueue_data = json.loads(enqueue_result.output)
-            else:
-                enqueue_data = enqueue_result
+            # queue returns typed QueueOutput
+            assert enqueue_result.success is True
+            assert enqueue_result.operation == 'enqueue'
+            assert 'message_id' in enqueue_result.data
+            assert enqueue_result.data['queue_size'] == 1
             
-            assert enqueue_data['operation'] == 'enqueue'
-            assert 'message_id' in enqueue_data['data']
-            assert enqueue_data['data']['queue_size'] == 1
-            
-            message_id = enqueue_data['data']['message_id']
+            message_id = enqueue_result.data['message_id']
             
             # Dequeue the message
             dequeue_result = await injector.run('queue', {
@@ -101,14 +111,11 @@ class TestQueue:
                 "queue_name": "test_queue"
             })
             
-            if hasattr(dequeue_result, 'output'):
-                dequeue_data = json.loads(dequeue_result.output)
-            else:
-                dequeue_data = dequeue_result
-            
-            assert dequeue_data['operation'] == 'dequeue'
-            assert dequeue_data['data']['message_id'] == message_id
-            assert dequeue_data['data']['message'] == message
+            # queue returns typed QueueOutput
+            assert dequeue_result.success is True
+            assert dequeue_result.operation == 'dequeue'
+            assert dequeue_result.data['message_id'] == message_id
+            assert dequeue_result.data['message'] == message
         
         asyncio.run(run_test())
     
@@ -137,14 +144,11 @@ class TestQueue:
                 "operation": "list_queues"
             })
             
-            if hasattr(list_result, 'output'):
-                list_data = json.loads(list_result.output)
-            else:
-                list_data = list_result
+            # queue returns typed QueueOutput
+            assert list_result.success is True
+            assert list_result.data['count'] == 3
             
-            assert list_data['data']['count'] == 3
-            
-            queue_names = [q['name'] for q in list_data['data']['queues']]
+            queue_names = [q['name'] for q in list_result.data['queues']]
             assert "queue1" in queue_names
             assert "queue2" in queue_names
             assert "queue3" in queue_names
@@ -156,12 +160,9 @@ class TestQueue:
                     "queue_name": queue_name
                 })
                 
-                if hasattr(size_result, 'output'):
-                    size_data = json.loads(size_result.output)
-                else:
-                    size_data = size_result
-                
-                assert size_data['data']['size'] == 1
+                # queue returns typed QueueOutput
+                assert size_result.success is True
+                assert size_result.data['size'] == 1
         
         asyncio.run(run_test())
     
@@ -191,12 +192,9 @@ class TestQueue:
                 "queue_name": "peek_test"
             })
             
-            if hasattr(peek_result, 'output'):
-                peek_data = json.loads(peek_result.output)
-            else:
-                peek_data = peek_result
-            
-            assert peek_data['data']['message'] == messages[0]
+            # queue returns typed QueueOutput
+            assert peek_result.success is True
+            assert peek_result.data['message'] == messages[0]
             
             # Check queue size is unchanged
             size_result = await injector.run('queue', {
@@ -204,12 +202,9 @@ class TestQueue:
                 "queue_name": "peek_test"
             })
             
-            if hasattr(size_result, 'output'):
-                size_data = json.loads(size_result.output)
-            else:
-                size_data = size_result
-            
-            assert size_data['data']['size'] == 3
+            # queue returns typed QueueOutput
+            assert size_result.success is True
+            assert size_result.data['size'] == 3
         
         asyncio.run(run_test())
     
@@ -233,12 +228,9 @@ class TestQueue:
                 "queue_name": "clear_test"
             })
             
-            if hasattr(clear_result, 'output'):
-                clear_data = json.loads(clear_result.output)
-            else:
-                clear_data = clear_result
-            
-            assert clear_data['data']['cleared_count'] == 5
+            # queue returns typed QueueOutput
+            assert clear_result.success is True
+            assert clear_result.data['cleared_count'] == 5
             
             # Check queue is empty
             size_result = await injector.run('queue', {
@@ -246,12 +238,9 @@ class TestQueue:
                 "queue_name": "clear_test"
             })
             
-            if hasattr(size_result, 'output'):
-                size_data = json.loads(size_result.output)
-            else:
-                size_data = size_result
-            
-            assert size_data['data']['size'] == 0
+            # queue returns typed QueueOutput
+            assert size_result.success is True
+            assert size_result.data['size'] == 0
         
         asyncio.run(run_test())
     
@@ -300,12 +289,9 @@ class TestQueue:
                     "queue_name": "fifo_test"
                 })
                 
-                if hasattr(dequeue_result, 'output'):
-                    dequeue_data = json.loads(dequeue_result.output)
-                else:
-                    dequeue_data = dequeue_result
-                
-                assert dequeue_data['data']['message'] == messages[i]
+                # queue returns typed QueueOutput
+                assert dequeue_result.success is True
+                assert dequeue_result.data['message'] == messages[i]
         
         asyncio.run(run_test())
     
@@ -335,12 +321,9 @@ class TestQueue:
                 "target_agentool": "processor"
             })
             
-            if hasattr(dequeue_result, 'output'):
-                dequeue_data = json.loads(dequeue_result.output)
-            else:
-                dequeue_data = dequeue_result
-            
-            assert dequeue_data['data']['executed'] is True
+            # queue returns typed QueueOutput
+            assert dequeue_result.success is True
+            assert dequeue_result.data['executed'] is True
         
         asyncio.run(run_test())
     
@@ -350,9 +333,7 @@ class TestQueue:
         async def run_test():
             injector = get_injector()
             
-            # Need scheduler for delayed enqueue
-            from agentoolkit.system.scheduler import create_scheduler_agent
-            scheduler_agent = create_scheduler_agent()
+            # Scheduler already initialized in setup_method
             
             # Enqueue with delay
             enqueue_result = await injector.run('queue', {
@@ -362,13 +343,10 @@ class TestQueue:
                 "delay": 2  # 2 seconds delay
             })
             
-            if hasattr(enqueue_result, 'output'):
-                enqueue_data = json.loads(enqueue_result.output)
-            else:
-                enqueue_data = enqueue_result
-            
-            assert 'scheduled_at' in enqueue_data['data']
-            assert 'job_id' in enqueue_data['data']
+            # queue returns typed QueueOutput
+            assert enqueue_result.success is True
+            assert 'scheduled_at' in enqueue_result.data
+            assert 'job_id' in enqueue_result.data
         
         asyncio.run(run_test())
     
@@ -378,9 +356,7 @@ class TestQueue:
         async def run_test():
             injector = get_injector()
             
-            # Need scheduler for auto-execution
-            from agentoolkit.system.scheduler import create_scheduler_agent
-            scheduler_agent = create_scheduler_agent()
+            # Scheduler already initialized in setup_method
             
             # Create a failing processor
             from agentool import create_agentool
@@ -439,12 +415,9 @@ class TestQueue:
                 "queue_name": "dlq_test"
             })
             
-            if hasattr(dlq_result, 'output'):
-                dlq_data = json.loads(dlq_result.output)
-            else:
-                dlq_data = dlq_result
-            
-            assert dlq_data['data']['count'] == 1
+            # queue returns typed QueueOutput
+            assert dlq_result.success is True
+            assert dlq_result.data['count'] == 1
         
         asyncio.run(run_test())
     
@@ -475,14 +448,11 @@ class TestQueue:
                 "queue_name": "metadata_test"
             })
             
-            if hasattr(size_result, 'output'):
-                size_data = json.loads(size_result.output)
-            else:
-                size_data = size_result
-            
-            assert size_data['data']['size'] == 2
-            assert size_data['data']['total_enqueued'] == 5
-            assert size_data['data']['total_dequeued'] == 3
+            # queue returns typed QueueOutput
+            assert size_result.success is True
+            assert size_result.data['size'] == 2
+            assert size_result.data['total_enqueued'] == 5
+            assert size_result.data['total_dequeued'] == 3
         
         asyncio.run(run_test())
     
@@ -498,11 +468,8 @@ class TestQueue:
                 "queue_name": "empty_peek_test"
             })
             
-            if hasattr(peek_result, 'output'):
-                peek_data = json.loads(peek_result.output)
-            else:
-                peek_data = peek_result
-            
-            assert peek_data['data']['empty'] is True
+            # queue returns typed QueueOutput
+            assert peek_result.success is True
+            assert peek_result.data['empty'] is True
         
         asyncio.run(run_test())

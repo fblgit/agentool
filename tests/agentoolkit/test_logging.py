@@ -26,14 +26,20 @@ class TestLogging:
         
         # Import and create the agents
         from agentoolkit.storage.fs import create_storage_fs_agent
+        from agentoolkit.storage.kv import create_storage_kv_agent, _kv_storage, _kv_expiry
+        from agentoolkit.observability.metrics import create_metrics_agent
         from agentoolkit.system.logging import create_logging_agent, _logging_config
         
-        # Clear global logging config
+        # Clear global state
         _logging_config.clear()
+        _kv_storage.clear()
+        _kv_expiry.clear()
         
-        # Create agents (storage_fs first as logging depends on it)
-        storage_agent = create_storage_fs_agent()
-        logging_agent = create_logging_agent()
+        # Create agents in dependency order
+        storage_fs_agent = create_storage_fs_agent()  # No dependencies
+        storage_kv_agent = create_storage_kv_agent()  # No dependencies
+        metrics_agent = create_metrics_agent()        # Depends on storage_kv
+        logging_agent = create_logging_agent()        # Depends on storage_fs and metrics
     
     def test_logging_basic_log(self):
         """Test basic logging operations."""
@@ -51,15 +57,10 @@ class TestLogging:
                     "logger_name": "test_logger"
                 })
                 
-                if hasattr(log_result, 'output'):
-                    log_data = json.loads(log_result.output)
-                else:
-                    log_data = log_result
-                
-                assert "operation" in log_data
-                assert log_data["operation"] == "log"
-                assert log_data["logger_name"] == "test_logger"
-                assert "console" in log_data["data"]["outputs"]
+                # logging returns typed LoggingOutput
+                assert log_result.operation == "log"
+                assert log_result.logger_name == "test_logger"
+                assert "console" in log_result.data["outputs"]
                 
                 # Verify console output
                 mock_print.assert_called_once()
@@ -84,12 +85,8 @@ class TestLogging:
                 "output": "console"
             })
             
-            if hasattr(config_result, 'output'):
-                config_data = json.loads(config_result.output)
-            else:
-                config_data = config_result
-            
-            assert "operation" in config_data
+            # logging returns typed LoggingOutput
+            assert config_result.operation == "configure"
             
             with patch('builtins.print') as mock_print:
                 # Log DEBUG (should be skipped)
@@ -100,13 +97,9 @@ class TestLogging:
                     "logger_name": "app"
                 })
                 
-                if hasattr(debug_result, 'output'):
-                    debug_data = json.loads(debug_result.output)
-                else:
-                    debug_data = debug_result
-                
-                assert "operation" in debug_data
-                assert debug_data["data"]["skipped"] is True
+                # logging returns typed LoggingOutput
+                assert debug_result.operation == "log"
+                assert debug_result.data["skipped"] is True
                 assert mock_print.call_count == 0
                 
                 # Log ERROR (should be logged)
@@ -117,13 +110,9 @@ class TestLogging:
                     "logger_name": "app"
                 })
                 
-                if hasattr(error_result, 'output'):
-                    error_data = json.loads(error_result.output)
-                else:
-                    error_data = error_result
-                
-                assert "operation" in error_data
-                assert error_data["data"].get("skipped", False) is False
+                # logging returns typed LoggingOutput
+                assert error_result.operation == "log"
+                assert error_result.data.get("skipped", False) is False
                 assert mock_print.call_count == 1
                 
                 log_output = mock_print.call_args[0][0]
@@ -155,12 +144,8 @@ class TestLogging:
                     "logger_name": "auth"
                 })
                 
-                if hasattr(log_result, 'output'):
-                    log_data = json.loads(log_result.output)
-                else:
-                    log_data = log_result
-                
-                assert "operation" in log_data
+                # logging returns typed LoggingOutput
+                assert log_result.operation == "log"
                 
                 log_output = mock_print.call_args[0][0]
                 assert "User logged in" in log_output
@@ -194,12 +179,8 @@ class TestLogging:
                     "logger_name": "json_logger"
                 })
                 
-                if hasattr(log_result, 'output'):
-                    log_data = json.loads(log_result.output)
-                else:
-                    log_data = log_result
-                
-                assert "operation" in log_data
+                # logging returns typed LoggingOutput
+                assert log_result.operation == "log"
                 
                 # Parse JSON output
                 log_output = mock_print.call_args[0][0]
@@ -229,12 +210,8 @@ class TestLogging:
                     "file_path": log_file
                 })
                 
-                if hasattr(config_result, 'output'):
-                    config_data = json.loads(config_result.output)
-                else:
-                    config_data = config_result
-                
-                assert "operation" in config_data
+                # logging returns typed LoggingOutput
+                assert config_result.operation == "configure"
                 
                 # Log to file
                 log_result = await injector.run('logging', {
@@ -244,13 +221,9 @@ class TestLogging:
                     "logger_name": "file_logger"
                 })
                 
-                if hasattr(log_result, 'output'):
-                    log_data = json.loads(log_result.output)
-                else:
-                    log_data = log_result
-                
-                assert "operation" in log_data
-                assert "file" in log_data["data"]["outputs"]
+                # logging returns typed LoggingOutput
+                assert log_result.operation == "log"
+                assert "file" in log_result.data["outputs"]
                 
                 # Verify file content
                 with open(log_file, 'r') as f:
@@ -286,13 +259,9 @@ class TestLogging:
                         "logger_name": "both_logger"
                     })
                     
-                    if hasattr(log_result, 'output'):
-                        log_data = json.loads(log_result.output)
-                    else:
-                        log_data = log_result
-                    
-                    assert "operation" in log_data
-                    assert set(log_data["data"]["outputs"]) == {"console", "file"}
+                    # logging returns typed LoggingOutput
+                    assert log_result.operation == "log"
+                    assert set(log_result.data["outputs"]) == {"console", "file"}
                     
                     # Verify console output
                     assert mock_print.call_count == 1
@@ -343,16 +312,12 @@ class TestLogging:
                     "logger_name": "retrieve_logger"
                 })
                 
-                if hasattr(get_result, 'output'):
-                    get_data = json.loads(get_result.output)
-                else:
-                    get_data = get_result
-                
-                assert "operation" in get_data
+                # logging returns typed LoggingOutput
+                assert get_result.operation == "get_logs"
                 # The count might be less if DEBUG was filtered out
-                actual_count = get_data["data"]["count"]
+                actual_count = get_result.data["count"]
                 assert actual_count >= 4  # At least INFO and above
-                assert len(get_data["data"]["entries"]) == actual_count
+                assert len(get_result.data["entries"]) == actual_count
                 
                 # Get only ERROR and above
                 get_error_result = await injector.run('logging', {
@@ -361,16 +326,12 @@ class TestLogging:
                     "level": "ERROR"
                 })
                 
-                if hasattr(get_error_result, 'output'):
-                    get_error_data = json.loads(get_error_result.output)
-                else:
-                    get_error_data = get_error_result
-                
-                assert "operation" in get_error_data
-                assert get_error_data["data"]["count"] == 2  # ERROR and CRITICAL
+                # logging returns typed LoggingOutput
+                assert get_error_result.operation == "get_logs"
+                assert get_error_result.data["count"] == 2  # ERROR and CRITICAL
                 
                 # Verify filtered entries
-                for entry in get_error_data["data"]["entries"]:
+                for entry in get_error_result.data["entries"]:
                     assert entry["level"] in ["ERROR", "CRITICAL"]
         
         asyncio.run(run_test())
@@ -409,13 +370,9 @@ class TestLogging:
                     "logger_name": "clear_logger"
                 })
                 
-                if hasattr(clear_result, 'output'):
-                    clear_data = json.loads(clear_result.output)
-                else:
-                    clear_data = clear_result
-                
-                assert "operation" in clear_data
-                assert clear_data["data"]["count"] >= 1
+                # logging returns typed LoggingOutput
+                assert clear_result.operation == "clear_logs"
+                assert clear_result.data["count"] >= 1
                 
                 # Verify file is empty
                 assert os.path.exists(log_file)
@@ -523,12 +480,8 @@ class TestLogging:
                 "logger_name": "unconfigured"
             })
             
-            if hasattr(log_result, 'output'):
-                log_data = json.loads(log_result.output)
-            else:
-                log_data = log_result
-            
-            assert log_data["operation"] == "log"  # Should work with defaults
+            # logging returns typed LoggingOutput
+            assert log_result.operation == "log"  # Should work with defaults
             
             # Test get_logs for non-existent file - should return empty results
             get_result = await injector.run('logging', {
@@ -536,13 +489,10 @@ class TestLogging:
                 "logger_name": "nonexistent"
             })
             
-            if hasattr(get_result, 'output'):
-                get_data = json.loads(get_result.output)
-            else:
-                get_data = get_result
-            
-            # No longer checking success field - function now throws exceptions on failure
-            assert get_data["data"]["count"] == 0  # No logs found
+            # logging returns typed LoggingOutput
+            # Check for success=False when no log file exists
+            assert get_result.success is False
+            assert get_result.data["count"] == 0  # No logs found
         
         asyncio.run(run_test())
     
@@ -571,12 +521,8 @@ class TestLogging:
                         "logger_name": "all_levels"
                     })
                     
-                    if hasattr(log_result, 'output'):
-                        log_data = json.loads(log_result.output)
-                    else:
-                        log_data = log_result
-                    
-                    assert "operation" in log_data
+                    # logging returns typed LoggingOutput
+                    assert log_result.operation == "log"
                 
                 # All 5 levels should be logged
                 assert mock_print.call_count == 5

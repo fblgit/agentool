@@ -67,6 +67,6 @@ CRITICAL REQUIREMENTS:
 - No placeholders, TODOs, or pass statements
 - Follow the exact patterns from the test stub structure
 - Include both positive and negative test cases
-- Ensure proper JSON parsing for results
-- Handle both direct results and results with .output attribute
+- Use typed output pattern (result.success, result.data, result.operation)
+- No JSON parsing needed - typed output returns structured data
 - Test all operations defined in the specification

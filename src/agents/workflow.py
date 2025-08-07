@@ -91,14 +91,11 @@ class AnalyzerNode(BaseNode[WorkflowState]):
                 'model': ctx.state.model
             })
             
-            # Extract result
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result.data if hasattr(result, 'data') else result
+            # AgenTools now return typed outputs
+            data = result.data
             
-            if not data.get('success', False):
-                raise RuntimeError(f"Analyzer failed: {data.get('message', 'Unknown error')}")
+            if not result.success:
+                raise RuntimeError(f"Analyzer failed: {result.message}")
             
             ctx.state.analyzer_completed = True
             
@@ -176,14 +173,11 @@ class SpecificationNode(BaseNode[WorkflowState]):
                 'model': ctx.state.model
             })
             
-            # Extract result
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result.data if hasattr(result, 'data') else result
+            # AgenTools now return typed outputs
+            data = result.data
             
-            if not data.get('success', False):
-                raise RuntimeError(f"Specifier failed: {data.get('message', 'Unknown error')}")
+            if not result.success:
+                raise RuntimeError(f"Specifier failed: {result.message}")
             
             ctx.state.specification_completed = True
             
@@ -260,14 +254,11 @@ class CrafterNode(BaseNode[WorkflowState]):
                 'model': ctx.state.model
             })
             
-            # Extract result
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result.data if hasattr(result, 'data') else result
+            # AgenTools now return typed outputs
+            data = result.data
             
-            if not data.get('success', False):
-                raise RuntimeError(f"Crafter failed: {data.get('message', 'Unknown error')}")
+            if not result.success:
+                raise RuntimeError(f"Crafter failed: {result.message}")
             
             ctx.state.crafter_completed = True
             
@@ -349,14 +340,11 @@ class EvaluatorNode(BaseNode[WorkflowState]):
                 'auto_fix': True
             })
             
-            # Extract result
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result.data if hasattr(result, 'data') else result
+            # AgenTools now return typed outputs
+            data = result.data
             
-            if not data.get('success', False):
-                raise RuntimeError(f"Evaluator failed: {data.get('message', 'Unknown error')}")
+            if not result.success:
+                raise RuntimeError(f"Evaluator failed: {result.message}")
             
             ctx.state.evaluator_completed = True
             
@@ -470,15 +458,13 @@ class TestAnalyzerNode(BaseNode[WorkflowState]):
                 'key': specs_key
             })
             
-            if hasattr(specs_result, 'output'):
-                specs_data = json.loads(specs_result.output)
-            else:
-                specs_data = specs_result.data if hasattr(specs_result, 'data') else specs_result
+            # AgenTools now return typed outputs
+            specs_data = specs_result.data
             
-            if not specs_data.get('data', {}).get('exists', False):
+            if not specs_result.success or not specs_data.get('exists', False):
                 raise RuntimeError("No specifications found for test analysis")
             
-            spec_output = json.loads(specs_data['data']['value'])
+            spec_output = json.loads(specs_data['value'])
             tools_analyzed = 0
             
             # Analyze tests for each tool
@@ -495,13 +481,10 @@ class TestAnalyzerNode(BaseNode[WorkflowState]):
                     'model': ctx.state.model
                 })
                 
-                # Extract result
-                if hasattr(result, 'output'):
-                    data = json.loads(result.output)
-                else:
-                    data = result.data if hasattr(result, 'data') else result
+                # AgenTools now return typed outputs
+                data = result.data
                 
-                if data.get('success', False):
+                if result.success:
                     tools_analyzed += 1
             
             ctx.state.test_analyzer_completed = True
@@ -577,12 +560,10 @@ class TestStubberNode(BaseNode[WorkflowState]):
                 'key': specs_key
             })
             
-            if hasattr(specs_result, 'output'):
-                specs_data = json.loads(specs_result.output)
-            else:
-                specs_data = specs_result.data if hasattr(specs_result, 'data') else specs_result
+            # AgenTools now return typed outputs
+            specs_data = specs_result.data
             
-            spec_output = json.loads(specs_data['data']['value'])
+            spec_output = json.loads(specs_data['value'])
             tools_stubbed = 0
             
             # Create stubs for each tool
@@ -598,12 +579,10 @@ class TestStubberNode(BaseNode[WorkflowState]):
                     'key': analysis_key
                 })
                 
-                if hasattr(check_result, 'output'):
-                    check_data = json.loads(check_result.output)
-                else:
-                    check_data = check_result.data if hasattr(check_result, 'data') else check_result
+                # AgenTools now return typed outputs
+                check_data = check_result.data
                 
-                if not check_data.get('data', {}).get('exists', False):
+                if not check_result.success or not check_data.get('exists', False):
                     continue
                 
                 # Run test stubber for this tool
@@ -614,13 +593,10 @@ class TestStubberNode(BaseNode[WorkflowState]):
                     'model': ctx.state.model
                 })
                 
-                # Extract result
-                if hasattr(result, 'output'):
-                    data = json.loads(result.output)
-                else:
-                    data = result.data if hasattr(result, 'data') else result
+                # AgenTools now return typed outputs
+                data = result.data
                 
-                if data.get('success', False):
+                if result.success:
                     tools_stubbed += 1
             
             ctx.state.test_stubber_completed = True
@@ -697,12 +673,10 @@ class TestCrafterNode(BaseNode[WorkflowState, None, Dict[str, Any]]):
                 'key': specs_key
             })
             
-            if hasattr(specs_result, 'output'):
-                specs_data = json.loads(specs_result.output)
-            else:
-                specs_data = specs_result.data if hasattr(specs_result, 'data') else specs_result
+            # AgenTools now return typed outputs
+            specs_data = specs_result.data
             
-            spec_output = json.loads(specs_data['data']['value'])
+            spec_output = json.loads(specs_data['value'])
             tools_tested = 0
             test_files = []
             test_coverage = {}
@@ -720,12 +694,10 @@ class TestCrafterNode(BaseNode[WorkflowState, None, Dict[str, Any]]):
                     'key': stub_key
                 })
                 
-                if hasattr(check_result, 'output'):
-                    check_data = json.loads(check_result.output)
-                else:
-                    check_data = check_result.data if hasattr(check_result, 'data') else check_result
+                # AgenTools now return typed outputs
+                check_data = check_result.data
                 
-                if not check_data.get('data', {}).get('exists', False):
+                if not check_result.success or not check_data.get('exists', False):
                     continue
                 
                 # Run test crafter for this tool
@@ -736,13 +708,10 @@ class TestCrafterNode(BaseNode[WorkflowState, None, Dict[str, Any]]):
                     'model': ctx.state.model
                 })
                 
-                # Extract result
-                if hasattr(result, 'output'):
-                    data = json.loads(result.output)
-                else:
-                    data = result.data if hasattr(result, 'data') else result
+                # AgenTools now return typed outputs
+                data = result.data
                 
-                if data.get('success', False):
+                if result.success:
                     tools_tested += 1
                     impl_data = data.get('data', {})
                     test_files.append(f"generated/{ctx.state.workflow_id}/tests/test_{tool_name}.py")
@@ -807,10 +776,9 @@ class TestCrafterNode(BaseNode[WorkflowState, None, Dict[str, Any]]):
             })
             
             validation_data = {}
-            if hasattr(val_result, 'output'):
-                val_data = json.loads(val_result.output)
-                if val_data.get('data', {}).get('exists', False):
-                    validation_data = json.loads(val_data['data']['value'])
+            # AgenTools now return typed outputs
+            if val_result.success and val_result.data.get('exists', False):
+                validation_data = json.loads(val_result.data['value'])
             
         except Exception as e:
             ctx.state.errors.append(f"Test crafter error: {str(e)}")

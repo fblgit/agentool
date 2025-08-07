@@ -107,6 +107,7 @@ class AgenToolConfig:
         examples: List of example inputs/outputs
         created_at: Timestamp when the AgenTool was created
         updated_at: Timestamp when the AgenTool was last updated
+        use_typed_output: Whether to return typed Pydantic models instead of AgentRunResult (default: True)
     """
     input_schema: Type[BaseModel]
     routing_config: RoutingConfig
@@ -119,6 +120,7 @@ class AgenToolConfig:
     examples: List[Dict[str, Any]] = field(default_factory=list)
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
+    use_typed_output: bool = True  # Default True for typed outputs
 
 
 class AgenToolRegistry:

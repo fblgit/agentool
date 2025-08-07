@@ -48,15 +48,11 @@ class TestConfig:
                 "namespace": "test"
             })
             
-            if hasattr(set_result, 'output'):
-                set_data = json.loads(set_result.output)
-            else:
-                set_data = set_result
-            
-            assert "operation" in set_data
-            assert set_data["operation"] == "set"
-            assert set_data["key"] == "app.name"
-            assert set_data["namespace"] == "test"
+            # config returns typed ConfigOutput
+            assert set_result.success is True
+            assert set_result.operation == "set"
+            assert set_result.key == "app.name"
+            assert set_result.namespace == "test"
             
             # Get the configuration value
             get_result = await injector.run('config', {
@@ -65,14 +61,11 @@ class TestConfig:
                 "namespace": "test"
             })
             
-            if hasattr(get_result, 'output'):
-                get_data = json.loads(get_result.output)
-            else:
-                get_data = get_result
-            
-            assert "operation" in get_data
-            assert get_data["data"]["value"] == "MyApp"
-            assert get_data["data"]["exists"] is True
+            # config returns typed ConfigOutput
+            assert get_result.success is True
+            assert get_result.operation == "get"
+            assert get_result.data["value"] == "MyApp"
+            assert get_result.data["exists"] is True
         
         asyncio.run(run_test())
     
@@ -106,13 +99,10 @@ class TestConfig:
                 "namespace": "app"
             })
             
-            if hasattr(list_result, 'output'):
-                list_data = json.loads(list_result.output)
-            else:
-                list_data = list_result
-            
-            assert "operation" in list_data
-            assert list_data["data"]["count"] == len(configs)
+            # config returns typed ConfigOutput
+            assert list_result.success is True
+            assert list_result.operation == "list"
+            assert list_result.data["count"] == len(configs)
             
             # List database configurations with key prefix
             db_list_result = await injector.run('config', {
@@ -121,13 +111,10 @@ class TestConfig:
                 "key": "database"  # Use key field for prefix
             })
             
-            if hasattr(db_list_result, 'output'):
-                db_list_data = json.loads(db_list_result.output)
-            else:
-                db_list_data = db_list_result
-            
-            assert "operation" in db_list_data
-            assert db_list_data["data"]["count"] == 4  # 4 database.* keys
+            # config returns typed ConfigOutput
+            assert db_list_result.success is True
+            assert db_list_result.operation == "list"
+            assert db_list_result.data["count"] == 4  # 4 database.* keys
             
             # Get nested value
             get_result = await injector.run('config', {
@@ -136,12 +123,9 @@ class TestConfig:
                 "namespace": "app"
             })
             
-            if hasattr(get_result, 'output'):
-                get_data = json.loads(get_result.output)
-            else:
-                get_data = get_result
-            
-            assert get_data["data"]["value"] == "admin"
+            # config returns typed ConfigOutput
+            assert get_result.success is True
+            assert get_result.data["value"] == "admin"
         
         asyncio.run(run_test())
     
@@ -159,14 +143,13 @@ class TestConfig:
                 "default": "default_value"
             })
             
-            if hasattr(get_result, 'output'):
-                get_data = json.loads(get_result.output)
-            else:
-                get_data = get_result
-            
-            assert "operation" in get_data
-            assert get_data["data"]["value"] == "default_value"
-            assert get_data["data"]["exists"] is False
+            # config returns typed ConfigOutput
+            # When a default is provided, it's a successful operation
+            assert get_result.success is True  # Success - default value provided
+            assert get_result.operation == "get"
+            assert get_result.data["value"] == "default_value"
+            assert get_result.data["exists"] is False
+            assert get_result.data["used_default"] is True
             # default value returned
             
             # Get non-existent key without default
@@ -176,14 +159,10 @@ class TestConfig:
                 "namespace": "test"
             })
             
-            if hasattr(get_result2, 'output'):
-                get_data2 = json.loads(get_result2.output)
-            else:
-                get_data2 = get_result2
-            
-            assert "operation" in get_data2
-            assert get_data2["data"]["value"] is None
-            assert get_data2["data"]["exists"] is False
+            # config returns typed ConfigOutput
+            assert get_result2.success is False  # Discovery operation - not found
+            assert get_result2.operation == "get"
+            assert get_result2.data == {}  # Empty data when not found
         
         asyncio.run(run_test())
     
@@ -205,12 +184,9 @@ class TestConfig:
                     "env_prefix": "APP_"
                 })
                 
-                if hasattr(reload_result, 'output'):
-                    reload_data = json.loads(reload_result.output)
-                else:
-                    reload_data = reload_result
-                
-                assert "operation" in reload_data
+                # config returns typed ConfigOutput
+                assert reload_result.success is True
+                assert reload_result.operation == "reload"
                 
                 # Get loaded values
                 get_result = await injector.run('config', {
@@ -219,13 +195,10 @@ class TestConfig:
                     "namespace": "test"
                 })
                 
-                if hasattr(get_result, 'output'):
-                    get_data = json.loads(get_result.output)
-                else:
-                    get_data = get_result
-                
-                assert "operation" in get_data
-                assert get_data["data"]["value"] == "env_host"
+                # config returns typed ConfigOutput
+                assert get_result.success is True
+                assert get_result.operation == "get"
+                assert get_result.data["value"] == "env_host"
                 
             finally:
                 # Clean up environment variables
@@ -298,15 +271,11 @@ class TestConfig:
                 "validation_schema": validation_schema
             })
             
-            if hasattr(validate_result, 'output'):
-                validate_data = json.loads(validate_result.output)
-            else:
-                validate_data = validate_result
-            
+            # config returns typed ConfigOutput
             # The validation might fail because the config structure doesn't match
             # Let's just verify the operation runs without error
-            assert "operation" in validate_data
-            assert validate_data["operation"] == "validate"
+            assert validate_result.success is True
+            assert validate_result.operation == "validate"
         
         asyncio.run(run_test())
     
@@ -331,12 +300,9 @@ class TestConfig:
                 "namespace": "test"
             })
             
-            if hasattr(get_result, 'output'):
-                get_data = json.loads(get_result.output)
-            else:
-                get_data = get_result
-            
-            assert get_data["data"]["exists"] is True
+            # config returns typed ConfigOutput
+            assert get_result.success is True
+            assert get_result.data["exists"] is True
             
             # Delete the configuration
             delete_result = await injector.run('config', {
@@ -345,14 +311,11 @@ class TestConfig:
                 "namespace": "test"
             })
             
-            if hasattr(delete_result, 'output'):
-                delete_data = json.loads(delete_result.output)
-            else:
-                delete_data = delete_result
-            
-            assert "operation" in delete_data
-            assert delete_data["data"]["deleted"] is True
-            assert delete_data["data"]["existed"] is True
+            # config returns typed ConfigOutput
+            assert delete_result.success is True
+            assert delete_result.operation == "delete"
+            assert delete_result.data["deleted"] is True
+            assert delete_result.data["existed"] is True
             
             # Verify it's gone
             get_result2 = await injector.run('config', {
@@ -361,12 +324,9 @@ class TestConfig:
                 "namespace": "test"
             })
             
-            if hasattr(get_result2, 'output'):
-                get_data2 = json.loads(get_result2.output)
-            else:
-                get_data2 = get_result2
-            
-            assert get_data2["data"]["exists"] is False
+            # config returns typed ConfigOutput
+            assert get_result2.success is False  # Discovery operation - not found
+            assert get_result2.data == {}  # Empty data when not found
         
         asyncio.run(run_test())
     
@@ -390,13 +350,9 @@ class TestConfig:
                 "namespace": "reload_test"
             })
             
-            if hasattr(reload_result, 'output'):
-                reload_data = json.loads(reload_result.output)
-            else:
-                reload_data = reload_result
-            
-            assert "operation" in reload_data
-            assert reload_data["operation"] == "reload"
+            # config returns typed ConfigOutput
+            assert reload_result.success is True
+            assert reload_result.operation == "reload"
             
             # Verify initial value still exists
             get_result = await injector.run('config', {
@@ -405,12 +361,9 @@ class TestConfig:
                 "namespace": "reload_test"
             })
             
-            if hasattr(get_result, 'output'):
-                get_data = json.loads(get_result.output)
-            else:
-                get_data = get_result
-            
-            assert get_data["data"]["value"] == "test"
+            # config returns typed ConfigOutput
+            assert get_result.success is True
+            assert get_result.data["value"] == "test"
         
         asyncio.run(run_test())
     
@@ -443,12 +396,9 @@ class TestConfig:
                 "namespace": "development"
             })
             
-            if hasattr(dev_result, 'output'):
-                dev_data = json.loads(dev_result.output)
-            else:
-                dev_data = dev_result
-            
-            assert dev_data["data"]["value"] == "dev_value"
+            # config returns typed ConfigOutput
+            assert dev_result.success is True
+            assert dev_result.data["value"] == "dev_value"
             
             # Get from production namespace
             prod_result = await injector.run('config', {
@@ -457,12 +407,9 @@ class TestConfig:
                 "namespace": "production"
             })
             
-            if hasattr(prod_result, 'output'):
-                prod_data = json.loads(prod_result.output)
-            else:
-                prod_data = prod_result
-            
-            assert prod_data["data"]["value"] == "prod_value"
+            # config returns typed ConfigOutput
+            assert prod_result.success is True
+            assert prod_result.data["value"] == "prod_value"
             
             # Delete from development namespace
             await injector.run('config', {
@@ -478,13 +425,10 @@ class TestConfig:
                 "namespace": "production"
             })
             
-            if hasattr(prod_result2, 'output'):
-                prod_data2 = json.loads(prod_result2.output)
-            else:
-                prod_data2 = prod_result2
-            
-            assert prod_data2["data"]["exists"] is True
-            assert prod_data2["data"]["value"] == "prod_value"
+            # config returns typed ConfigOutput
+            assert prod_result2.success is True
+            assert prod_result2.data["exists"] is True
+            assert prod_result2.data["value"] == "prod_value"
         
         asyncio.run(run_test())
     
@@ -501,14 +445,10 @@ class TestConfig:
                 "namespace": "empty_namespace"
             })
             
-            if hasattr(get_result, 'output'):
-                get_data = json.loads(get_result.output)
-            else:
-                get_data = get_result
-            
-            assert "operation" in get_data
-            assert get_data["data"]["exists"] is False
-            assert get_data["data"]["value"] is None
+            # config returns typed ConfigOutput
+            assert get_result.success is False  # Discovery operation - not found
+            assert get_result.operation == "get"
+            assert get_result.data == {}  # Empty data when not found
             
             # Test deleting non-existent key (should be idempotent)
             delete_result = await injector.run('config', {
@@ -517,12 +457,9 @@ class TestConfig:
                 "namespace": "test"
             })
             
-            if hasattr(delete_result, 'output'):
-                delete_data = json.loads(delete_result.output)
-            else:
-                delete_data = delete_result
-            
-            assert "operation" in delete_data  # Should succeed (idempotent)
+            # config returns typed ConfigOutput
+            assert delete_result.success is True  # Should succeed (idempotent)
+            assert delete_result.operation == "delete"
             
             # Test listing empty namespace
             list_result = await injector.run('config', {
@@ -530,13 +467,10 @@ class TestConfig:
                 "namespace": "empty_namespace"
             })
             
-            if hasattr(list_result, 'output'):
-                list_data = json.loads(list_result.output)
-            else:
-                list_data = list_result
-            
-            assert "operation" in list_data
-            assert list_data["data"]["count"] == 0
-            assert list_data["data"]["keys"] == []
+            # config returns typed ConfigOutput
+            assert list_result.success is True
+            assert list_result.operation == "list"
+            assert list_result.data["count"] == 0
+            assert list_result.data["keys"] == []
         
         asyncio.run(run_test())

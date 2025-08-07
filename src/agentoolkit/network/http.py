@@ -33,7 +33,7 @@ import urllib.parse
 import urllib.request
 from typing import Any, Dict, Literal, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from agentool import create_agentool
 from agentool.base import BaseOperationInput
@@ -75,10 +75,55 @@ class HttpInput(BaseOperationInput):
     # File operations
     file_path: Optional[str] = Field(None, description='File path for upload/download')
     file_data: Optional[bytes] = Field(None, description='File data for upload')
+    
+    @field_validator('url')
+    def validate_url(cls, v, info):
+        """Validate URL is provided for all operations."""
+        if not v:
+            operation = info.data.get('operation', 'unknown')
+            raise ValueError(f"url is required for {operation} operation")
+        # Basic URL validation
+        if not v.startswith(('http://', 'https://')):
+            raise ValueError(f"URL must start with http:// or https://, got: {v}")
+        return v
+    
+    @field_validator('username')
+    def validate_username(cls, v, info):
+        """Validate username is provided when using basic auth."""
+        auth_type = info.data.get('auth_type')
+        if auth_type == 'basic' and not v:
+            raise ValueError("username is required for basic authentication")
+        return v
+    
+    @field_validator('password')
+    def validate_password(cls, v, info):
+        """Validate password is provided when using basic auth."""
+        auth_type = info.data.get('auth_type')
+        username = info.data.get('username')
+        if auth_type == 'basic' and username and not v:
+            raise ValueError("password is required for basic authentication")
+        return v
+    
+    @field_validator('auth_token')
+    def validate_auth_token(cls, v, info):
+        """Validate auth_token is provided when using bearer auth."""
+        auth_type = info.data.get('auth_type')
+        if auth_type == 'bearer' and not v:
+            raise ValueError("auth_token is required for bearer authentication")
+        return v
+    
+    @field_validator('session_id')
+    def validate_session_id(cls, v, info):
+        """Validate session_id is provided when using session auth."""
+        auth_type = info.data.get('auth_type')
+        if auth_type == 'session' and not v:
+            raise ValueError("session_id is required for session authentication")
+        return v
 
 
 class HttpOutput(BaseModel):
     """Structured output for HTTP operations."""
+    success: bool = Field(description='Whether the operation succeeded')
     operation: str = Field(description='The operation that was performed')
     message: str = Field(description='Human-readable result message')
     data: Optional[Dict[str, Any]] = Field(None, description='Operation-specific data')
@@ -148,6 +193,7 @@ async def http_get(ctx: RunContext[Any], url: str, headers: Optional[Dict[str, s
             response_json = None
         
         return HttpOutput(
+            success=True,
             operation='get',
             message=f'Successfully performed GET request to {url}',
             data={
@@ -244,6 +290,7 @@ async def http_post(ctx: RunContext[Any], url: str, headers: Optional[Dict[str, 
             response_json = None
         
         return HttpOutput(
+            success=True,
             operation='post',
             message=f'Successfully performed POST request to {url}',
             data={
@@ -318,6 +365,7 @@ async def http_put(ctx: RunContext[Any], url: str, headers: Optional[Dict[str, s
             response_json = None
         
         return HttpOutput(
+            success=True,
             operation='put',
             message=f'Successfully performed PUT request to {url}',
             data={
@@ -379,6 +427,7 @@ async def http_delete(ctx: RunContext[Any], url: str, headers: Optional[Dict[str
             response_json = None
         
         return HttpOutput(
+            success=True,
             operation='delete',
             message=f'Successfully performed DELETE request to {url}',
             data={
@@ -453,6 +502,7 @@ async def http_patch(ctx: RunContext[Any], url: str, headers: Optional[Dict[str,
             response_json = None
         
         return HttpOutput(
+            success=True,
             operation='patch',
             message=f'Successfully performed PATCH request to {url}',
             data={
@@ -504,6 +554,7 @@ async def http_head(ctx: RunContext[Any], url: str, headers: Optional[Dict[str, 
         response = urllib.request.urlopen(request, timeout=timeout, context=ssl_context)
         
         return HttpOutput(
+            success=True,
             operation='head',
             message=f'Successfully performed HEAD request to {url}',
             data={
@@ -557,6 +608,7 @@ async def http_options(ctx: RunContext[Any], url: str, headers: Optional[Dict[st
         allowed_methods = [m.strip() for m in allow_header.split(',')] if allow_header else []
         
         return HttpOutput(
+            success=True,
             operation='options',
             message=f'Successfully performed OPTIONS request to {url}',
             data={
@@ -606,12 +658,8 @@ async def _add_auth_headers(headers: Dict[str, str], auth_type: Optional[str],
                 'session_id': session_id
             })
             
-            if hasattr(session_result, 'output'):
-                session_data = json.loads(session_result.output)
-            else:
-                session_data = session_result
-            
-            if session_data['success'] and session_data['data']['valid']:
+            # Session agent has use_typed_output=True, so we get typed result directly
+            if session_result.success and session_result.data['valid']:
                 # Add session cookie or header
                 headers['X-Session-Id'] = session_id
                 headers['Cookie'] = f'session_id={session_id}'
@@ -694,6 +742,7 @@ def create_http_agent():
             http_patch, http_head, http_options
         ],
         output_type=HttpOutput,
+        use_typed_output=True,  # Enable typed output for http (Tier 1 - no dependencies)
         system_prompt='Perform HTTP requests with authentication support.',
         description='Comprehensive HTTP client with authentication integration',
         version='1.0.0',

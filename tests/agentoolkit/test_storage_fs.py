@@ -43,16 +43,10 @@ class TestStorageFs:
                     "content": test_content
                 })
                 
-                # Verify write result
-                if hasattr(write_result, 'output'):
-                    write_data = json.loads(write_result.output)
-                else:
-                    write_data = write_result
-                
-                # No longer checking success field - function now throws exceptions on failure
-                assert write_data["operation"] == "write"
-                assert write_data["path"] == test_file
-                assert write_data["data"]["content_length"] == len(test_content)
+                # Verify write result - storage_fs returns typed StorageFsOutput
+                assert write_result.operation == "write"
+                assert write_result.path == test_file
+                assert write_result.data["content_length"] == len(test_content)
                 
                 # Test read
                 read_result = await injector.run('storage_fs', {
@@ -60,16 +54,10 @@ class TestStorageFs:
                     "path": test_file
                 })
                 
-                # Verify read result
-                if hasattr(read_result, 'output'):
-                    read_data = json.loads(read_result.output)
-                else:
-                    read_data = read_result
-                
-                # No longer checking success field - function now throws exceptions on failure
-                assert read_data["operation"] == "read"
-                assert read_data["data"]["content"] == test_content
-                assert read_data["data"]["encoding"] == "utf-8"
+                # Verify read result - storage_fs returns typed StorageFsOutput
+                assert read_result.operation == "read"
+                assert read_result.data["content"] == test_content
+                assert read_result.data["encoding"] == "utf-8"
         
         asyncio.run(run_test())
     
@@ -97,14 +85,8 @@ class TestStorageFs:
                     "content": additional_content
                 })
                 
-                # Verify append result
-                if hasattr(append_result, 'output'):
-                    append_data = json.loads(append_result.output)
-                else:
-                    append_data = append_result
-                
-                # No longer checking success field - function now throws exceptions on failure
-                assert append_data["operation"] == "append"
+                # Verify append result - storage_fs returns typed StorageFsOutput
+                assert append_result.operation == "append"
                 
                 # Read and verify combined content
                 read_result = await injector.run('storage_fs', {
@@ -112,12 +94,8 @@ class TestStorageFs:
                     "path": test_file
                 })
                 
-                if hasattr(read_result, 'output'):
-                    read_data = json.loads(read_result.output)
-                else:
-                    read_data = read_result
-                
-                assert read_data["data"]["content"] == initial_content + additional_content
+                # storage_fs returns typed StorageFsOutput
+                assert read_result.data["content"] == initial_content + additional_content
         
         asyncio.run(run_test())
     
@@ -142,12 +120,8 @@ class TestStorageFs:
                     "path": test_file
                 })
                 
-                if hasattr(exists_result, 'output'):
-                    exists_data = json.loads(exists_result.output)
-                else:
-                    exists_data = exists_result
-                
-                assert exists_data["data"]["exists"] is True
+                # storage_fs returns typed StorageFsOutput
+                assert exists_result.data["exists"] is True
                 
                 # Delete the file
                 delete_result = await injector.run('storage_fs', {
@@ -155,14 +129,9 @@ class TestStorageFs:
                     "path": test_file
                 })
                 
-                if hasattr(delete_result, 'output'):
-                    delete_data = json.loads(delete_result.output)
-                else:
-                    delete_data = delete_result
-                
-                # No longer checking success field - function now throws exceptions on failure
-                assert delete_data["data"]["existed"] is True
-                assert delete_data["data"]["type"] == "file"
+                # storage_fs returns typed StorageFsOutput
+                assert delete_result.data["existed"] is True
+                assert delete_result.data["type"] == "file"
                 
                 # Verify file no longer exists
                 exists_result = await injector.run('storage_fs', {
@@ -170,12 +139,8 @@ class TestStorageFs:
                     "path": test_file
                 })
                 
-                if hasattr(exists_result, 'output'):
-                    exists_data = json.loads(exists_result.output)
-                else:
-                    exists_data = exists_result
-                
-                assert exists_data["data"]["exists"] is False
+                # storage_fs returns typed StorageFsOutput
+                assert exists_result.data["exists"] is False
         
         asyncio.run(run_test())
     
@@ -193,13 +158,8 @@ class TestStorageFs:
                     "path": test_dir
                 })
                 
-                if hasattr(mkdir_result, 'output'):
-                    mkdir_data = json.loads(mkdir_result.output)
-                else:
-                    mkdir_data = mkdir_result
-                
-                # No longer checking success field - function now throws exceptions on failure
-                assert mkdir_data["data"]["created"] is True
+                # storage_fs returns typed StorageFsOutput
+                assert mkdir_result.data["created"] is True
                 
                 # Verify directory exists
                 exists_result = await injector.run('storage_fs', {
@@ -207,13 +167,9 @@ class TestStorageFs:
                     "path": test_dir
                 })
                 
-                if hasattr(exists_result, 'output'):
-                    exists_data = json.loads(exists_result.output)
-                else:
-                    exists_data = exists_result
-                
-                assert exists_data["data"]["exists"] is True
-                assert exists_data["data"]["type"] == "directory"
+                # storage_fs returns typed StorageFsOutput
+                assert exists_result.data["exists"] is True
+                assert exists_result.data["type"] == "directory"
                 
                 # Remove directory
                 rmdir_result = await injector.run('storage_fs', {
@@ -221,13 +177,8 @@ class TestStorageFs:
                     "path": test_dir
                 })
                 
-                if hasattr(rmdir_result, 'output'):
-                    rmdir_data = json.loads(rmdir_result.output)
-                else:
-                    rmdir_data = rmdir_result
-                
-                # No longer checking success field - function now throws exceptions on failure
-                assert rmdir_data["data"]["removed"] is True
+                # storage_fs returns typed StorageFsOutput
+                assert rmdir_result.data["removed"] is True
         
         asyncio.run(run_test())
     
@@ -260,16 +211,11 @@ class TestStorageFs:
                     "path": temp_dir
                 })
                 
-                if hasattr(list_result, 'output'):
-                    list_data = json.loads(list_result.output)
-                else:
-                    list_data = list_result
-                
-                # No longer checking success field - function now throws exceptions on failure
-                assert list_data["data"]["count"] >= len(files) + 1  # files + subdir
+                # storage_fs returns typed StorageFsOutput
+                assert list_result.data["count"] >= len(files) + 1  # files + subdir
                 
                 # Check that all files are listed
-                item_names = [item["name"] for item in list_data["data"]["items"]]
+                item_names = [item["name"] for item in list_result.data["items"]]
                 for filename in files:
                     assert filename in item_names
                 assert "subdir" in item_names
@@ -281,13 +227,8 @@ class TestStorageFs:
                     "pattern": "*.txt"
                 })
                 
-                if hasattr(pattern_result, 'output'):
-                    pattern_data = json.loads(pattern_result.output)
-                else:
-                    pattern_data = pattern_result
-                
-                # No longer checking success field - function now throws exceptions on failure
-                txt_files = [item["name"] for item in pattern_data["data"]["items"]]
+                # storage_fs returns typed StorageFsOutput
+                txt_files = [item["name"] for item in pattern_result.data["items"]]
                 assert "file1.txt" in txt_files
                 assert "file2.py" not in txt_files
         
@@ -325,13 +266,8 @@ class TestStorageFs:
                 "path": "/nonexistent/file.txt"
             })
             
-            if hasattr(delete_result, 'output'):
-                delete_data = json.loads(delete_result.output)
-            else:
-                delete_data = delete_result
-            
-            # No longer checking success field - function now throws exceptions on failure  # Idempotent
-            assert delete_data["data"]["existed"] is False
+            # storage_fs returns typed StorageFsOutput
+            assert delete_result.data["existed"] is False
         
         asyncio.run(run_test())
     
@@ -370,15 +306,9 @@ class TestStorageFs:
                     "recursive": True
                 })
                 
-                if hasattr(list_result, 'output'):
-                    list_data = json.loads(list_result.output)
-                else:
-                    list_data = list_result
-                
-                # No longer checking success field - function now throws exceptions on failure
-                
+                # storage_fs returns typed StorageFsOutput
                 # Check that both files are found
-                all_files = [item["name"] for item in list_data["data"]["items"]]
+                all_files = [item["name"] for item in list_result.data["items"]]
                 assert "parent_file.txt" in all_files
                 assert "child_file.txt" in all_files
                 
@@ -389,14 +319,9 @@ class TestStorageFs:
                     "recursive": True
                 })
                 
-                if hasattr(delete_result, 'output'):
-                    delete_data = json.loads(delete_result.output)
-                else:
-                    delete_data = delete_result
-                
-                # No longer checking success field - function now throws exceptions on failure
-                assert delete_data["data"]["type"] == "directory"
-                assert delete_data["data"]["recursive"] is True
+                # storage_fs returns typed StorageFsOutput
+                assert delete_result.data["type"] == "directory"
+                assert delete_result.data["recursive"] is True
                 
                 # Verify deletion
                 exists_result = await injector.run('storage_fs', {
@@ -404,12 +329,8 @@ class TestStorageFs:
                     "path": os.path.join(temp_dir, "parent")
                 })
                 
-                if hasattr(exists_result, 'output'):
-                    exists_data = json.loads(exists_result.output)
-                else:
-                    exists_data = exists_result
-                
-                assert exists_data["data"]["exists"] is False
+                # storage_fs returns typed StorageFsOutput
+                assert exists_result.data["exists"] is False
         
         asyncio.run(run_test())
     
@@ -431,11 +352,7 @@ class TestStorageFs:
                     "encoding": "utf-8"
                 })
                 
-                if hasattr(write_result, 'output'):
-                    write_data = json.loads(write_result.output)
-                else:
-                    write_data = write_result
-                
+                # storage_fs returns typed StorageFsOutput
                 # No longer checking success field - function now throws exceptions on failure
                 
                 # Read back with UTF-8
@@ -445,13 +362,8 @@ class TestStorageFs:
                     "encoding": "utf-8"
                 })
                 
-                if hasattr(read_result, 'output'):
-                    read_data = json.loads(read_result.output)
-                else:
-                    read_data = read_result
-                
-                # No longer checking success field - function now throws exceptions on failure
-                assert read_data["data"]["content"] == utf8_content
+                # storage_fs returns typed StorageFsOutput
+                assert read_result.data["content"] == utf8_content
         
         asyncio.run(run_test())
     
@@ -475,20 +387,9 @@ class TestStorageFs:
                     "path": test_dir
                 })
                 
-                if hasattr(mkdir_result1, 'output'):
-                    mkdir_data1 = json.loads(mkdir_result1.output)
-                else:
-                    mkdir_data1 = mkdir_result1
-                    
-                if hasattr(mkdir_result2, 'output'):
-                    mkdir_data2 = json.loads(mkdir_result2.output)
-                else:
-                    mkdir_data2 = mkdir_result2
-                
-                # No longer checking success field - function now throws exceptions on failure
-                # No longer checking success field - function now throws exceptions on failure
-                assert mkdir_data1["data"]["created"] is True
-                assert mkdir_data2["data"]["created"] is False  # Already existed
+                # storage_fs returns typed StorageFsOutput
+                assert mkdir_result1.data["created"] is True
+                assert mkdir_result2.data["created"] is False  # Already existed
                 
                 # Test delete idempotency
                 delete_result1 = await injector.run('storage_fs', {
@@ -501,19 +402,8 @@ class TestStorageFs:
                     "path": test_file
                 })
                 
-                if hasattr(delete_result1, 'output'):
-                    delete_data1 = json.loads(delete_result1.output)
-                else:
-                    delete_data1 = delete_result1
-                    
-                if hasattr(delete_result2, 'output'):
-                    delete_data2 = json.loads(delete_result2.output)
-                else:
-                    delete_data2 = delete_result2
-                
-                # No longer checking success field - function now throws exceptions on failure
-                # No longer checking success field - function now throws exceptions on failure
-                assert delete_data1["data"]["existed"] is False  # Never existed
-                assert delete_data2["data"]["existed"] is False  # Still doesn't exist
+                # storage_fs returns typed StorageFsOutput
+                assert delete_result1.data["existed"] is False  # Never existed
+                assert delete_result2.data["existed"] is False  # Still doesn't exist
         
         asyncio.run(run_test())

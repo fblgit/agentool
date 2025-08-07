@@ -27,7 +27,7 @@ Example Usage:
 import json
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional, List, Literal, Set
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_ai import RunContext
 
 from agentool.base import BaseOperationInput
@@ -72,10 +72,77 @@ class AuthInput(BaseOperationInput):
     # Authorization
     role: Optional[str] = Field(None, description="User role")
     permission: Optional[str] = Field(None, description="Permission to check")
+    
+    @field_validator('username')
+    def validate_username(cls, v, info):
+        """Validate username is provided for operations that require it."""
+        operation = info.data.get('operation')
+        if operation in ['register', 'login', 'verify_password', 'change_password', 
+                         'reset_password'] and not v:
+            raise ValueError(f"username is required for {operation} operation")
+        return v
+    
+    @field_validator('password')
+    def validate_password(cls, v, info):
+        """Validate password is provided for operations that require it."""
+        operation = info.data.get('operation')
+        if operation in ['register', 'login', 'verify_password', 'change_password'] and not v:
+            raise ValueError(f"password is required for {operation} operation")
+        return v
+    
+    @field_validator('new_password')
+    def validate_new_password(cls, v, info):
+        """Validate new_password is provided for operations that require it."""
+        operation = info.data.get('operation')
+        if operation in ['change_password', 'reset_password'] and not v:
+            raise ValueError(f"new_password is required for {operation} operation")
+        return v
+    
+    @field_validator('user_id')
+    def validate_user_id(cls, v, info):
+        """Validate user_id is provided for operations that require it."""
+        operation = info.data.get('operation')
+        if operation in ['generate_token', 'check_permission', 'assign_role', 
+                         'revoke_role', 'get_user', 'update_user', 'delete_user'] and not v:
+            raise ValueError(f"user_id is required for {operation} operation")
+        return v
+    
+    @field_validator('session_id')
+    def validate_session_id(cls, v, info):
+        """Validate session_id is provided for operations that require it."""
+        operation = info.data.get('operation')
+        if operation == 'logout' and not v:
+            raise ValueError(f"session_id is required for {operation} operation")
+        return v
+    
+    @field_validator('token')
+    def validate_token(cls, v, info):
+        """Validate token is provided for operations that require it."""
+        operation = info.data.get('operation')
+        if operation == 'verify_token' and not v:
+            raise ValueError(f"token is required for {operation} operation")
+        return v
+    
+    @field_validator('permission')
+    def validate_permission(cls, v, info):
+        """Validate permission is provided for operations that require it."""
+        operation = info.data.get('operation')
+        if operation == 'check_permission' and not v:
+            raise ValueError(f"permission is required for {operation} operation")
+        return v
+    
+    @field_validator('role')
+    def validate_role(cls, v, info):
+        """Validate role is provided for operations that require it."""
+        operation = info.data.get('operation')
+        if operation in ['assign_role', 'revoke_role'] and not v:
+            raise ValueError(f"role is required for {operation} operation")
+        return v
 
 
 class AuthOutput(BaseModel):
     """Structured output for authentication operations."""
+    success: bool = Field(description="Whether the operation succeeded")
     operation: str = Field(description="The operation that was performed")
     message: str = Field(description="Human-readable result message")
     data: Optional[Dict[str, Any]] = Field(None, description="Operation-specific data")
@@ -109,12 +176,8 @@ async def auth_register(ctx: RunContext[Any], username: str, password: str,
             "operation": "generate_salt"
         })
         
-        if hasattr(salt_result, 'output'):
-            salt_data = json.loads(salt_result.output)
-        else:
-            salt_data = salt_result
-        
-        salt = salt_data["data"]["salt"]
+        # crypto returns typed CryptoOutput
+        salt = salt_result.data["salt"]
         
         # Hash password with salt
         hash_result = await injector.run('crypto', {
@@ -125,17 +188,13 @@ async def auth_register(ctx: RunContext[Any], username: str, password: str,
             "iterations": 10000
         })
         
-        if hasattr(hash_result, 'output'):
-            hash_data = json.loads(hash_result.output)
-        else:
-            hash_data = hash_result
-        
+        # crypto returns typed CryptoOutput
         # Create user
         user_data = {
             "user_id": username,  # Using username as ID for simplicity
             "username": username,
             "email": email or f"{username}@example.com",
-            "password_hash": hash_data["data"]["hash"],
+            "password_hash": hash_result.data["hash"],
             "salt": salt,
             "roles": ["user"],  # Default role
             "created_at": datetime.now(timezone.utc).isoformat(),
@@ -172,6 +231,7 @@ async def auth_register(ctx: RunContext[Any], username: str, password: str,
             pass  # Ignore metrics errors
         
         return AuthOutput(
+            success=True,
             operation="register",
             message=f"User {username} registered successfully",
             data={
@@ -210,13 +270,9 @@ async def auth_login(ctx: RunContext[Any], username: str, password: str) -> Auth
                     "namespace": "auth"
                 })
                 
-                if hasattr(result, 'output'):
-                    kv_data = json.loads(result.output)
-                else:
-                    kv_data = result
-                
-                if kv_data["data"]["value"]:
-                    _users[username] = kv_data["data"]["value"]
+                # storage_kv returns typed StorageKvOutput
+                if result.success and result.data and result.data["exists"]:
+                    _users[username] = result.data["value"]
                 else:
                     raise ValueError("Invalid username or password")
             except (KeyError, TypeError):
@@ -238,12 +294,8 @@ async def auth_login(ctx: RunContext[Any], username: str, password: str) -> Auth
             "salt": user_data["salt"]
         })
         
-        if hasattr(verify_result, 'output'):
-            verify_data = json.loads(verify_result.output)
-        else:
-            verify_data = verify_result
-        
-        if not verify_data["data"]["valid"]:
+        # crypto returns typed CryptoOutput
+        if not verify_result.success or not verify_result.data["valid"]:
             raise ValueError("Invalid username or password")
         
         # Create session
@@ -257,10 +309,7 @@ async def auth_login(ctx: RunContext[Any], username: str, password: str) -> Auth
             "ttl": 86400  # 24 hours
         })
         
-        if hasattr(session_result, 'output'):
-            session_data = json.loads(session_result.output)
-        else:
-            session_data = session_result
+        # session returns typed SessionOutput
         
         # Update last login
         user_data["last_login"] = datetime.now(timezone.utc).isoformat()
@@ -284,12 +333,13 @@ async def auth_login(ctx: RunContext[Any], username: str, password: str) -> Auth
             pass  # Ignore metrics errors
         
         return AuthOutput(
+            success=True,
             operation="login",
             message=f"User {username} logged in successfully",
             data={
                 "user_id": user_data["user_id"],
                 "username": username,
-                "session_id": session_data["data"]["session_id"],
+                "session_id": session_result.data["session_id"],
                 "roles": user_data["roles"]
             }
         )
@@ -328,12 +378,11 @@ async def auth_logout(ctx: RunContext[Any], session_id: str) -> AuthOutput:
                 "session_id": session_id
             })
             
-            if hasattr(session_result, 'output'):
-                session_data = json.loads(session_result.output)
-            else:
-                session_data = session_result
+            # session returns typed SessionOutput
+            if not session_result.success:
+                raise ValueError(f"Invalid or expired session: {session_id}")
             
-            user_id = session_data["data"]["user_id"]
+            user_id = session_result.data["user_id"]
         except (KeyError, TypeError):
             # Session.get now throws KeyError for missing sessions
             raise ValueError(f"Invalid or expired session: {session_id}")
@@ -344,12 +393,10 @@ async def auth_logout(ctx: RunContext[Any], session_id: str) -> AuthOutput:
             "session_id": session_id
         })
         
-        if hasattr(delete_result, 'output'):
-            delete_data = json.loads(delete_result.output)
-        else:
-            delete_data = delete_result
+        # session returns typed SessionOutput
         
         return AuthOutput(
+            success=True,
             operation="logout",
             message=f"User {user_id} logged out successfully",
             data={
@@ -377,9 +424,11 @@ async def auth_verify_password(ctx: RunContext[Any], username: str, password: st
     try:
         # Get user
         if username not in _users:
+            # Return success=False for discovery operation (user not found)
             return AuthOutput(
+                success=False,
                 operation="verify_password",
-                message="Password verification completed",
+                message="User not found",
                 data={"valid": False}
             )
         
@@ -395,16 +444,13 @@ async def auth_verify_password(ctx: RunContext[Any], username: str, password: st
             "salt": user_data["salt"]
         })
         
-        if hasattr(verify_result, 'output'):
-            verify_data = json.loads(verify_result.output)
-        else:
-            verify_data = verify_result
-        
+        # crypto returns typed CryptoOutput
         return AuthOutput(
+            success=True,
             operation="verify_password",
             message="Password verification completed",
             data={
-                "valid": verify_data["data"]["valid"]
+                "valid": verify_result.success and verify_result.data["valid"]
             }
         )
         
@@ -440,12 +486,8 @@ async def auth_change_password(ctx: RunContext[Any], username: str,
             "operation": "generate_salt"
         })
         
-        if hasattr(salt_result, 'output'):
-            salt_data = json.loads(salt_result.output)
-        else:
-            salt_data = salt_result
-        
-        new_salt = salt_data["data"]["salt"]
+        # crypto returns typed CryptoOutput
+        new_salt = salt_result.data["salt"]
         
         # Hash new password
         hash_result = await injector.run('crypto', {
@@ -456,13 +498,9 @@ async def auth_change_password(ctx: RunContext[Any], username: str,
             "iterations": 10000
         })
         
-        if hasattr(hash_result, 'output'):
-            hash_data = json.loads(hash_result.output)
-        else:
-            hash_data = hash_result
-        
+        # crypto returns typed CryptoOutput
         # Update user
-        user_data["password_hash"] = hash_data["data"]["hash"]
+        user_data["password_hash"] = hash_result.data["hash"]
         user_data["salt"] = new_salt
         user_data["password_changed_at"] = datetime.now(timezone.utc).isoformat()
         
@@ -483,6 +521,7 @@ async def auth_change_password(ctx: RunContext[Any], username: str,
         })
         
         return AuthOutput(
+            success=True,
             operation="change_password",
             message="Password changed successfully",
             data={
@@ -520,12 +559,8 @@ async def auth_reset_password(ctx: RunContext[Any], username: str, new_password:
             "operation": "generate_salt"
         })
         
-        if hasattr(salt_result, 'output'):
-            salt_data = json.loads(salt_result.output)
-        else:
-            salt_data = salt_result
-        
-        new_salt = salt_data["data"]["salt"]
+        # crypto returns typed CryptoOutput
+        new_salt = salt_result.data["salt"]
         
         # Hash new password
         hash_result = await injector.run('crypto', {
@@ -536,13 +571,9 @@ async def auth_reset_password(ctx: RunContext[Any], username: str, new_password:
             "iterations": 10000
         })
         
-        if hasattr(hash_result, 'output'):
-            hash_data = json.loads(hash_result.output)
-        else:
-            hash_data = hash_result
-        
+        # crypto returns typed CryptoOutput
         # Update user
-        user_data["password_hash"] = hash_data["data"]["hash"]
+        user_data["password_hash"] = hash_result.data["hash"]
         user_data["salt"] = new_salt
         user_data["password_reset_at"] = datetime.now(timezone.utc).isoformat()
         
@@ -563,6 +594,7 @@ async def auth_reset_password(ctx: RunContext[Any], username: str, new_password:
         })
         
         return AuthOutput(
+            success=True,
             operation="reset_password",
             message="Password reset successfully",
             data={
@@ -609,11 +641,7 @@ async def auth_generate_token(ctx: RunContext[Any], user_id: str,
             "expires_in": 3600  # 1 hour
         })
         
-        if hasattr(jwt_result, 'output'):
-            jwt_data = json.loads(jwt_result.output)
-        else:
-            jwt_data = jwt_result
-        
+        # crypto returns typed CryptoOutput
         # Record token generation metric
         try:
             await injector.run('metrics', {
@@ -625,11 +653,12 @@ async def auth_generate_token(ctx: RunContext[Any], user_id: str,
             pass  # Ignore metrics errors
         
         return AuthOutput(
+            success=True,
             operation="generate_token",
             message="Token generated successfully",
             data={
-                "token": jwt_data["data"]["token"],
-                "expires_in": jwt_data["data"]["expires_in"],
+                "token": jwt_result.data["token"],
+                "expires_in": jwt_result.data["expires_in"],
                 "user_id": user_id
             }
         )
@@ -659,12 +688,8 @@ async def auth_verify_token(ctx: RunContext[Any], token: str) -> AuthOutput:
                 "secret": "auth_secret_key"
             })
             
-            if hasattr(verify_result, 'output'):
-                verify_data = json.loads(verify_result.output)
-            else:
-                verify_data = verify_result
-            
-            if not verify_data["data"]["valid"]:
+            # crypto returns typed CryptoOutput
+            if not verify_result.success or not verify_result.data["valid"]:
                 # Record invalid token metric
                 try:
                     await injector.run('metrics', {
@@ -676,15 +701,16 @@ async def auth_verify_token(ctx: RunContext[Any], token: str) -> AuthOutput:
                     pass  # Ignore metrics errors
                 
                 return AuthOutput(
+                    success=False,
                     operation="verify_token",
                     message="Token verification failed",
                     data={
                         "valid": False,
-                        "error": verify_data["data"].get("error", "Invalid token")
+                        "error": verify_result.data.get("error", "Invalid token")
                     }
                 )
             
-            payload = verify_data["data"]["payload"]
+            payload = verify_result.data["payload"]
             
             # Record valid token metric
             try:
@@ -697,6 +723,7 @@ async def auth_verify_token(ctx: RunContext[Any], token: str) -> AuthOutput:
                 pass  # Ignore metrics errors
             
             return AuthOutput(
+                success=True,
                 operation="verify_token",
                 message="Token is valid",
                 data={
@@ -709,6 +736,7 @@ async def auth_verify_token(ctx: RunContext[Any], token: str) -> AuthOutput:
             )
         except (KeyError, TypeError):
             return AuthOutput(
+                success=False,
                 operation="verify_token",
                 message="Token verification failed",
                 data={
@@ -736,9 +764,11 @@ async def auth_check_permission(ctx: RunContext[Any], user_id: str, permission: 
     try:
         # Get user
         if user_id not in _users:
+            # Return success=False for discovery operation (user not found)
             return AuthOutput(
+                success=False,
                 operation="check_permission",
-                message="Permission check completed",
+                message="User not found",
                 data={"has_permission": False}
             )
         
@@ -776,6 +806,7 @@ async def auth_check_permission(ctx: RunContext[Any], user_id: str, permission: 
             pass  # Ignore metrics errors
         
         return AuthOutput(
+            success=True,
             operation="check_permission",
             message="Permission check completed",
             data={
@@ -827,6 +858,7 @@ async def auth_assign_role(ctx: RunContext[Any], user_id: str, role: str) -> Aut
             })
         
         return AuthOutput(
+            success=True,
             operation="assign_role",
             message=f"Role '{role}' assigned to user {user_id}",
             data={
@@ -873,6 +905,7 @@ async def auth_revoke_role(ctx: RunContext[Any], user_id: str, role: str) -> Aut
             })
         
         return AuthOutput(
+            success=True,
             operation="revoke_role",
             message=f"Role '{role}' revoked from user {user_id}",
             data={
@@ -909,13 +942,9 @@ async def auth_get_user(ctx: RunContext[Any], user_id: str) -> AuthOutput:
                     "namespace": "auth"
                 })
                 
-                if hasattr(result, 'output'):
-                    kv_data = json.loads(result.output)
-                else:
-                    kv_data = result
-                
-                if kv_data["data"]["value"]:
-                    _users[user_id] = kv_data["data"]["value"]
+                # storage_kv returns typed StorageKvOutput
+                if result.success and result.data and result.data["exists"]:
+                    _users[user_id] = result.data["value"]
                 else:
                     raise KeyError(f"User '{user_id}' does not exist")
             except (KeyError, TypeError):
@@ -928,6 +957,7 @@ async def auth_get_user(ctx: RunContext[Any], user_id: str) -> AuthOutput:
         user_data.pop("salt", None)
         
         return AuthOutput(
+            success=True,
             operation="get_user",
             message="User retrieved successfully",
             data=user_data
@@ -973,6 +1003,7 @@ async def auth_update_user(ctx: RunContext[Any], user_id: str,
         })
         
         return AuthOutput(
+            success=True,
             operation="update_user",
             message="User updated successfully",
             data={
@@ -1019,6 +1050,7 @@ async def auth_delete_user(ctx: RunContext[Any], user_id: str) -> AuthOutput:
         })
         
         return AuthOutput(
+            success=True,
             operation="delete_user",
             message="User deleted successfully",
             data={
@@ -1099,6 +1131,7 @@ def create_auth_agent():
             auth_revoke_role, auth_get_user, auth_update_user, auth_delete_user
         ],
         output_type=AuthOutput,
+        use_typed_output=True,  # Enable typed output for auth (Tier 3 - depends on crypto, storage_kv, session)
         system_prompt="Handle authentication and authorization operations securely.",
         description="Comprehensive authentication and authorization toolkit",
         version="1.0.0",
