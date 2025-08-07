@@ -71,9 +71,12 @@ observability = [
     "logfire>=0.51.0",  # Observability and logging
 ]
 ui = [
-    "streamlit>=1.29.0",  # UI components
+    "streamlit>=1.39.0",  # UI components with fragments support (1.33.0+)
     "pandas>=2.0.0",  # Data manipulation for UI
-    "streamlit-mermaid==0.3.0",
+    "streamlit-mermaid==0.3.0",  # Mermaid diagrams
+    "streamlit-elements>=0.1.0",  # Interactive draggable components
+    "plotly>=5.0.0",  # Advanced charts for metrics
+    "pyperclip>=1.8.0",  # Clipboard support for artifact viewer
 ]
 
 # Development dependencies

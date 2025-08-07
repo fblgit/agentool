@@ -307,6 +307,46 @@ async def evaluate_code(
                     result = await agent.run(user_prompt)
                     validation = result.output
                     
+                    # Capture and record token usage
+                    usage = result.usage()
+                    
+                    # Store token metrics with tool label
+                    await injector.run('metrics', {
+                        'operation': 'increment',
+                        'name': 'agentool.workflow.tokens.request',
+                        'value': usage.request_tokens,
+                        'labels': {
+                            'workflow_id': workflow_id,
+                            'agent': 'workflow_evaluator',
+                            'tool': tool_name,
+                            'model': model
+                        }
+                    })
+                    
+                    await injector.run('metrics', {
+                        'operation': 'increment',
+                        'name': 'agentool.workflow.tokens.response',
+                        'value': usage.response_tokens,
+                        'labels': {
+                            'workflow_id': workflow_id,
+                            'agent': 'workflow_evaluator',
+                            'tool': tool_name,
+                            'model': model
+                        }
+                    })
+                    
+                    await injector.run('metrics', {
+                        'operation': 'increment',
+                        'name': 'agentool.workflow.tokens.total',
+                        'value': usage.total_tokens,
+                        'labels': {
+                            'workflow_id': workflow_id,
+                            'agent': 'workflow_evaluator',
+                            'tool': tool_name,
+                            'model': model
+                        }
+                    })
+                    
                     # Override with our syntax check results
                     validation.syntax_valid = syntax_valid
                     validation.imports_valid = len(import_warnings) == 0

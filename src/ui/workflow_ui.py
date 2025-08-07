@@ -193,8 +193,8 @@ def render_sidebar():
         )
         
         model_map = {
-            "OpenAI": ["gpt-4.1-nano", "gpt-4o", "o4-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
-            "Anthropic": ["claude-4-opus", "claude-4-sonnet", "claude-3-opus", "claude-3-sonnet", "claude-3-haiku"],
+            "OpenAI": ["gpt-4o", "gpt-4.1-nano", "o4-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
+            "Anthropic": ["claude-4.1-opus", "claude-4-opus", "claude-4-sonnet", "claude-3-opus", "claude-3-sonnet", "claude-3-haiku"],
             "Google": ["gemini-2.5-pro", "gemini-1.5-pro", "gemini-1.5-flash"],
             "Groq": ["mixtral-8x7b", "llama-3-70b"]
         }
