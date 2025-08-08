@@ -216,18 +216,60 @@ class WorkflowUIV2:
             )
             
             # Model selection
+            model_options = ["openai:gpt-5-nano", "openai:gpt-5-mini", "openai:gpt-5-chat-latest", "openai:gpt-5", "openai:gpt-4o", "openai:gpt-4o-mini", "anthropic:claude-3-5-sonnet-latest"]
             model = st.selectbox(
-                "Model",
-                ["openai:gpt-5-nano", "openai:gpt-5-mini", "openai:gpt-5-chat-latest", "openai:gpt-5", "openai:gpt-4o", "openai:gpt-4o-mini", "anthropic:claude-3-5-sonnet-latest"],
+                "Main Model (Default for all phases)",
+                model_options,
                 key="model_input"
             )
             
-            # Test generation
+            # Test generation first (so we know whether to show test phases)
             generate_tests = st.checkbox(
                 "Generate Tests",
                 value=True,
                 key="tests_input"
             )
+            
+            st.divider()
+            
+            # Per-phase model configuration - simple flat layout
+            st.markdown("**Phase-Specific Models**")
+            st.caption("Customize model for each phase (defaults to main model)")
+            
+            phase_models = {}
+            
+            # Define phases with friendly names
+            phases = [
+                ('analyzer', 'Analyzer'),
+                ('specification', 'Specification'),
+                ('crafter', 'Crafter'),
+                ('evaluator', 'Evaluator')
+            ]
+            
+            # Add test phases if tests are enabled
+            if generate_tests:
+                phases.extend([
+                    ('test_analyzer', 'Test Analyzer'),
+                    ('test_stubber', 'Test Stubber'),
+                    ('test_crafter', 'Test Crafter')
+                ])
+            
+            # Get the default model index - use the current value in session state if available
+            current_main_model = st.session_state.get('model_input', model_options[0])
+            default_model_index = model_options.index(current_main_model) if current_main_model in model_options else 0
+            
+            for phase_key, phase_name in phases:
+                # Simple model selector for each phase, defaulting to main model
+                selected_model = st.selectbox(
+                    phase_name,
+                    model_options,
+                    index=default_model_index,
+                    key=f"model_{phase_key}"
+                )
+                # Always add to phase_models - we'll filter later when form is submitted
+                phase_models[phase_key] = selected_model
+            
+            st.divider()
             
             # Execution mode
             execution_mode = st.radio(
@@ -249,7 +291,25 @@ class WorkflowUIV2:
             )
             
             if submitted and task_description:
-                self._start_workflow(task_description, model, generate_tests, execution_mode)
+                # Collect actual phase models from session state (form values)
+                actual_phase_models = {}
+                
+                # Log all phase model values for debugging
+                log_info(f"Form submitted - Main model: {model}")
+                
+                for phase_key, phase_name in phases:
+                    phase_model_key = f"model_{phase_key}"
+                    if phase_model_key in st.session_state:
+                        phase_model = st.session_state[phase_model_key]
+                        log_info(f"Phase {phase_key}: {phase_model} (session state)")
+                        # Only include if different from main model
+                        if phase_model != model:
+                            actual_phase_models[phase_key] = phase_model
+                            log_info(f"  -> Added {phase_key} to overrides with model {phase_model}")
+                
+                log_info(f"Final phase_models dict: {actual_phase_models}")
+                
+                self._start_workflow(task_description, model, generate_tests, execution_mode, actual_phase_models)
         
         # Workflow controls
         if st.session_state.workflow_ui_v2['workflow_active']:
@@ -519,7 +579,7 @@ class WorkflowUIV2:
                         st.metric("Status", "⏸️ Idle")
     
     def _start_workflow(self, task_description: str, model: str, 
-                       generate_tests: bool, execution_mode: str):
+                       generate_tests: bool, execution_mode: str, phase_models: Dict[str, str] = None):
         """Start a new workflow."""
         # Create workflow state
         workflow_id = f"wf_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -528,6 +588,7 @@ class WorkflowUIV2:
             workflow_id=workflow_id,
             task_description=task_description,
             model=model,
+            phase_models=phase_models or {},
             generate_tests=generate_tests,
             metadata=WorkflowMetadata(
                 workflow_id=workflow_id,
@@ -565,6 +626,7 @@ class WorkflowUIV2:
         log_info(f"Starting workflow: {workflow_id}")
         log_info(f"Task: {task_description}")
         log_info(f"Model: {model}")
+        log_info(f"Phase models: {phase_models}")
         log_info(f"Execution mode: {execution_mode}")
         
         # Switch to execution tab

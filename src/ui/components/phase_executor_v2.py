@@ -98,7 +98,7 @@ class PhaseExecutorV2:
                     "operation": "analyze",
                     "task_description": state.task_description,
                     "workflow_id": state.workflow_id,
-                    "model": state.model
+                    "model": state.phase_models.get('analyzer', state.model)
                 },
                 result_extractor=self._extract_analyzer_result,
                 artifact_patterns=[
@@ -118,7 +118,7 @@ class PhaseExecutorV2:
                 input_builder=lambda state: {
                     "operation": "specify",
                     "workflow_id": state.workflow_id,
-                    "model": state.model
+                    "model": state.phase_models.get('specification', state.model)
                 },
                 result_extractor=self._extract_specification_result,
                 artifact_patterns=[
@@ -137,7 +137,7 @@ class PhaseExecutorV2:
                 input_builder=lambda state: {
                     "operation": "craft",
                     "workflow_id": state.workflow_id,
-                    "model": state.model
+                    "model": state.phase_models.get('crafter', state.model)
                 },
                 result_extractor=self._extract_crafter_result,
                 artifact_patterns=[
@@ -156,7 +156,7 @@ class PhaseExecutorV2:
                 input_builder=lambda state: {
                     "operation": "evaluate",
                     "workflow_id": state.workflow_id,
-                    "model": state.model,
+                    "model": state.phase_models.get('evaluator', state.model),
                     "auto_fix": True
                 },
                 result_extractor=self._extract_evaluator_result,
@@ -177,7 +177,7 @@ class PhaseExecutorV2:
                 input_builder=lambda state: {
                     "operation": "analyze",
                     "workflow_id": state.workflow_id,
-                    "model": state.model
+                    "model": state.phase_models.get('test_analyzer', state.model)
                 },
                 result_extractor=self._extract_test_analyzer_result,
                 artifact_patterns=[
@@ -195,7 +195,7 @@ class PhaseExecutorV2:
                 input_builder=lambda state: {
                     "operation": "stub",
                     "workflow_id": state.workflow_id,
-                    "model": state.model
+                    "model": state.phase_models.get('test_stubber', state.model)
                 },
                 result_extractor=self._extract_test_stubber_result,
                 artifact_patterns=[
@@ -214,7 +214,7 @@ class PhaseExecutorV2:
                 input_builder=lambda state: {
                     "operation": "craft",
                     "workflow_id": state.workflow_id,
-                    "model": state.model
+                    "model": state.phase_models.get('test_crafter', state.model)
                 },
                 result_extractor=self._extract_test_crafter_result,
                 artifact_patterns=[
