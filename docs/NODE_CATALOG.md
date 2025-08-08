@@ -1,4 +1,12 @@
-# Node Catalog - Phase 1 Specification
+# Node Catalog - Phase 1 & 2 Specification
+
+## References
+
+- [Workflow Graph System](workflow-graph-system.md)
+- [Graph Architecture](GRAPH_ARCHITECTURE.md)
+- [Node Catalog (this doc)](NODE_CATALOG.md)
+- [Data Flow Requirements](DATA_FLOW_REQUIREMENTS.md)
+- [Graph Type Definitions](GRAPH_TYPE_DEFINITIONS.md)
 
 ## Overview
 
@@ -68,6 +76,27 @@ graph TD
 - Input: GraphRunContext with state and dependencies
 - Output: Next node or End with result
 
+**Phase 2 Type Definition**:
+```python
+from pydantic_graph import BaseNode, GraphRunContext, NextNode, End
+from typing import TypeVar, Generic
+
+StateT = TypeVar('StateT', bound='WorkflowState')
+DepsT = TypeVar('DepsT', bound='WorkflowDeps')
+OutputT = TypeVar('OutputT')
+
+@dataclass
+class BaseNodeExtended(BaseNode[StateT, DepsT, OutputT]):
+    """Extended base node with common functionality."""
+    node_id: str = field(default_factory=lambda: uuid.uuid4().hex)
+    node_name: str = "base_node"
+    retry_config: Optional[Dict[str, Any]] = None
+    
+    async def run(self, ctx: GraphRunContext[StateT, DepsT]) -> NextNode | End[OutputT]:
+        """Must be implemented by subclasses."""
+        raise NotImplementedError
+```
+
 ### StorageNode (Abstract)
 **Purpose**: Base for all storage operation nodes  
 **Extends**: BaseNode  
@@ -108,6 +137,41 @@ Output State:
   - load_timestamp: datetime
 ```
 
+**Phase 2 Type Definition**:
+```python
+@dataclass
+class LoadKVNode(StorageNode[WorkflowState, WorkflowDeps, WorkflowState]):
+    """Load data from key-value storage."""
+    storage_key: str  # Key to load from
+    target_field: str  # State field to populate
+    required: bool = True  # Whether missing key is error
+    
+    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> NextNode:
+        # Access storage via deps
+        storage_client = ctx.deps.storage_client
+        
+        # Load data
+        data = await storage_client.load_kv(self.storage_key)
+        
+        if data is None and self.required:
+            raise ValueError(f"Required key not found: {self.storage_key}")
+        
+        # Create storage reference
+        ref = StorageRef(
+            storage_type='kv',
+            key=self.storage_key,
+            created_at=datetime.now()
+        )
+        
+        # Update state with reference
+        new_state = ctx.state.with_storage_ref(
+            ref_type=self.target_field,
+            ref=ref
+        )
+        
+        return self.next_node(new_state)
+```
+
 ### SaveKVNode
 **Purpose**: Save data to storage_kv  
 **Operation**: Store value with key in key-value store
@@ -120,6 +184,44 @@ Input State:
 Output State:
   - save_ref: str (storage reference)
   - save_timestamp: datetime
+```
+
+**Phase 2 Type Definition**:
+```python
+@dataclass
+class SaveKVNode(StorageNode[WorkflowState, WorkflowDeps, WorkflowState]):
+    """Save data to key-value storage."""
+    storage_key: str  # Key to save to
+    source_field: str  # State field to save from
+    ttl_seconds: Optional[int] = None  # Time to live
+    
+    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> NextNode:
+        # Get data from state
+        data = getattr(ctx.state, self.source_field)
+        
+        # Save to storage
+        storage_client = ctx.deps.storage_client
+        await storage_client.save_kv(
+            key=self.storage_key,
+            data=data,
+            ttl=self.ttl_seconds
+        )
+        
+        # Create storage reference
+        ref = StorageRef(
+            storage_type='kv',
+            key=self.storage_key,
+            created_at=datetime.now(),
+            size_bytes=len(json.dumps(data))
+        )
+        
+        # Update state with reference
+        new_state = ctx.state.with_storage_ref(
+            ref_type=f"{self.source_field}_ref",
+            ref=ref
+        )
+        
+        return self.next_node(new_state)
 ```
 
 ### LoadFSNode
@@ -446,6 +548,60 @@ Output State:
   - model_metadata: Dict
 ```
 
+**Phase 2 Type Definition**:
+```python
+@dataclass
+class LLMCallNode(LLMNode[WorkflowState, WorkflowDeps, WorkflowState]):
+    """Execute LLM API call."""
+    prompt_field: str  # State field containing prompt
+    response_field: str  # State field to store response
+    model_override: Optional[str] = None  # Override default model
+    parameters_override: Optional[ModelParameters] = None
+    
+    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> NextNode:
+        # Get prompt from state
+        prompt = getattr(ctx.state, self.prompt_field)
+        
+        # Determine model and parameters
+        model = self.model_override or ctx.deps.models.default_model
+        params = self.parameters_override or ctx.deps.models.parameters.get(
+            ctx.state.phase_status.current_phase,
+            ModelParameters()
+        )
+        
+        # Call LLM with rate limiting
+        async with ctx.deps.get_semaphore('llm'):
+            response = await ctx.deps.llm_client.call(
+                prompt=prompt,
+                model=model,
+                **params.model_dump()
+            )
+        
+        # Track token usage
+        usage = TokenUsage(
+            prompt_tokens=response.prompt_tokens,
+            completion_tokens=response.completion_tokens,
+            total_tokens=response.total_tokens,
+            model=model
+        )
+        
+        # Update state
+        new_state = replace(
+            ctx.state,
+            **{self.response_field: response.text},
+            total_token_usage={
+                **ctx.state.total_token_usage,
+                ctx.state.phase_status.current_phase: 
+                    ctx.state.total_token_usage.get(
+                        ctx.state.phase_status.current_phase, 
+                        TokenUsage(0, 0, 0, model)
+                    ) + usage
+            }
+        )
+        
+        return self.next_node(new_state)
+```
+
 ### ResponseParserNode
 **Purpose**: Parse structured LLM response  
 **Operation**: Extract structured data from text
@@ -532,6 +688,34 @@ graph LR
     Cond -->|False| FalseBranch
 ```
 
+**Phase 2 Type Definition**:
+```python
+@dataclass
+class ConditionalNode(ControlNode[WorkflowState, WorkflowDeps, WorkflowState]):
+    """Branch execution based on condition."""
+    condition: Callable[[WorkflowState], bool]  # Condition function
+    true_node: BaseNode  # Node if condition is true
+    false_node: BaseNode  # Node if condition is false
+    
+    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> NextNode:
+        # Evaluate condition
+        result = self.condition(ctx.state)
+        
+        # Choose next node
+        next_node = self.true_node if result else self.false_node
+        
+        # Track branch taken (optional)
+        new_state = replace(
+            ctx.state,
+            processing=replace(
+                ctx.state.processing,
+                last_condition_result=result
+            )
+        )
+        
+        return next_node.with_state(new_state)
+```
+
 ### ParallelMapNode
 **Purpose**: Execute sub-graph for each item in parallel  
 **Operation**: Parallel processing of collection
@@ -545,6 +729,69 @@ Output State:
   - results: List[Any]
   - execution_times: List[float]
   - failed_items: List[int]
+```
+
+**Phase 2 Type Definition**:
+```python
+@dataclass
+class ParallelMapNode(ControlNode[WorkflowState, WorkflowDeps, WorkflowState]):
+    """Execute sub-graph for each item in parallel."""
+    items_field: str  # State field containing items list
+    sub_graph: Graph  # Graph to execute per item
+    max_workers: int = 4  # Max parallel executions
+    results_field: str = "parallel_results"  # Where to store results
+    
+    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> NextNode:
+        # Get items from state
+        items = getattr(ctx.state, self.items_field)
+        
+        # Execute sub-graph for each item in parallel
+        async def process_item(item: Any) -> Tuple[Any, float]:
+            start_time = time.time()
+            # Create item-specific state
+            item_state = replace(
+                ctx.state,
+                processing=replace(
+                    ctx.state.processing,
+                    current_item=item
+                )
+            )
+            # Run sub-graph
+            result = await self.sub_graph.run(
+                state=item_state,
+                deps=ctx.deps
+            )
+            return result, time.time() - start_time
+        
+        # Use ProcessPoolExecutor from deps
+        with ctx.deps.process_executor as executor:
+            futures = [process_item(item) for item in items]
+            results = await asyncio.gather(*futures, return_exceptions=True)
+        
+        # Separate successful results and failures
+        successful_results = []
+        execution_times = []
+        failed_indices = []
+        
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                failed_indices.append(i)
+            else:
+                successful_results.append(result[0])
+                execution_times.append(result[1])
+        
+        # Update state with results
+        new_state = replace(
+            ctx.state,
+            **{self.results_field: successful_results},
+            processing=replace(
+                ctx.state.processing,
+                parallel_execution_times=execution_times,
+                parallel_failed_indices=failed_indices
+            )
+        )
+        
+        return self.next_node(new_state)
 ```
 
 **Flow Pattern**:
@@ -751,16 +998,27 @@ Benefits:
   - Memory efficient
 ```
 
-## Next Phase Specifications
+## Phase 2 Summary
 
-Phase 2 will add:
-- Detailed field definitions for each node
-- State mutation specifications
-- Inter-node contracts
-- Dependency requirements
+Phase 2 has added:
+- Complete type definitions for base node types
+- Detailed field specifications with type annotations
+- State mutation patterns showing immutable updates
+- Inter-node contracts via typed method signatures
+- Dependency injection through WorkflowDeps
+
+Key patterns established:
+- All nodes extend typed base classes
+- State is immutable (using `replace` from dataclasses)
+- Storage operations return references, not data
+- LLM calls track token usage automatically
+- Parallel operations use executor from deps
+- Conditional nodes use callable predicates
+
+## Phase 3 Specifications
 
 Phase 3 will add:
-- Complete implementation examples
-- Integration test scenarios
-- Performance benchmarks
-- Migration guides
+- Complete implementation examples for all node types
+- Integration test scenarios with real workflows
+- Performance benchmarks for parallel execution
+- Migration guides from monolithic to graph-based
