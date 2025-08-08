@@ -5,7 +5,7 @@ avoiding duplication and focusing on new information only.
 """
 
 from typing import List, Dict, Any, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, ValidationError
 
 
 class ExistingToolInfo(BaseModel):
@@ -314,6 +314,33 @@ class CodeOutput(BaseModel):
         description="""Suggested file path following project structure (e.g., 'src/agentoolkit/network/rate_limiter.py').
         Should match the appropriate category folder and use snake_case filename."""
     )
+    
+    @field_validator('code')
+    @classmethod
+    def validate_code(cls, v: str) -> str:
+        """Validate that generated code is complete and follows AgenTool patterns."""
+        if not v or not v.strip():
+            raise ValueError("code cannot be empty. The crafter must generate a complete AgenTool implementation.")
+        
+        # Check minimum length for a basic AgenTool
+        if len(v.strip()) < 500:
+            raise ValueError(f"code is too short ({len(v)} chars). Expected a complete AgenTool with imports, schemas, functions, and routing. Ensure full implementation is generated.")
+        
+        # Check for required AgenTool components
+        if 'from agentool import' not in v and 'import agentool' not in v:
+            raise ValueError("code missing agentool imports. Must include 'from agentool import create_agentool, BaseOperationInput' or similar.")
+        
+        if 'BaseOperationInput' not in v:
+            raise ValueError("code missing BaseOperationInput schema. All AgenTools must have an input schema inheriting from BaseOperationInput.")
+        
+        if 'create_agentool(' not in v:
+            raise ValueError("code missing create_agentool() call. Must create the agent using create_agentool() function.")
+        
+        if 'RoutingConfig' not in v and 'routing_config=' not in v:
+            raise ValueError("code missing routing configuration. Must define RoutingConfig for operation mapping.")
+        
+        return v
+    
 
 
 class ValidationOutput(BaseModel):
@@ -359,6 +386,47 @@ class ValidationOutput(BaseModel):
         description="""Whether code meets all production requirements:
         syntax_valid=True AND imports_valid=True AND critical tests pass AND no blocking issues remain."""
     )
+    
+    @field_validator('final_code')
+    @classmethod
+    def validate_final_code(cls, v: str) -> str:
+        """Validate that final_code is substantial and not empty."""
+        if not v or not v.strip():
+            raise ValueError("final_code cannot be empty. The evaluator must provide the complete, validated implementation.")
+        
+        # Check minimum length (at least a basic class/function structure)
+        if len(v.strip()) < 200:
+            raise ValueError(f"final_code is too short ({len(v)} chars). Expected a complete implementation with imports, class/function definitions, and logic. Ensure the full validated code is provided.")
+        
+        # Check for basic Python structure
+        code_lower = v.lower()
+        if 'import' not in code_lower and 'from' not in code_lower:
+            raise ValueError("final_code appears incomplete - missing import statements. Provide the complete implementation including all imports.")
+        
+        if 'def ' not in v and 'class ' not in v:
+            raise ValueError("final_code appears incomplete - missing function or class definitions. Provide the complete implementation.")
+        
+        return v
+    
+    @field_validator('issues', 'fixes_applied', 'improvements')
+    @classmethod
+    def validate_lists_not_none(cls, v: List[str]) -> List[str]:
+        """Ensure lists are not None and convert empty to empty list."""
+        return v if v is not None else []
+    
+    @field_validator('ready_for_deployment')
+    @classmethod
+    def validate_deployment_readiness(cls, v: bool, info) -> bool:
+        """Validate deployment readiness is consistent with other fields."""
+        data = info.data
+        syntax_valid = data.get('syntax_valid', False)
+        imports_valid = data.get('imports_valid', False)
+        
+        # If marked ready for deployment, syntax and imports must be valid
+        if v and (not syntax_valid or not imports_valid):
+            raise ValueError("ready_for_deployment cannot be True when syntax_valid or imports_valid is False")
+        
+        return v
 
 
 class WorkflowMetadata(BaseModel):

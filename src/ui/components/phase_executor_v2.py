@@ -446,10 +446,7 @@ class PhaseExecutorV2:
             # Clear current phase so next phase can start
             st.session_state.phase_executor_v2['current_phase'] = None
             
-            # Force UI update
-            st.rerun()
-            
-            # Update metrics
+            # Update metrics and store artifacts before rerun
             st.session_state.phase_executor_v2['metrics']['phases_completed'] += 1
             st.session_state.phase_executor_v2['metrics']['total_duration'] += result.duration
             st.session_state.phase_executor_v2['metrics']['artifacts_created'] += len(artifacts)
@@ -463,6 +460,9 @@ class PhaseExecutorV2:
             if workflow_state.metadata:
                 workflow_state.metadata.phase_durations[phase_name] = result.duration
                 workflow_state.metadata.models_used[phase_name] = workflow_state.model
+            
+            # Force UI update after state is consistent
+            st.rerun()
             
         except Exception as e:
             # Handle failure

@@ -505,7 +505,8 @@ class WorkflowUIV2:
     
     def _render_artifacts_tab(self):
         """Render the artifacts tab."""
-        artifacts = st.session_state.workflow_ui_v2.get('artifacts', {})
+        # Prefer artifacts tracked by the phase executor
+        artifacts = st.session_state.phase_executor_v2.get('artifacts_by_phase', {})
         
         if artifacts:
             self.artifact_viewer.render(artifacts, "artifacts_tab")
@@ -518,7 +519,8 @@ class WorkflowUIV2:
         
         if workflow_state:
             phase_results = st.session_state.phase_executor_v2.get('phase_results', {})
-            artifacts = st.session_state.workflow_ui_v2.get('artifacts', {})
+            # Use artifacts collected during phase execution
+            artifacts = st.session_state.phase_executor_v2.get('artifacts_by_phase', {})
             
             self.workflow_viewer.render(
                 workflow_state,
