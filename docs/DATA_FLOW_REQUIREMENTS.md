@@ -105,7 +105,7 @@ UserInput:
 ```yaml
 AnalysisInput:
   sources:
-    - catalog_ref: "storage_kv:catalog"  # Full AgenTool catalog
+    - catalog_ref: "catalog"  # Full AgenTool catalog (key only)
     - task_description: str  # From user input
     - workflow_id: str  # From config
   
@@ -119,8 +119,8 @@ AnalysisInput:
 ```yaml
 AnalysisOutput:
   storage_refs:
-    - analysis_ref: "storage_kv:workflow/{workflow_id}/analysis"
-    - catalog_ref: "storage_kv:workflow/{workflow_id}/catalog"
+    - analysis_ref: "workflow/{workflow_id}/analysis"  # Key only, no prefix
+    - catalog_ref: "workflow/{workflow_id}/catalog"    # Key only, no prefix
   
   state_mutations:
     - analysis_complete: bool
@@ -166,8 +166,8 @@ SpecificationInput:
 ```yaml
 SpecificationOutput:
   storage_refs:
-    - specs_ref: "storage_kv:workflow/{workflow_id}/specs"
-    - individual_specs: "storage_kv:workflow/{workflow_id}/specifications/{tool_name}"
+    - specs_ref: "workflow/{workflow_id}/specs"  # Key only
+    - individual_specs: "workflow/{workflow_id}/specifications/{tool_name}"  # Key only
   
   state_mutations:
     - specification_complete: bool
@@ -212,8 +212,8 @@ CraftingInput:
 ```yaml
 CraftingOutput:
   storage_refs:
-    - code_files: "storage_fs:generated/{workflow_id}/*.py"
-    - implementations: "storage_kv:workflow/{workflow_id}/implementations/{tool_name}"
+    - code_files: "generated/{workflow_id}/*.py"  # Path only, no prefix
+    - implementations: "workflow/{workflow_id}/implementations/{tool_name}"  # Key only
   
   state_mutations:
     - crafting_complete: bool
@@ -259,9 +259,9 @@ EvaluationInput:
 ```yaml
 EvaluationOutput:
   storage_refs:
-    - validations: "storage_kv:workflow/{workflow_id}/validations/{tool_name}"
-    - final_code: "storage_fs:generated/{workflow_id}/final/*.py"
-    - summary: "storage_fs:generated/{workflow_id}/SUMMARY.md"
+    - validations: "workflow/{workflow_id}/validations/{tool_name}"  # Key only
+    - final_code: "generated/{workflow_id}/final/*.py"  # Path only
+    - summary: "generated/{workflow_id}/SUMMARY.md"  # Path only
   
   state_mutations:
     - evaluation_complete: bool

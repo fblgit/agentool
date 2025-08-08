@@ -80,15 +80,17 @@ graph TD
 ### StorageRef
 
 ```python
-from dataclasses import dataclass
-from typing import Literal, Optional
+from dataclasses import dataclass, field, replace
+from typing import Literal, Optional, List, Dict, Any, Tuple
 from datetime import datetime
+import hashlib
+import json
 
 @dataclass(frozen=True)
 class StorageRef:
     """Reference to data in storage systems."""
     storage_type: Literal['kv', 'fs']  # Storage system type
-    key: str                            # Storage key or path
+    key: str                            # Storage key or path (no prefix)
     version: Optional[int] = None       # Version number for versioned storage
     created_at: datetime = field(default_factory=datetime.now)
     size_bytes: Optional[int] = None    # Size of stored data
@@ -254,6 +256,23 @@ class QualityMetrics:
         )
 ```
 
+### ValidationResult
+
+```python
+@dataclass(frozen=True)
+class ValidationResult:
+    """Result of validation operations."""
+    valid: bool                         # Overall validation status
+    errors: List[ValidationError]       # List of validation errors
+    warnings: List[ValidationError]     # List of warnings
+    metadata: Dict[str, Any]            # Additional validation metadata
+    
+    @property
+    def has_errors(self) -> bool:
+        """Check if validation has any errors."""
+        return len([e for e in self.errors if e.severity == 'error']) > 0
+```
+
 ### RefinementRecord
 
 ```python
@@ -413,6 +432,7 @@ class WorkflowState:
     generated_code: Dict[str, CodeBlock] = field(default_factory=dict)
     
     # Evaluation results (accumulated)
+    validation_results: Dict[str, ValidationResult] = field(default_factory=dict)
     quality_metrics: Dict[str, QualityMetrics] = field(default_factory=dict)
     needs_refinement: List[str] = field(default_factory=list)
     

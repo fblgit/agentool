@@ -67,6 +67,8 @@ graph TB
 Each node represents an atomic, deterministic operation:
 
 ```python
+from pydantic_graph import BaseNode, GraphRunContext, NextNode, End
+
 class SomeNode(BaseNode[StateT, DepsT, OutputT]):
     # Configuration (immutable)
     ...
@@ -495,9 +497,9 @@ Metrics Hierarchy:
 
 ## Integration Points
 
-### With pydantic-graph
+### With pydantic_graph
 
-Following pydantic-graph patterns:
+Following pydantic_graph patterns:
 - `BaseNode[StateT, DepsT, OutputT]` for type safety
 - `GraphRunContext` for state and dependency access
 - `End[OutputT]` for graph termination

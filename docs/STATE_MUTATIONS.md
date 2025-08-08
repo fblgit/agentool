@@ -37,7 +37,7 @@ new_state = replace(
 ### 3. Reference Storage
 ```python
 # Store references, not data
-ref = StorageRef(storage_type='kv', key='workflow/123/data')
+ref = StorageRef(storage_type='kv', key='workflow/123/data')  # Key without prefix
 new_state = ctx.state.with_storage_ref('data_ref', ref)
 ```
 
@@ -60,7 +60,7 @@ class SimpleUpdateNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
             some_field=new_value
         )
         
-        return self.next_node(new_state)
+        return self.next  # Return next node in graph
 ```
 
 ### Pattern 2: Nested Field Update
@@ -83,7 +83,7 @@ class NestedUpdateNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
             phase_status=new_phase_status
         )
         
-        return self.next_node(new_state)
+        return self.next  # Return next node in graph
 ```
 
 ### Pattern 3: Collection Updates
@@ -110,7 +110,7 @@ class CollectionUpdateNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState])
             quality_metrics=new_dict
         )
         
-        return self.next_node(new_state)
+        return self.next  # Return next node in graph
 ```
 
 ### Pattern 4: Storage Reference Updates
@@ -122,7 +122,7 @@ class StorageRefUpdateNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState])
     
     async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> NextNode:
         # Save data and get reference
-        data = ctx.state.some_data
+        data = getattr(ctx.state, 'tool_specifications', [])  # Use actual field
         ref = await self.save_to_storage(data)
         
         # Use helper method for storage refs
@@ -131,7 +131,7 @@ class StorageRefUpdateNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState])
             ref=ref
         )
         
-        return self.next_node(new_state)
+        return self.next  # Return next node in graph
 ```
 
 ## Phase-Specific Mutations
@@ -141,11 +141,11 @@ class StorageRefUpdateNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState])
 ```python
 def mutate_after_analysis(
     state: WorkflowState, 
-    analysis: AnalyzerOutput
+    analysis: Dict[str, Any]  # Analysis results as dict
 ) -> WorkflowState:
     """Transform state after analysis phase."""
     
-    # Create storage reference
+    # Create storage reference (key without prefix)
     analysis_ref = StorageRef(
         storage_type='kv',
         key=f'workflow/{state.metadata.workflow_id}/analysis',
@@ -155,11 +155,11 @@ def mutate_after_analysis(
     # Update multiple fields atomically
     return replace(
         state,
-        # Add analysis results
-        missing_tools=analysis.missing_tools,
-        existing_tools=analysis.existing_tools,
-        system_design=analysis.system_design,
-        guidelines=analysis.guidelines,
+        # Add analysis results from dict
+        missing_tools=analysis['missing_tools'],
+        existing_tools=analysis['existing_tools'],
+        system_design=analysis['system_design'],
+        guidelines=analysis['guidelines'],
         
         # Update storage references
         storage=replace(
@@ -459,8 +459,10 @@ def validate_after_mutation(
     if len(new_state.missing_tools) < len(old_state.missing_tools):
         raise ValueError("Data loss detected in missing_tools")
     
-    # Validate new references
-    for ref_name, ref in new_state.storage.__dict__.items():
+    # Validate new references using proper field access
+    from dataclasses import asdict
+    storage_dict = asdict(new_state.storage)
+    for ref_name, ref in storage_dict.items():
         if ref and not isinstance(ref, (StorageRef, dict)):
             raise ValueError(f"Invalid storage reference: {ref_name}")
 ```

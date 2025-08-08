@@ -91,7 +91,8 @@ class WorkflowDeps:
     """Services and configuration."""
     models: ModelConfig
     storage: StorageConfig
-    executor: ProcessPoolExecutor
+    process_executor: ProcessPoolExecutor
+    thread_executor: ThreadPoolExecutor
     ...
 ```
 
@@ -288,7 +289,7 @@ Required Data:
   - Quality thresholds from deps
   
 Output State:
-  - validation_results: Dict[str, ValidationResult]
+  - validation_results: Dict[str, QualityMetrics]  # Quality metrics per tool
   - quality_scores: Dict[str, float]
   - final_code_refs: Dict[str, str] (→ storage_fs:generated/{id}/final/*.py)
   - needs_refinement: List[str]
@@ -338,31 +339,34 @@ class RefinementLoop(BaseNode[...]):
             return End(ctx.state.best_result)
 ```
 
-## Integration with pydantic-graph
+## Integration with pydantic_graph
 
 ### State Persistence
-Per pydantic-graph documentation, state can be persisted and resumed:
+Per pydantic_graph documentation, state can be persisted and resumed:
 ```python
-# Reference: pydantic-graph persistence pattern
+# Reference: pydantic_graph persistence pattern
+from pydantic_graph import FileStatePersistence
 persistence = FileStatePersistence(Path('workflow_state.json'))
 async with graph.iter(StartNode(), state=state, persistence=persistence) as run:
     ...
 ```
 
 ### Dependency Injection
-Following pydantic-graph's dependency pattern:
+Following pydantic_graph's dependency pattern:
 ```python
-# Reference: pydantic-graph GraphDeps pattern
+# Reference: pydantic_graph GraphDeps pattern
+from pydantic_graph import Graph
 deps = WorkflowDeps(
-    executor=ProcessPoolExecutor(),
+    process_executor=ProcessPoolExecutor(),
+    thread_executor=ThreadPoolExecutor(),
     models=ModelConfig(...)
 )
 result = await graph.run(StartNode(), deps=deps, state=state)
 ```
 
 ### Node Return Types
-Based on pydantic-graph's type system:
-- Return another node: `return NextNode(...)`
+Based on pydantic_graph's type system:
+- Return another node: `return NextNode(state=new_state, node=NextNodeClass())`
 - End with result: `return End(output)`
 - Conditional returns: `return NodeA() if condition else NodeB()`
 

@@ -79,7 +79,9 @@ graph TD
 **Phase 2 Type Definition**:
 ```python
 from pydantic_graph import BaseNode, GraphRunContext, NextNode, End
-from typing import TypeVar, Generic
+from typing import TypeVar, Generic, Optional, Dict, Any, List, Tuple
+from dataclasses import dataclass, field, replace
+import uuid
 
 StateT = TypeVar('StateT', bound='WorkflowState')
 DepsT = TypeVar('DepsT', bound='WorkflowDeps')
@@ -169,7 +171,7 @@ class LoadKVNode(StorageNode[WorkflowState, WorkflowDeps, WorkflowState]):
             ref=ref
         )
         
-        return self.next_node(new_state)
+        return self.next  # Next node in the graph
 ```
 
 ### SaveKVNode
@@ -221,7 +223,7 @@ class SaveKVNode(StorageNode[WorkflowState, WorkflowDeps, WorkflowState]):
             ref=ref
         )
         
-        return self.next_node(new_state)
+        return self.next  # Next node in the graph
 ```
 
 ### LoadFSNode
@@ -599,7 +601,7 @@ class LLMCallNode(LLMNode[WorkflowState, WorkflowDeps, WorkflowState]):
             }
         )
         
-        return self.next_node(new_state)
+        return self.next  # Next node in the graph
 ```
 
 ### ResponseParserNode
@@ -713,7 +715,7 @@ class ConditionalNode(ControlNode[WorkflowState, WorkflowDeps, WorkflowState]):
             )
         )
         
-        return next_node.with_state(new_state)
+        return next_node  # Node instance with state passed via graph context
 ```
 
 ### ParallelMapNode
@@ -791,7 +793,7 @@ class ParallelMapNode(ControlNode[WorkflowState, WorkflowDeps, WorkflowState]):
             )
         )
         
-        return self.next_node(new_state)
+        return self.next  # Next node in the graph
 ```
 
 **Flow Pattern**:
