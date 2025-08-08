@@ -193,7 +193,7 @@ def render_sidebar():
         )
         
         model_map = {
-            "OpenAI": ["gpt-4o", "gpt-4.1-nano", "o4-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
+            "OpenAI": ["gpt-4o", "gpt-5", "gpt-5-mini", "gpt-5-nano", "gpt-4.1-nano", "o4-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
             "Anthropic": ["claude-4.1-opus", "claude-4-opus", "claude-4-sonnet", "claude-3-opus", "claude-3-sonnet", "claude-3-haiku"],
             "Google": ["gemini-2.5-pro", "gemini-1.5-pro", "gemini-1.5-flash"],
             "Groq": ["mixtral-8x7b", "llama-3-70b"]
@@ -341,26 +341,28 @@ def render_clickable_artifacts(artifacts: List[str], phase_key: str):
             shown_count += 1
     
     if fs_artifacts:
-        st.markdown("**File System:**")
-        cols = st.columns(min(3, len(fs_artifacts[:5 - shown_count])))
-        for idx, artifact in enumerate(fs_artifacts[:5 - shown_count]):
-            with cols[idx % 3]:
-                path = artifact.replace('storage_fs:', '')
-                display_name = path.split('/')[-1]
-                # Use the full artifact path to create unique button key
-                button_key = f"btn_{phase_key}_{artifact.replace(':', '_').replace('/', '_')}"
-                
-                # Disable button if workflow is running
-                if is_running:
-                    st.button(f"📄 {display_name}", 
-                             key=button_key, 
-                             use_container_width=True,
-                             disabled=True,
-                             help="Cannot view artifacts while workflow is running")
-                else:
-                    if st.button(f"📄 {display_name}", key=button_key, use_container_width=True):
-                        show_artifact_content(artifact, path)
-            shown_count += 1
+        remaining_fs = fs_artifacts[:5 - shown_count]
+        if remaining_fs:  # Only show if there are artifacts to display
+            st.markdown("**File System:**")
+            cols = st.columns(min(3, len(remaining_fs)))
+            for idx, artifact in enumerate(remaining_fs):
+                with cols[idx % 3]:
+                    path = artifact.replace('storage_fs:', '')
+                    display_name = path.split('/')[-1]
+                    # Use the full artifact path to create unique button key
+                    button_key = f"btn_{phase_key}_{artifact.replace(':', '_').replace('/', '_')}"
+                    
+                    # Disable button if workflow is running
+                    if is_running:
+                        st.button(f"📄 {display_name}", 
+                                 key=button_key, 
+                                 use_container_width=True,
+                                 disabled=True,
+                                 help="Cannot view artifacts while workflow is running")
+                    else:
+                        if st.button(f"📄 {display_name}", key=button_key, use_container_width=True):
+                            show_artifact_content(artifact, path)
+                shown_count += 1
     
     if len(artifacts) > 5:
         st.caption(f"... and {len(artifacts) - 5} more artifacts")
