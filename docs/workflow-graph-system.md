@@ -1,8 +1,14 @@
-# Workflow Graph System
+# Workflow Graph System - Meta-Framework Architecture
 
 ## Overview
 
-The Workflow Graph System is a modular, composable architecture for building complex AI-powered code generation workflows using pydantic-graph as the execution engine. It replaces monolithic workflow agents with atomic, reusable nodes that can be composed into directed acyclic graphs (DAGs) for parallel execution, conditional flows, and iterative refinement.
+The Workflow Graph System is a **state-driven meta-framework** for building domain-agnostic, AI-powered workflows using pydantic_graph as the execution engine. It provides a uniform plane where the entire workflow structure, behavior, and types are defined in state configuration, with nodes acting as simple executors that chain together based on state.
+
+The system uses **atomic node chaining** where each phase consists of atomic nodes that return the next node in sequence. This ensures resilience (configurable retry per node type), efficiency (iteration without sub-graphs), and observability (fine-grained execution tracking).
+
+**Universal Pattern**: `InputSchema → Variables → TemplateRender → LLM Call → OutputSchema → Storage`
+
+**State-Driven Execution**: Workflow definition in state → Nodes read config → Return next node → Graph engine handles flow
 
 ## References
 
@@ -11,194 +17,426 @@ The Workflow Graph System is a modular, composable architecture for building com
 - [Data Flow Requirements](DATA_FLOW_REQUIREMENTS.md)
 - [Node Catalog](NODE_CATALOG.md)
 - [Graph Type Definitions](GRAPH_TYPE_DEFINITIONS.md)
+- [State Mutations](STATE_MUTATIONS.md)
 
 Make sure you have read and understand all the above before proceeding.
 
-## Horizontal Quick Flow
+## Universal Phase Flow Pattern
 
 ```
-Input → [Analysis Graph] → [Specification Graph] → [Crafting Graph] → [Evaluation Graph] → Output
-                ↓                    ↓                    ↓                    ↓
-            State Store         State Store         State Store         State Store
-                                                                              ↑ ↓
-                                                                      [Refinement Loop]
+Input → [Phase 1: Domain Analysis] → [Phase 2: Specification] → [Phase 3: Generation] → [Phase 4: Validation] → Output
+              ↓                            ↓                          ↓                        ↓
+         GenericPhaseNode              GenericPhaseNode          GenericPhaseNode        GenericPhaseNode
+              ↓                            ↓                          ↓                        ↓
+         PhaseDefinition              PhaseDefinition            PhaseDefinition         PhaseDefinition
+              ↓                            ↓                          ↓                        ↓
+         State Store                  State Store                State Store             State Store
+                                                                                              ↑ ↓
+                                                                                      [Refinement Loop]
 ```
+
+### Domain Examples:
+- **AgenTool Workflow**: Analyzer → Specifier → Crafter → Evaluator
+- **API Design Workflow**: API Analyzer → Schema Designer → Implementation → Validator
+- **Workflow Design**: Process Analyzer → Step Designer → Orchestrator → Tester
+- **Documentation**: Content Analyzer → Structure Designer → Writer → Reviewer
 
 ## Motivation and Purpose
 
-### Current Limitations
-- **Monolithic Design**: Each workflow phase is a standalone AgenTool with 500+ lines of duplicated code
-- **Sequential Execution**: Tools are processed one-by-one even when they could run in parallel
-- **No Reusability**: Common operations (storage, validation, LLM calls) are reimplemented in each workflow
-- **Limited Iteration**: No built-in support for refinement loops or quality gates
-- **Poor Composability**: Workflows cannot be easily combined or extended
+### Current Limitations (Solved by Meta-Framework)
+- **Monolithic Design**: ~~Each workflow phase is a standalone AgenTool with 500+ lines of duplicated code~~ → Single GenericPhaseNode handles all phases
+- **Domain Lock-in**: ~~Workflows hardcoded for AgenTools only~~ → Domain-agnostic phase definitions
+- **Template Duplication**: ~~Same LLM interaction pattern repeated~~ → Unified template rendering system
+- **No Reusability**: ~~Common operations reimplemented~~ → Shared meta-framework for all domains
+- **Static Workflows**: ~~Fixed phase sequences~~ → Dynamic graph construction from definitions
 
 ### Vision
-Transform the workflow system into a **graph-based architecture** where:
-- Each operation is an atomic, testable node
-- Nodes compose into sub-graphs and full workflows
+Transform the workflow system into a **meta-framework architecture** where:
+- Workflow phases are data (configurations), not code
+- Any domain can define workflows through phase definitions
+- Template + Schema = Complete phase behavior
+- Dynamic graph construction from phase registry
+- Universal type validation across all domains
 - Parallel execution is native and automatic
 - Iteration and refinement are first-class citizens
-- State management is type-safe and persistent
 
 ## Design & Architecture
 
 ### Core Principles
 
-1. **Single Responsibility**: Each node performs exactly one operation
-2. **Type Safety**: Full generic typing with `BaseNode[StateT, DepsT, OutputT]`
-3. **Immutable State**: Nodes receive state, produce new state (functional approach)
-4. **Dependency Injection**: Configuration and services via `GraphDeps`
-5. **Composability**: Small nodes combine into larger workflows
+1. **Phase as Configuration**: Phases defined by data (PhaseDefinition), not code
+2. **Universal Execution**: Single GenericPhaseNode executes any phase
+3. **Type Safety**: Full validation via InputSchema/OutputSchema pairs
+4. **Immutable State**: Nodes receive state, produce new state (functional approach)
+5. **Template-Driven**: System/user prompts are external templates
+6. **Domain Agnostic**: Same engine for AgenTools, APIs, workflows, docs, etc.
+7. **Dependency Injection**: Configuration and services via `GraphDeps`
 
 ### Pattern & Style
 
-#### Node Definition Pattern
+#### State-Driven Workflow Pattern
 ```python
-@dataclass
-class SomeOperationNode(BaseNode[StateT, DepsT, OutputT]):
-    """Single-purpose node description."""
-    config_param: str  # Node-specific configuration
+# See [Graph Type Definitions](GRAPH_TYPE_DEFINITIONS.md#state-based-configuration-types-canonical) for WorkflowDefinition
+# This is the canonical type definition - we reference it here for consistency
+# WorkflowDefinition contains: domain, phases, phase_sequence, node_configs
     
-    async def run(
-        self, 
-        ctx: GraphRunContext[StateT, DepsT]
-    ) -> NextNode | End[OutputT]:
-        # Access state: ctx.state
-        # Access deps: ctx.deps
-        # Perform operation
-        ...
-        # Return next node or end
-        return NextNode(...)
+# See [Graph Type Definitions](GRAPH_TYPE_DEFINITIONS.md#phasedefinition-canonical) for PhaseDefinition
+# This is the canonical type definition - we reference it here for consistency
+# PhaseDefinition contains: phase_name, atomic_nodes, input_schema, output_schema, templates, quality_threshold
+
+# See [Graph Type Definitions](GRAPH_TYPE_DEFINITIONS.md#nodeconfig) for NodeConfig
+# This is the canonical type definition - we reference it here for consistency
+# NodeConfig contains: node_type
+    retryable: bool = False
+    max_retries: int = 0
+    retry_backoff: str = "exponential"
+    # For iteration
+    iter_enabled: bool = False
+    iter_in_type: Optional[Type] = None
+    iter_out_type: Optional[Type] = None
+
+@dataclass
+class GenericPhaseNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
+    """Starts a phase by returning its first atomic node."""
+    
+    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode | End[WorkflowState]:
+        # Get current phase from state
+        phase_def = ctx.state.workflow_def.phases[ctx.state.current_phase]
+        
+        # Mark phase as started
+        new_state = replace(
+            ctx.state,
+            current_node=phase_def.atomic_nodes[0]
+        )
+        
+        # Return first atomic node - each will chain to the next
+        first_node_id = phase_def.atomic_nodes[0]
+        return self.create_node_instance(first_node_id, new_state)
+    
+    def create_node_instance(self, node_id: str, state: WorkflowState) -> BaseNode:
+        """Create node instance based on ID."""
+        # Node instances read their config from state
+        if node_id == "dependency_check":
+            return DependencyCheckNode()
+        elif node_id == "load_dependencies":
+            return LoadDependenciesNode()
+        elif node_id == "template_render":
+            return TemplateRenderNode()
+        elif node_id == "llm_call":
+            return LLMCallNode()
+        elif node_id == "save_output":
+            return SavePhaseOutputNode()
+        elif node_id == "state_update":
+            return StateUpdateNode()
+        elif node_id == "quality_gate":
+            return QualityGateNode()
+        else:
+            raise ValueError(f"Unknown node ID: {node_id}")
 ```
 
-#### State Management Pattern
+#### Universal State Pattern
 ```python
-@dataclass
+@dataclass(frozen=True)
 class WorkflowState:
-    """Immutable state passed between nodes."""
-    # Data references (not actual data)
-    catalog_ref: str
-    specs_ref: List[str]
-    code_refs: Dict[str, str]
-    ...
+    """State-driven workflow execution."""
+    # Workflow definition (the uniform plane)
+    workflow_def: WorkflowDefinition
+    
+    # Execution position
+    current_phase: str
+    current_node: str
+    completed_phases: Set[str]
+    
+    # Iteration state
+    iter_items: List[Any] = field(default_factory=list)
+    iter_results: List[Any] = field(default_factory=list)
+    iter_index: int = 0
+    
+    # Retry tracking (per node instance)
+    retry_counts: Dict[str, int] = field(default_factory=dict)
+    
+    # Phase outputs
+    phase_outputs: Dict[str, StorageRef] = field(default_factory=dict)
+    
+    # Domain data
+    domain_data: Dict[str, Any] = field(default_factory=dict)
+    
+    # Quality tracking
+    quality_scores: Dict[str, float] = field(default_factory=dict)
+    
+    def get_current_node_config(self) -> NodeConfig:
+        """Get configuration for current node."""
+        return self.workflow_def.node_configs[self.current_node]
+    
+    def get_next_atomic_node(self) -> Optional[str]:
+        """Get next node in current phase."""
+        phase_def = self.workflow_def.phases[self.current_phase]
+        current_idx = phase_def.atomic_nodes.index(self.current_node)
+        if current_idx + 1 < len(phase_def.atomic_nodes):
+            return phase_def.atomic_nodes[current_idx + 1]
+        return None
 ```
 
 #### Dependency Injection Pattern
 ```python
-@dataclass
+@dataclass(frozen=True)
 class WorkflowDeps:
     """Services and configuration."""
+    # Core services
     models: ModelConfig
     storage: StorageConfig
+    template_engine: TemplateEngine
+    
+    # Phase registry
+    phase_registry: Dict[str, PhaseDefinition]
+    
+    # Executors
     process_executor: ProcessPoolExecutor
     thread_executor: ThreadPoolExecutor
+    
+    # Domain validators
+    domain_validators: Dict[str, DomainValidator]
     ...
 ```
 
 ## System Architecture Diagrams
 
-### High-Level Component Architecture
+### High-Level Meta-Framework Architecture
 
 ```mermaid
 graph TB
-    subgraph "Node Library"
-        BaseNodes[Base Node Types]
+    subgraph CONFIG["Domain Configuration Layer"]
+        AgenToolDef[AgenTool Phases]
+        APIDef[API Design Phases] 
+        WorkflowDef[Workflow Phases]
+        DocsDef[Documentation Phases]
+    end
+    
+    subgraph CORE["Meta-Framework Core"]
+        PhaseReg[Phase Registry]
+        GenNode[GenericPhaseNode]
+    end
+    
+    subgraph ATOMIC["Atomic Node Layer"]
         StorageNodes[Storage Nodes]
-        TransformNodes[Transform Nodes]
-        ValidationNodes[Validation Nodes]
         LLMNodes[LLM Nodes]
-        ControlNodes[Control Flow Nodes]
+        ValidationNodes[Validation Nodes]
     end
     
-    subgraph "Workflow Layer"
-        States[State Definitions]
-        Deps[Dependencies]
-        SubGraphs[Sub-Graphs]
-        MainGraphs[Main Graphs]
+    subgraph ENGINE["Execution Engine"]
+        GraphEngine[pydantic_graph]
+        StateStore[State Store]
+        TypeSafety[Type Safety]
     end
     
-    subgraph "Execution Layer"
-        GraphEngine[pydantic-graph Engine]
-        Persistence[State Persistence]
-        Monitoring[Execution Monitoring]
-    end
-    
-    BaseNodes --> StorageNodes
-    BaseNodes --> TransformNodes
-    BaseNodes --> ValidationNodes
-    BaseNodes --> LLMNodes
-    BaseNodes --> ControlNodes
-    
-    StorageNodes --> SubGraphs
-    TransformNodes --> SubGraphs
-    ValidationNodes --> SubGraphs
-    LLMNodes --> SubGraphs
-    ControlNodes --> SubGraphs
-    
-    States --> MainGraphs
-    Deps --> MainGraphs
-    SubGraphs --> MainGraphs
-    
-    MainGraphs --> GraphEngine
-    Persistence --> GraphEngine
-    Monitoring --> GraphEngine
+    %% Connections
+    CONFIG --> PhaseReg
+    PhaseReg --> GenNode
+    GenNode --> ATOMIC
+    GenNode --> ENGINE
 ```
 
-### Data Flow Through Workflow Phases
+### Generic Phase Execution Flow
 
 ```mermaid
-graph LR
-    subgraph "Analysis Phase"
-        A1[Load Catalog] --> A2[Analyze Requirements]
-        A2 --> A3[Identify Gaps]
-        A3 --> A4[Store Analysis]
-    end
+graph TB
+    Start[GenericPhaseNode] --> DC[DependencyCheck]
+    DC --> LD[LoadDependencies]
+    LD --> TR[TemplateRender]
+    TR --> LLM[LLMCall]
+    LLM --> SV[SchemaValidation]
+    SV --> SO[SaveOutput]
+    SO --> SU[StateUpdate]  
+    SU --> QG[QualityGate]
     
-    subgraph "Specification Phase"
-        S1[Load Analysis] --> S2[Generate Specs]
-        S2 --> S3[Validate Specs]
-        S3 --> S4[Store Specs]
-    end
+    QG --> Quality{Quality Met?}
+    Quality -->|Pass| NextPhase[NextPhase]
+    Quality -->|Fail| Refine[Refinement]
     
-    subgraph "Crafting Phase"
-        C1[Load Specs] --> C2[Generate Code]
-        C2 --> C3[Format Code]
-        C3 --> C4[Store Code]
-    end
+    Refine --> Start
+    NextPhase --> Complete{More Phases?}
+    Complete -->|Yes| Start
+    Complete -->|No| Done[Workflow Complete]
     
-    subgraph "Evaluation Phase"
-        E1[Load Code] --> E2[Validate Syntax]
-        E2 --> E3[Check Quality]
-        E3 --> E4{Pass?}
-        E4 -->|Yes| E5[Store Final]
-        E4 -->|No| E6[Refine]
-        E6 --> E2
-    end
-    
-    A4 --> S1
-    S4 --> C1
-    C4 --> E1
+    %% Retry paths (dotted)
+    LD -.-> LD
+    LLM -.-> LLM  
+    SO -.-> SO
 ```
 
 ## Major Vertical Segregations
 
-### 1. Node Types Enumeration
+### 1. Meta-Framework Components
 
-#### Base Node Categories
-- **StorageNode**: Operations on storage_kv and storage_fs
-- **TransformNode**: Data transformation and formatting
-- **ValidationNode**: Syntax, schema, and quality validation
-- **LLMNode**: LLM interactions and prompt management
-- **ControlNode**: Flow control, parallelism, conditionals
+#### Phase Registry Architecture
+```python
+PHASE_REGISTRY: Dict[str, PhaseDefinition] = {
+    # AgenTool domain phases
+    'agentool.analyzer': PhaseDefinition(
+        phase_name='analyzer',
+        domain='agentool',
+        input_schema=AnalyzerInput,
+        output_schema=AnalyzerOutput,
+        system_template='templates/system/analyzer.jinja',
+        user_template='templates/prompts/analyze_catalog.jinja',
+        storage_pattern='workflow/{workflow_id}/analysis',
+        dependencies=[],
+        model_config=ModelParameters(temperature=0.7)
+    ),
+    'agentool.specifier': PhaseDefinition(...),
+    'agentool.crafter': PhaseDefinition(...),
+    
+    # API design domain phases
+    'api.analyzer': PhaseDefinition(
+        phase_name='analyzer',
+        domain='api',
+        input_schema=APIAnalysisInput,
+        output_schema=APIDesignOutput,
+        system_template='templates/system/api_analyzer.jinja',
+        user_template='templates/prompts/analyze_api.jinja',
+        storage_pattern='workflow/{workflow_id}/api_analysis',
+        dependencies=[],
+        model_config=ModelParameters(temperature=0.8)
+    ),
+    
+    # Workflow orchestration phases
+    'workflow.analyzer': PhaseDefinition(...),
+    'workflow.orchestrator': PhaseDefinition(...),
+}
+```
 
-#### Storage Nodes
-- `LoadKVNode`: Load data from storage_kv
-- `SaveKVNode`: Save data to storage_kv
-- `LoadFSNode`: Load files from storage_fs
-- `SaveFSNode`: Save files to storage_fs
-- `BatchLoadNode`: Parallel loading of multiple items
-- `BatchSaveNode`: Parallel saving of multiple items
+#### Dynamic Graph Construction
+```python
+def build_domain_workflow(
+    domain: str,
+    phases: List[str],
+    config: WorkflowConfig
+) -> Graph:
+    """Dynamically construct workflow graph from phase definitions."""
+    nodes = []
+    for phase in phases:
+        phase_key = f'{domain}.{phase}'
+        if phase_key not in PHASE_REGISTRY:
+            raise ValueError(f"Unknown phase: {phase_key}")
+        
+        phase_def = PHASE_REGISTRY[phase_key]
+        # Store phase def in registry for nodes to access via state
+        # GenericPhaseNode reads from state, no constructor params
+        nodes.append(GenericPhaseNode())
+    
+    # Add control flow nodes
+    if config.enable_refinement:
+        nodes.append(RefinementLoopNode())
+    
+    return Graph(nodes=nodes, deps=config.deps)
+```
+
+### 2. Atomic Node Chaining Pattern
+
+#### How Atomic Nodes Chain
+Each atomic node:
+1. Reads its configuration from state
+2. Performs its single operation
+3. Updates state if needed
+4. Returns the next node in the chain
+
+```python
+@dataclass
+class AtomicNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
+    """Base pattern for atomic nodes."""
+    
+    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode | End[WorkflowState]:
+        # Get our configuration from state
+        node_config = ctx.state.get_current_node_config()
+        
+        # Check if we should retry
+        retry_key = f"{ctx.state.current_phase}_{ctx.state.current_node}_{ctx.state.workflow_id}"
+        retry_count = ctx.state.retry_counts.get(retry_key, 0)
+        
+        if retry_count > 0 and retry_count < node_config.max_retries:
+            # Perform retry with backoff
+            await self.apply_backoff(retry_count, node_config.retry_backoff)
+        
+        try:
+            # Execute our specific operation
+            result = await self.execute(ctx)
+            
+            # Update state with result
+            new_state = self.update_state(ctx.state, result)
+            
+            # Get next node
+            next_node_id = new_state.get_next_atomic_node()
+            if next_node_id:
+                # Continue in current phase
+                new_state = replace(new_state, current_node=next_node_id)
+                return self.create_next_node(next_node_id)
+            else:
+                # Phase complete, check for next phase
+                return self.complete_phase(new_state)
+                
+        except Exception as e:
+            if node_config.retryable and retry_count < node_config.max_retries:
+                # Retry by returning ourselves
+                new_state = replace(
+                    ctx.state,
+                    retry_counts={**ctx.state.retry_counts, retry_key: retry_count + 1}
+                )
+                return self.__class__()  # Return same node type
+            else:
+                # Move to error handling
+                return ErrorNode(error=str(e), node_id=ctx.state.current_node)
+```
+
+#### Atomic Node Categories with State-Driven Config
+
+**Example Node Configurations in WorkflowDefinition**:
+```python
+node_configs = {
+    # Storage operations - usually not retryable (local)
+    "load_dependencies": NodeConfig(
+        node_type="storage_load",
+        retryable=False,  # Local storage rarely fails
+        max_retries=0
+    ),
+    "save_output": NodeConfig(
+        node_type="storage_save",
+        retryable=False,
+        max_retries=0
+    ),
+    
+    # LLM operations - retryable (API can have transient failures)
+    "llm_call": NodeConfig(
+        node_type="llm_inference",
+        retryable=True,  # Retry on API errors
+        max_retries=3,
+        retry_backoff="exponential"
+    ),
+    
+    # Iteration-enabled nodes
+    "process_tools": NodeConfig(
+        node_type="tool_processor",
+        retryable=False,
+        iter_enabled=True,
+        iter_in_type=List[ToolSpec],
+        iter_out_type=List[ProcessedTool],
+        max_retries=0
+    ),
+    
+    # Deterministic operations - no retry needed
+    "template_render": NodeConfig(
+        node_type="template",
+        retryable=False,  # Bugs, not transient failures
+        max_retries=0
+    ),
+    
+    # Validation - triggers refinement, not retry
+    "quality_gate": NodeConfig(
+        node_type="validation",
+        retryable=False,
+        max_retries=0
+    )
+}
+```
 
 #### Transform Nodes
 - `JSONParseNode`: Parse JSON strings to objects
@@ -223,120 +461,177 @@ graph LR
 - `BatchLLMNode`: Parallel LLM calls for multiple items
 
 #### Control Flow Nodes
-- `ConditionalNode`: Branch based on state conditions
-- `ParallelMapNode`: Map operation over collection in parallel
+- `StateBasedConditionalNode`: Branch based on state conditions
+- `IterableNode`: Process items via self-return iteration pattern
 - `SequentialMapNode`: Map operation over collection sequentially
 - `AggregatorNode`: Combine results from parallel operations
-- `RetryNode`: Retry failed operations with backoff
 - `LoopNode`: Iterate until condition met
 
-### 2. State Requirements by Phase
+**State-Based Retry Pattern**: All nodes can retry via self-return with state tracking when configured as retryable in NodeConfig
 
-#### Analysis Phase Data Requirements
-```
-Input:
-  - task_description: str
-  - workflow_id: str
-  
-Required State:
-  - catalog_ref: str (→ storage_kv:catalog)
-  
-Output State:
-  - analysis_ref: str (→ storage_kv:workflow/{id}/analysis)
-  - missing_tools: List[str]
-  - existing_tools: List[str]
-```
+### 2. Universal State Requirements
 
-#### Specification Phase Data Requirements
-```
-Input State:
-  - analysis_ref: str
-  - missing_tools: List[str]
-  
-Required Data:
-  - Analysis results from storage_kv
-  - Template refs from storage_fs
-  
-Output State:
-  - specs_refs: List[str] (→ storage_kv:workflow/{id}/specs/*)
-  - tool_specs: List[ToolSpec]
-```
+This section defines the state data structures and transformations that are common across all phases in any domain. The YAML format below shows the canonical data flow pattern that every GenericPhaseNode follows.
 
-#### Crafting Phase Data Requirements
-```
-Input State:
-  - specs_refs: List[str]
-  - tool_specs: List[ToolSpec]
+#### Generic Phase Data Flow
+```yaml
+Phase Input:
+  workflow_state:
+    workflow_id: str
+    domain: str
+    completed_phases: Set[str]
+    phase_outputs: Dict[str, StorageRef]
   
-Required Data:
-  - Specifications from storage_kv
-  - Code templates from storage_fs
+  phase_definition:
+    dependencies: List[str]  # Previous phases to load
+    input_schema: Type[BaseModel]  # Validation schema
   
-Output State:
-  - code_refs: Dict[str, str] (→ storage_fs:generated/{id}/*.py)
-  - implementation_refs: List[str] (→ storage_kv:workflow/{id}/implementations/*)
+Phase Processing:
+  1. Load dependency data from phase_outputs
+  2. Validate against input_schema
+  3. Extract template variables
+  4. Render templates
+  5. Execute LLM with output_schema
+  6. Validate response
+  
+Phase Output:
+  updated_state:
+    completed_phases: Set[str] + {current_phase}
+    phase_outputs: Dict + {current_phase: storage_ref}
+    domain_data: Updated domain-specific data
+    quality_scores: Dict[str, float]  # If validation phase
 ```
 
-#### Evaluation Phase Data Requirements
-```
-Input State:
-  - code_refs: Dict[str, str]
-  - specs_refs: List[str]
-  
-Required Data:
-  - Generated code from storage_fs
-  - Specifications from storage_kv
-  - Quality thresholds from deps
-  
-Output State:
-  - validation_results: Dict[str, QualityMetrics]  # Quality metrics per tool
-  - quality_scores: Dict[str, float]
-  - final_code_refs: Dict[str, str] (→ storage_fs:generated/{id}/final/*.py)
-  - needs_refinement: List[str]
-```
+This YAML specification defines the universal pattern that all phases follow regardless of domain. The workflow_state contains the minimal required fields, while domain_data provides flexibility for domain-specific information.
 
-### 3. Graph Composition Patterns
+#### Domain-Specific Data Examples
 
-#### Sequential Composition
+**AgenTool Domain**:
 ```python
-sequential_graph = Graph(
-    nodes=[NodeA, NodeB, NodeC],
-    ...
-)
+domain_data = {
+    'catalog': {...},  # Tool catalog
+    'missing_tools': [...],  # From analyzer
+    'specifications': [...],  # From specifier
+    'generated_code': {...},  # From crafter
+    'quality_metrics': {...}  # From evaluator
+}
 ```
 
-#### Parallel Composition
+**API Design Domain**:
+```python
+domain_data = {
+    'endpoints': [...],  # API endpoints
+    'schemas': {...},  # OpenAPI schemas
+    'implementations': {...},  # Generated handlers
+    'test_suites': {...}  # API tests
+}
+```
+
+**Workflow Domain**:
+```python
+domain_data = {
+    'process_steps': [...],  # Workflow steps
+    'dependencies': {...},  # Step dependencies
+    'orchestration': {...},  # DAG definition
+    'validations': {...}  # Step validators
+}
+```
+
+### 3. Iteration Pattern (Replacing Parallel Sub-graphs)
+
+#### Iteration Through Node Self-Return
 ```python
 @dataclass
-class ParallelExecutor(BaseNode[...]):
-    async def run(self, ctx):
-        # Launch parallel nodes
-        return ParallelMapNode(
-            items_key="tools_to_process",
-            sub_graph=processing_graph
+class IterableNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
+    """Node that iterates over items without sub-graphs."""
+    
+    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode | End[WorkflowState]:
+        node_config = ctx.state.get_current_node_config()
+        
+        if not node_config.iter_enabled:
+            # Single execution mode
+            return await self.process_single(ctx)
+        
+        # Get items to process
+        items = ctx.state.iter_items
+        current_idx = ctx.state.iter_index
+        
+        if current_idx >= len(items):
+            # Iteration complete - move to next node
+            return self.on_iteration_complete(ctx)
+        
+        # Process current item
+        current_item = items[current_idx]
+        result = await self.process_item(current_item, ctx)
+        
+        # Update state with result
+        new_state = replace(
+            ctx.state,
+            iter_results=ctx.state.iter_results + [result],
+            iter_index=current_idx + 1
         )
+        
+        # Return ourselves to process next item
+        if current_idx + 1 < len(items):
+            return self.__class__()  # Continue iteration
+        else:
+            # All items processed - move to next node
+            return self.get_next_node(new_state)
 ```
 
-#### Conditional Composition
+#### Parallel Execution with Graph.iter()
 ```python
-@dataclass
-class QualityCheck(BaseNode[...]):
-    async def run(self, ctx):
-        if ctx.state.quality_score >= ctx.deps.threshold:
-            return ApprovalNode(...)
-        else:
-            return RefinementNode(...)
+async def run_workflow_with_parallel_iteration(workflow_def, items):
+    """Use Graph.iter() for controlled parallel execution."""
+    
+    state = WorkflowState(
+        workflow_def=workflow_def,
+        iter_items=items
+    )
+    
+    graph = Graph(nodes=[...])  # All workflow nodes
+    
+    async with graph.iter(StartNode(), state=state) as run:
+        parallel_tasks = []
+        
+        async for node in run:
+            if isinstance(node, IterableNode) and node.iter_enabled:
+                # Check if we should parallelize
+                node_config = state.get_current_node_config()
+                
+                if node_config.iter_enabled and len(state.iter_items) > 1:
+                    # Create parallel execution tasks
+                    for item in state.iter_items:
+                        item_state = replace(state, iter_items=[item])
+                        task = asyncio.create_task(
+                            process_single_item(graph, node, item_state)
+                        )
+                        parallel_tasks.append(task)
+                    
+                    # Wait for all parallel tasks
+                    results = await asyncio.gather(*parallel_tasks)
+                    
+                    # Aggregate results back into state
+                    new_state = replace(
+                        state,
+                        iter_results=results,
+                        iter_index=len(items)
+                    )
+                    
+                    # Continue with next node
+                    next_node = node.get_next_node(new_state)
+                    await run.next(next_node)
 ```
 
-#### Loop Composition
+#### Conditional Composition (Still Works)
 ```python
 @dataclass
-class RefinementLoop(BaseNode[...]):
+class QualityCheck(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
     async def run(self, ctx):
-        if ctx.state.iteration < ctx.deps.max_iterations:
-            return ImproveNode(...)
+        if ctx.state.quality_scores[ctx.state.current_phase] >= ctx.state.workflow_def.phases[ctx.state.current_phase].quality_threshold:
+            return ApprovalNode()
         else:
-            return End(ctx.state.best_result)
+            return RefinementNode()
 ```
 
 ## Integration with pydantic_graph
@@ -366,23 +661,89 @@ result = await graph.run(StartNode(), deps=deps, state=state)
 
 ### Node Return Types
 Based on pydantic_graph's type system:
-- Return another node: `return NextNode(state=new_state, node=NextNodeClass())`
+- Return another node: `return AnotherNodeClass()  # State managed by GraphRunContext`
 - End with result: `return End(output)`
 - Conditional returns: `return NodeA() if condition else NodeB()`
 
-## Execution Model
+## Atomic Execution Model
 
-### Parallelism Strategy
-1. **Automatic Detection**: Graph engine identifies independent nodes
-2. **Explicit Parallel Nodes**: `ParallelMapNode` for collection processing
-3. **Dependency-Based**: Nodes with no shared state dependencies run in parallel
-4. **Resource Limits**: Controlled via `WorkflowDeps.executor` configuration
+### Execution Flow with Atomic Nodes
+```mermaid
+stateDiagram-v2
+    [*] --> PhaseStart
+    PhaseStart --> DependencyCheck
+    
+    state "Retryable Operations" as RetryOps {
+        DependencyCheck --> LoadDependencies
+        LoadDependencies --> LoadError
+        LoadError --> LoadRetry
+        LoadRetry --> LoadDependencies
+    }
+    
+    state "Expensive Operations" as ExpOps {
+        TemplateRender --> LLMCall
+        LLMCall --> LLMError
+        LLMError --> PhaseRetry: Orchestrator Decision
+    }
+    
+    state "Validation & Storage" as ValStore {
+        SchemaValidation --> SaveOutput
+        SaveOutput --> SaveError
+        SaveError --> SaveRetry
+        SaveRetry --> SaveOutput
+    }
+    
+    RetryOps --> ExpOps: Dependencies Loaded
+    ExpOps --> ValStore: LLM Response
+    ValStore --> QualityGate
+    QualityGate --> PhaseComplete: Pass
+    QualityGate --> Refinement: Fail
+    Refinement --> ExpOps: With Feedback
+    PhaseComplete --> [*]
+```
 
-### Error Handling
-1. **Node-Level**: Each node handles its own errors
-2. **Retry Nodes**: Wrap failing operations with `RetryNode`
-3. **Fallback Paths**: Conditional nodes route around failures
-4. **State Recovery**: Persistence enables resumption after crashes
+### Benefits of Atomic Decomposition
+
+1. **Resilience**: Storage failures don't require re-running LLM
+2. **Efficiency**: Only retry what failed
+3. **Cost Control**: Expensive operations (LLM) are isolated
+4. **Observability**: Track success/failure/duration per operation
+5. **Parallelism**: Run independent atomic operations concurrently
+
+### Error Handling by Node Type
+
+**State-Based Retry Pattern**:
+```python
+class LoadDependenciesNode(BaseNode):
+    async def run(self, ctx):
+        node_config = ctx.state.get_current_node_config()
+        retry_key = f"{ctx.state.current_phase}_load_deps"
+        retry_count = ctx.state.retry_counts.get(retry_key, 0)
+        
+        try:
+            # Attempt operation
+            deps = await load_from_storage(ctx)
+            # Success - move to next node
+            return TemplateRenderNode()
+            
+        except Exception as e:
+            if node_config.retryable and retry_count < node_config.max_retries:
+                # Retry by returning self with updated retry count
+                new_state = replace(
+                    ctx.state,
+                    retry_counts={**ctx.state.retry_counts, retry_key: retry_count + 1}
+                )
+                return LoadDependenciesNode()
+            else:
+                # Max retries exceeded or non-retryable
+                return ErrorNode(error=str(e))
+```
+
+**Node Types by Retry Strategy**:
+- **LLM Nodes**: Retryable (API transient failures)
+- **Storage Nodes**: Usually not retryable (local storage)
+- **Template Nodes**: Not retryable (deterministic failures = bugs)
+- **Validation Nodes**: Not retryable (trigger refinement instead)
 
 ### Monitoring & Observability
 1. **Node Execution Events**: Each node transition logged
@@ -390,16 +751,170 @@ Based on pydantic_graph's type system:
 3. **Performance Metrics**: Timing and resource usage per node
 4. **Visualization**: Mermaid diagrams of execution paths
 
-## Next Steps
+## Meta-Framework Benefits
 
-This Phase 1 documentation establishes the technical architecture without implementation details. Phase 2 will add:
-- Detailed type definitions with fields
-- Inter-node data contracts
-- State mutation specifications
-- Dependency requirements per node
+### Code Efficiency
+- **Traditional Approach**: Would require ~500 lines per phase × 4 phases × N domains = 2000N lines
+- **Meta-Framework Approach**: 
+  - 1 GenericPhaseNode orchestrator (~100 lines)
+  - 10 reusable atomic nodes (~50 lines each)
+  - N phase definitions (~30 lines each)
+  - Total: 100 + 500 + 30N lines
+- **Efficiency**: ~95% less code for 10 domains
 
-Phase 3 will add:
-- Complete code examples
-- Integration patterns
-- Usage scenarios
-- Migration guides
+### Operational Benefits
+
+**Without Atomic Decomposition**:
+- Storage failure after LLM call = Re-run entire phase ($$$)
+- Can't retry specific operations
+- All-or-nothing execution
+- Poor observability
+
+**With Atomic Decomposition**:
+- Storage failure after LLM call = Retry only storage (¢)
+- Selective retry of failed operations
+- Granular execution control
+- Detailed metrics per operation
+
+### Extensibility
+```python
+# Adding a new domain is just configuration:
+new_phases = {
+    'blockchain.analyzer': PhaseDefinition(...),
+    'blockchain.smart_contract_designer': PhaseDefinition(...),
+    'blockchain.auditor': PhaseDefinition(...),
+}
+PHASE_REGISTRY.update(new_phases)
+
+# Instantly available:
+workflow = build_domain_workflow('blockchain', ['analyzer', 'smart_contract_designer', 'auditor'])
+```
+
+### Type Safety Guarantees
+1. **Input Validation**: Every phase input validated against schema
+2. **Output Validation**: Every LLM response validated against schema
+3. **State Validation**: State transitions validated at each step
+4. **Domain Validation**: Domain-specific validators ensure data consistency
+
+### Template Reusability
+```
+templates/
+  system/
+    base_analyzer.jinja      # Shared analyzer pattern
+    base_generator.jinja     # Shared generator pattern
+  prompts/
+    agentool/               # Domain-specific prompts
+    api/
+    workflow/
+  fragments/               # Reusable template parts
+    error_handling.jinja
+    quality_criteria.jinja
+```
+
+## State-Driven Conditional Branching Example
+
+The following example demonstrates the new state-driven conditional pattern that replaces hardcoded condition functions with configurable state-driven logic:
+
+```python
+# Configure state-driven conditions in WorkflowDefinition
+workflow_def = WorkflowDefinition(
+    domain="agentool",
+    phases={"analysis": analysis_phase, "generation": generation_phase},
+    phase_sequence=["analysis", "generation"],
+    node_configs={
+        "quality_gate": NodeConfig(node_type="validation"),
+        "simple_generator": NodeConfig(node_type="generator"),
+        "complex_generator": NodeConfig(node_type="advanced_generator")
+    },
+    conditions={
+        # Quality gate - check if analysis meets threshold
+        "quality_check": ConditionConfig(
+            condition_type="quality_gate",
+            quality_field="analysis",  # references quality_scores["analysis"]
+            threshold=0.8
+        ),
+        
+        # Complexity routing - route based on domain data
+        "complexity_routing": ConditionConfig(
+            condition_type="state_path",
+            state_path="domain_data.complexity",
+            operator="==",
+            expected_value="high"
+        ),
+        
+        # Refinement limit - prevent infinite refinement loops
+        "refinement_limit": ConditionConfig(
+            condition_type="threshold",
+            state_path="refinement_count.analysis",
+            operator=">=",
+            expected_value=3
+        )
+    }
+)
+
+# Usage in nodes - conditions read from state, not hardcoded
+@dataclass
+class QualityGateNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
+    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode:
+        # Use state-driven conditional logic
+        quality_condition = ctx.state.workflow_def.conditions["quality_check"]
+        
+        if quality_condition.evaluate(ctx.state):
+            # Quality passed - continue to next phase  
+            return NextPhaseNode()
+        else:
+            # Quality failed - check refinement limit
+            refinement_condition = ctx.state.workflow_def.conditions["refinement_limit"] 
+            
+            if refinement_condition.evaluate(ctx.state):
+                # Too many refinements - accept current quality
+                return NextPhaseNode()
+            else:
+                # Refine the analysis
+                return RefinementNode(target_phase="analysis")
+
+@dataclass
+class GeneratorRoutingNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
+    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode:
+        # Route based on complexity analysis stored in state
+        complexity_condition = ctx.state.workflow_def.conditions["complexity_routing"]
+        
+        if complexity_condition.evaluate(ctx.state):
+            # High complexity - use advanced generator
+            return AdvancedGeneratorNode()
+        else:
+            # Normal complexity - use simple generator
+            return SimpleGeneratorNode()
+
+# State evolution example - conditions react to state changes
+initial_state = WorkflowState(
+    workflow_def=workflow_def,
+    domain="agentool",
+    quality_scores={},  # Empty initially
+    refinement_count={}, # Empty initially
+    domain_data={"complexity": "high"}  # Set by analysis phase
+)
+
+# After analysis completes
+post_analysis_state = replace(
+    initial_state,
+    quality_scores={"analysis": 0.6},  # Below threshold
+    domain_data={"complexity": "high", "analysis_complete": True}
+)
+
+# Now conditions can be evaluated:
+# quality_check.evaluate(post_analysis_state) -> False (0.6 < 0.8)
+# complexity_routing.evaluate(post_analysis_state) -> True ("high" == "high") 
+# refinement_limit.evaluate(post_analysis_state) -> False (0 < 3)
+
+# This drives the workflow branching without hardcoded logic
+```
+
+**Benefits of State-Driven Conditions**:
+
+1. **Configuration-Driven**: Conditions defined in data, not code
+2. **Reusable**: Same condition types work across domains  
+3. **Inspectable**: Condition logic visible in state
+4. **Testable**: Easy to test condition evaluation
+5. **Dynamic**: Conditions can be modified without code changes
+6. **Type-Safe**: All condition types validated through schemas

@@ -1,4 +1,4 @@
-# State Mutations and Transformations - Phase 2
+# State Mutations - Meta-Framework Patterns
 
 ## References
 
@@ -11,7 +11,42 @@
 
 ## Overview
 
-This document specifies how state is transformed as it flows through the workflow graph. All mutations follow the immutable state pattern where new state objects are created rather than modifying existing ones.
+This document specifies state transformation patterns for the **meta-framework workflow system**. The state doesn't change directly, but rather through the immutable state pattern where new state objects are created rather than modifying existing ones, ensuring state integrity across the configuration-driven phase execution model.
+
+### State Mutation Flow
+
+```mermaid
+graph TB
+    subgraph "Immutable State Pattern"
+        OLD[Old State] --> READ[Node Reads State]
+        READ --> COMPUTE[Compute New Values]
+        COMPUTE --> CREATE[Create New State]
+        CREATE --> NEW[New State]
+        
+        OLD -.->|Never Modified| PRESERVED[Old State Preserved]
+        NEW --> NEXT[Pass to Next Node]
+    end
+    
+    subgraph "Mutation Types by Node"
+        DC[DependencyCheck] --> M1[No Mutation]
+        LD[LoadDependencies] --> M2[+ domain_data]
+        TR[TemplateRender] --> M3[+ rendered_prompts]
+        LLM[LLMCall] --> M4[+ llm_output]
+        VAL[SchemaValidation] --> M5[No Mutation]
+        SAVE[SaveOutput] --> M6[+ phase_outputs]
+        UPDATE[StateUpdate] --> M7[+ completed_phases]
+        QG[QualityGate] --> M8[+ quality_scores]
+    end
+    
+    subgraph "State Accumulation"
+        S1[State v1] --> S2[State v2<br/>+data]
+        S2 --> S3[State v3<br/>+data+refs]
+        S3 --> S4[State v4<br/>+data+refs+completion]
+    end
+    
+```
+
+This document specifies state transformation patterns for the **meta-framework workflow system**. Unlike traditional phase-specific mutations, the meta-framework uses universal mutation patterns that work across any domain. All mutations follow the immutable state pattern where new state objects are created rather than modifying existing ones, ensuring state integrity across the configuration-driven phase execution model.
 
 ## Core Mutation Principles
 
@@ -46,11 +81,13 @@ new_state = ctx.state.with_storage_ref('data_ref', ref)
 ### Pattern 1: Simple Field Update
 
 ```python
+from dataclasses import dataclass, replace
+
 @dataclass
 class SimpleUpdateNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
     """Update a single field in state."""
     
-    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> NextNode:
+    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode:
         # Compute new value
         new_value = await self.compute_value(ctx.state)
         
@@ -63,6 +100,134 @@ class SimpleUpdateNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
         return self.next  # Return next node in graph
 ```
 
+## Atomic Node State Mutations
+
+### Atomic Node Mutation Patterns
+
+```python
+# Each atomic node has specific mutation responsibilities
+from dataclasses import dataclass, replace
+from datetime import datetime
+
+@dataclass
+class DependencyCheckNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
+    """Check dependencies - no state mutation."""
+    
+    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode | End[WorkflowState]:
+        # Read dependencies from phase definition in state
+        phase_def = ctx.state.workflow_def.phases[ctx.state.current_phase]
+        dependencies = phase_def.dependencies
+        
+        # Read-only operation - no mutation
+        for dep in dependencies:
+            if dep not in ctx.state.completed_phases:
+                raise NonRetryableError(f"Missing dependency: {dep}")
+        return LoadDependenciesNode()
+
+@dataclass
+class LoadDependenciesNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
+    """Load dependencies - updates domain_data."""
+    
+    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode | End[WorkflowState]:
+        # Read dependencies from phase definition in state
+        phase_def = ctx.state.workflow_def.phases[ctx.state.current_phase]
+        dependencies = phase_def.dependencies
+        
+        try:
+            # Load data from storage
+            loaded_data = {}
+            for dep in dependencies:
+                ref = ctx.state.phase_outputs.get(dep)
+                if ref:
+                    data = await ctx.deps.storage_client.load_kv(ref.key)
+                    loaded_data[dep] = data
+            
+            # MUTATION: Add loaded dependencies to domain_data
+            new_domain_data = {
+                **ctx.state.domain_data,
+                'loaded_dependencies': loaded_data
+            }
+            
+            new_state = replace(
+                ctx.state,
+                domain_data=new_domain_data
+            )
+            
+            return TemplateRenderNode()  # Next atomic node
+            
+        except StorageError as e:
+            raise RetryableError(f"Failed to load dependencies: {e}", retry_after=2.0)
+
+@dataclass
+class SavePhaseOutputNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
+    """Save output - updates phase_outputs."""
+    
+    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode | End[WorkflowState]:
+        # Read configuration from state
+        phase_name = ctx.state.current_phase
+        phase_def = ctx.state.workflow_def.phases[phase_name]
+        storage_pattern = phase_def.storage_pattern
+        
+        try:
+            # Get data to save from domain_data
+            data = ctx.state.domain_data.get(f'{phase_name}_output')
+            
+            # Generate storage key
+            key = self.storage_pattern.format(
+                domain=ctx.state.domain,
+                workflow_id=ctx.state.workflow_id,
+                phase=self.phase_name
+            )
+            
+            # Save to storage
+            await ctx.deps.storage_client.save_kv(key, data)
+            
+            # Create reference
+            ref = StorageRef(
+                storage_type='kv',
+                key=key,
+                created_at=datetime.now()
+            )
+            
+            # MUTATION: Update phase_outputs with new reference
+            new_phase_outputs = {
+                **ctx.state.phase_outputs,
+                self.phase_name: ref
+            }
+            
+            new_state = replace(
+                ctx.state,
+                phase_outputs=new_phase_outputs
+            )
+            
+            return StateUpdateNode()  # Next atomic node
+            
+        except StorageError as e:
+            raise RetryableError(f"Failed to save output: {e}", retry_after=2.0)
+
+@dataclass
+class StateUpdateNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
+    """Update phase completion status."""
+    
+    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode | End[WorkflowState]:
+        # Read current phase from state
+        phase_name = ctx.state.current_phase
+        
+        # MUTATION: Mark phase as complete
+        new_completed = ctx.state.completed_phases | {phase_name}
+        
+        # Determine next phase
+        next_phase = self._get_next_phase(ctx.state)
+        
+        new_state = replace(
+            ctx.state,
+            completed_phases=new_completed,
+            current_phase=next_phase
+        )
+        
+        return QualityGateNode()  # Next atomic node
+```
+
 ### Pattern 2: Nested Field Update
 
 ```python
@@ -70,7 +235,7 @@ class SimpleUpdateNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
 class NestedUpdateNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
     """Update nested fields in state."""
     
-    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> NextNode:
+    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode:
         # Update nested field (phase_status.analysis_complete)
         new_phase_status = replace(
             ctx.state.phase_status,
@@ -93,7 +258,7 @@ class NestedUpdateNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
 class CollectionUpdateNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
     """Update collections in state."""
     
-    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> NextNode:
+    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode:
         # Add to list
         new_list = ctx.state.missing_tools + ['new_tool']
         
@@ -120,7 +285,7 @@ class CollectionUpdateNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState])
 class StorageRefUpdateNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
     """Update storage references."""
     
-    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> NextNode:
+    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode:
         # Save data and get reference
         data = getattr(ctx.state, 'tool_specifications', [])  # Use actual field
         ref = await self.save_to_storage(data)
@@ -134,200 +299,235 @@ class StorageRefUpdateNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState])
         return self.next  # Return next node in graph
 ```
 
-## Phase-Specific Mutations
+## Meta-Framework Universal Mutations
 
-### Analysis Phase Mutations
-
-```python
-def mutate_after_analysis(
-    state: WorkflowState, 
-    analysis: Dict[str, Any]  # Analysis results as dict
-) -> WorkflowState:
-    """Transform state after analysis phase."""
-    
-    # Create storage reference (key without prefix)
-    analysis_ref = StorageRef(
-        storage_type='kv',
-        key=f'workflow/{state.metadata.workflow_id}/analysis',
-        created_at=datetime.now()
-    )
-    
-    # Update multiple fields atomically
-    return replace(
-        state,
-        # Add analysis results from dict
-        missing_tools=analysis['missing_tools'],
-        existing_tools=analysis['existing_tools'],
-        system_design=analysis['system_design'],
-        guidelines=analysis['guidelines'],
-        
-        # Update storage references
-        storage=replace(
-            state.storage,
-            analysis_ref=analysis_ref
-        ),
-        
-        # Mark phase complete
-        phase_status=replace(
-            state.phase_status,
-            analysis_complete=True
-        )
-    )
-```
-
-### Specification Phase Mutations
+### Generic Phase Completion Pattern (Orchestrated by Atomic Nodes)
 
 ```python
-def mutate_after_specification(
+def mutate_after_phase(
     state: WorkflowState,
-    specs: List[ToolSpecification]
+    phase_name: str,
+    output_data: BasePhaseOutput,
+    storage_ref: StorageRef
 ) -> WorkflowState:
-    """Transform state after specification phase."""
+    """Universal pattern for phase completion - now decomposed into atomic nodes.
     
-    # Create storage refs for each spec
-    spec_refs = {}
-    for spec in specs:
-        ref = StorageRef(
-            storage_type='kv',
-            key=f'workflow/{state.metadata.workflow_id}/specs/{spec.name}'
-        )
-        spec_refs[spec.name] = ref
+    This function shows the complete mutation, but in practice it's split across:
+    1. SavePhaseOutputNode - Updates phase_outputs with storage_ref
+    2. StateUpdateNode - Updates completed_phases and current_phase
+    3. QualityGateNode - Updates quality_scores
     
-    # Update state
-    return replace(
-        state,
-        # Add specifications
-        tool_specifications=specs,
-        
-        # Update storage
-        storage=replace(
-            state.storage,
-            tool_specs=spec_refs
-        ),
-        
-        # Update phase
-        phase_status=replace(
-            state.phase_status,
-            specification_complete=True
-        ),
-        
-        # Update processing state
-        processing=replace(
-            state.processing,
-            tools_to_process=[spec.name for spec in specs]
-        )
-    )
-```
-
-### Crafting Phase Mutations
-
-```python
-def mutate_after_crafting(
-    state: WorkflowState,
-    tool_name: str,
-    code: CodeBlock
-) -> WorkflowState:
-    """Transform state after crafting a tool."""
+    Each atomic node performs its specific mutation independently.
+    """
     
-    # Save code and get reference
-    code_ref = StorageRef(
-        storage_type='fs',
-        key=f'generated/{state.metadata.workflow_id}/{tool_name}.py'
-    )
+    # SavePhaseOutputNode performs this mutation:
+    new_phase_outputs = {
+        **state.phase_outputs,
+        phase_name: storage_ref
+    }
     
-    # Update state
-    return replace(
-        state,
-        # Add generated code
-        generated_code={
-            **state.generated_code,
-            tool_name: code
-        },
-        
-        # Update storage refs
-        storage=replace(
-            state.storage,
-            code_files={
-                **state.storage.code_files,
-                tool_name: code_ref
-            }
-        ),
-        
-        # Update processing
-        processing=replace(
-            state.processing,
-            tools_completed=state.processing.tools_completed + [tool_name]
-        )
-    )
-```
-
-### Evaluation Phase Mutations
-
-```python
-def mutate_after_evaluation(
-    state: EvaluationState,
-    tool_name: str,
-    metrics: QualityMetrics
-) -> EvaluationState:
-    """Transform state after evaluation."""
+    # LLMCallNode already updated domain_data with output
+    new_domain_data = {
+        **state.domain_data,
+        f'{phase_name}_output': output_data.data
+    }
     
-    # Check if refinement needed
-    needs_refinement = metrics.quality_score < state.deps.quality.min_quality_score
-    
-    # Create new state
-    new_state = replace(
-        state,
-        # Add quality metrics
-        quality_metrics={
-            **state.quality_metrics,
-            tool_name: metrics
-        },
-        
-        # Track quality over iterations
-        quality_trajectory={
-            **state.quality_trajectory,
-            tool_name: state.quality_trajectory.get(tool_name, []) + [metrics.quality_score]
+    # QualityGateNode performs this mutation:
+    new_quality_scores = state.quality_scores
+    if output_data.quality_score is not None:
+        new_quality_scores = {
+            **state.quality_scores,
+            phase_name: output_data.quality_score
         }
+    
+    # StateUpdateNode performs this mutation:
+    new_completed = state.completed_phases | {phase_name}
+    next_phase = _get_next_phase(state, phase_name)
+    
+    return replace(
+        state,
+        completed_phases=new_completed,
+        current_phase=next_phase,
+        phase_outputs=new_phase_outputs,
+        domain_data=new_domain_data,
+        quality_scores=new_quality_scores
     )
-    
-    # Add to refinement list if needed
-    if needs_refinement:
-        new_state = replace(
-            new_state,
-            needs_refinement=state.needs_refinement + [tool_name]
-        )
-    
-    return new_state
 ```
 
-### Refinement Mutations
+### Atomic Node Mutation Decomposition
 
 ```python
-def mutate_after_refinement(
-    state: EvaluationState,
-    tool_name: str,
-    refined_code: CodeBlock,
-    improvement_score: float
-) -> EvaluationState:
-    """Transform state after refinement."""
+class GenericPhaseNode:
+    """Orchestrates atomic nodes, each with specific mutations."""
+    
+    # Nodes chain by returning next node, not executing sub-graphs
+    # GenericPhaseNode now returns first atomic node which chains to rest
+    
+    async def run(self, ctx) -> BaseNode:
+        """Start phase by returning first atomic node."""
+        # Each atomic node chains to next:
+        # DependencyCheckNode → LoadDependenciesNode → TemplateRenderNode →
+        # LLMCallNode → SchemaValidationNode → SavePhaseOutputNode →
+        # StateUpdateNode → QualityGateNode
+        return DependencyCheckNode()
+```
+
+### Domain-Agnostic Storage Pattern
+
+```python
+def store_phase_output(
+    state: WorkflowState,
+    phase_def: PhaseDefinition,
+    output: BaseModel,
+    deps: WorkflowDeps
+) -> Tuple[WorkflowState, StorageRef]:
+    """Store output using phase definition pattern."""
+    
+    # Generate storage key from pattern
+    storage_key = phase_def.storage_pattern.format(
+        domain=state.domain,
+        workflow_id=state.workflow_id,
+        phase=phase_def.phase_name
+    )
+    
+    # Add versioning if refinement occurred
+    if phase_def.allow_refinement:
+        version = state.refinement_count.get(phase_def.phase_name, 0)
+        storage_key = f"{storage_key}/v{version}"
+    
+    # Store based on type
+    if phase_def.storage_type == 'kv':
+        await deps.storage_client.save_kv(storage_key, output.model_dump())
+    else:
+        await deps.storage_client.save_fs(storage_key, output.model_dump_json())
+    
+    # Create reference
+    ref = StorageRef(
+        storage_type=phase_def.storage_type,
+        key=storage_key,
+        created_at=datetime.now(),
+        version=version if phase_def.allow_refinement else None
+    )
+    
+    # Update state with reference
+    new_state = state.with_phase_complete(phase_def.phase_name, ref)
+    
+    return new_state, ref
+```
+
+### Meta-Framework Refinement Mutations
+
+```python
+def mutate_for_refinement(
+    state: WorkflowState,
+    phase_name: str,
+    feedback: str,
+    quality_score: float
+) -> WorkflowState:
+    """Universal refinement state update."""
+    
+    # Increment refinement count
+    new_refinement_count = {
+        **state.refinement_count,
+        phase_name: state.refinement_count.get(phase_name, 0) + 1
+    }
+    
+    # Add refinement feedback to domain data
+    new_domain_data = {
+        **state.domain_data,
+        f'{phase_name}_feedback': feedback,
+        f'{phase_name}_previous_score': quality_score
+    }
     
     # Create refinement record
     record = RefinementRecord(
-        iteration=state.evaluation_iteration,
+        iteration=new_refinement_count[phase_name],
         timestamp=datetime.now(),
-        previous_score=state.quality_metrics[tool_name].quality_score,
-        new_score=improvement_score,
-        feedback="Applied refinement based on quality issues",
-        changes_made=["Fixed imports", "Added error handling"],
-        code_before_ref=state.storage.code_files[tool_name],
-        code_after_ref=StorageRef(
-            storage_type='fs',
-            key=f'generated/{state.metadata.workflow_id}/{tool_name}_v{state.evaluation_iteration}.py'
-        )
+        previous_score=state.quality_scores.get(phase_name, 0.0),
+        new_score=quality_score,
+        feedback=feedback,
+        changes_made=[],
+        code_before_ref=state.phase_outputs.get(phase_name),
+        code_after_ref=None  # Will be set after re-execution
     )
     
-    # Update state with refinement
-    return state.with_refinement(tool_name, record)
+    # Update refinement history
+    phase_history = state.refinement_history.get(phase_name, [])
+    new_refinement_history = {
+        **state.refinement_history,
+        phase_name: phase_history + [record]
+    }
+    
+    return replace(
+        state,
+        current_phase=phase_name,  # Re-execute this phase
+        refinement_count=new_refinement_count,
+        domain_data=new_domain_data,
+        refinement_history=new_refinement_history
+    )
+```
+
+### Universal Quality Gate Mutations
+
+```python
+def mutate_for_quality_gate(
+    state: WorkflowState,
+    phase_name: str,
+    phase_def: PhaseDefinition,
+    validation_result: ValidationResult
+) -> WorkflowState:
+    """Update state at quality gate."""
+    
+    # Update validation results
+    new_validation_results = {
+        **state.validation_results,
+        phase_name: validation_result
+    }
+    
+    # Determine next action based on quality
+    quality_score = validation_result.metadata.get('quality_score', 0.0)
+    meets_threshold = quality_score >= phase_def.quality_threshold
+    can_refine = (
+        phase_def.allow_refinement and
+        state.refinement_count.get(phase_name, 0) < phase_def.max_refinements
+    )
+    
+    if meets_threshold:
+        # Quality met, move to next phase
+        next_phase = _get_next_phase(state, phase_name)
+        return replace(
+            state,
+            current_phase=next_phase,
+            validation_results=new_validation_results,
+            quality_scores={
+                **state.quality_scores,
+                phase_name: quality_score
+            }
+        )
+    elif can_refine:
+        # Trigger refinement
+        return mutate_for_refinement(
+            state,
+            phase_name,
+            _generate_refinement_feedback(validation_result),
+            quality_score
+        )
+    else:
+        # Cannot refine further, accept current quality
+        next_phase = _get_next_phase(state, phase_name)
+        return replace(
+            state,
+            current_phase=next_phase,
+            validation_results=new_validation_results,
+            quality_scores={
+                **state.quality_scores,
+                phase_name: quality_score
+            },
+            domain_data={
+                **state.domain_data,
+                f'{phase_name}_accepted_below_threshold': True
+            }
+        )
 ```
 
 ## Parallel Execution State Mutations
@@ -501,21 +701,67 @@ def mutate_for_error(
     error: Exception,
     node_name: str
 ) -> WorkflowState:
-    """Update state when error occurs."""
+    """Update state when error occurs - different handling by error type."""
     
-    return replace(
-        state,
-        processing=replace(
-            state.processing,
-            tools_failed=state.processing.tools_failed + [node_name],
-            processing_errors={
-                **state.processing.processing_errors,
-                node_name: str(error)
-            },
-            last_error=str(error),
-            error_count=state.processing.error_count + 1
+    if isinstance(error, RetryableError):
+        # For retryable errors, track retry attempts
+        retry_counts = state.retry_counts.copy()
+        retry_counts[node_name] = retry_counts.get(node_name, 0) + 1
+        
+        return replace(
+            state,
+            retry_counts=retry_counts,
+            processing=replace(
+                state.processing,
+                last_retryable_error=str(error),
+                retry_after=error.retry_after
+            )
         )
-    )
+    
+    elif isinstance(error, NonRetryableError):
+        # For non-retryable errors, record failure
+        return replace(
+            state,
+            processing=replace(
+                state.processing,
+                tools_failed=state.processing.tools_failed + [node_name],
+                processing_errors={
+                    **state.processing.processing_errors,
+                    node_name: str(error)
+                },
+                last_error=str(error),
+                error_count=state.processing.error_count + 1
+            )
+        )
+    
+    else:
+        # Unknown error type - treat as non-retryable
+        return mutate_for_error(state, NonRetryableError(str(error)), node_name)
+
+# Atomic node error handling
+class AtomicNodeErrorHandler:
+    """Handles errors at atomic node level."""
+    
+    @staticmethod
+    def handle_storage_error(state: WorkflowState, node: BaseNode, error: StorageError):
+        """Storage errors are retryable."""
+        # State-based retry configured in NodeConfig
+        # Node retries by returning self with updated retry count in state
+        return node.__class__()  # Return new instance of same node class
+    
+    @staticmethod
+    def handle_llm_error(state: WorkflowState, node: BaseNode, error: APIError):
+        """LLM errors bubble up to orchestrator."""
+        # Don't retry at node level - too expensive
+        # Orchestrator decides whether to retry entire phase
+        raise NonRetryableError(f"LLM call failed: {error}")
+    
+    @staticmethod
+    def handle_validation_error(state: WorkflowState, node: BaseNode, error: ValidationError):
+        """Validation errors trigger refinement."""
+        # REMOVED: RefinementLoopNode - use QualityGateNode that returns refinement node
+        # Trigger refinement by updating state and returning appropriate node
+        return QualityGateNode()
 ```
 
 ## State Recovery Patterns
@@ -549,16 +795,68 @@ def restore_from_recovery_point(ref: StorageRef, deps: WorkflowDeps) -> Workflow
     return WorkflowState(**state_dict)
 ```
 
-## Best Practices
+## Meta-Framework Best Practices
 
-### 1. Always Use Helper Methods
+### 1. Use Atomic Node Patterns
 ```python
-# Good - Use helper methods for common mutations
-new_state = state.with_phase_complete('analysis')
-new_state = state.with_storage_ref('data_ref', ref)
+# Good - State-based retry and chaining
+class SavePhaseOutputNode:
+    """Save with state-based retry."""
+    async def run(self, ctx):
+        config = ctx.state.workflow_def.node_configs["save_output"]
+        retry_key = f"{ctx.state.current_phase}_save"
+        retry_count = ctx.state.retry_counts.get(retry_key, 0)
+        
+        try:
+            ref = await self.save_to_storage(ctx.state.domain_data)
+            # Chain to next node
+            return StateUpdateNode()
+        except Exception as e:
+            if config.retryable and retry_count < config.max_retries:
+                # Retry by returning self
+                new_state = replace(
+                    ctx.state,
+                    retry_counts={**ctx.state.retry_counts, retry_key: retry_count + 1}
+                )
+                return SavePhaseOutputNode()
+            else:
+                return ErrorNode(str(e))
 
-# Bad - Manual replacement prone to errors
-new_state = replace(state, phase_status=replace(...))
+# Bad - Monolithic node doing everything
+class DoEverythingNode:
+    async def run(self, ctx):
+        # Save data
+        ref = await self.save(...)
+        # Update state
+        new_state = replace(ctx.state, ...)
+        # Check quality
+        if quality < threshold:
+            # Trigger refinement
+            ...
+        return new_state
+```
+
+### 2. Configure Retry in State
+```python
+# Good - State-driven retry configuration
+node_configs = {
+    "llm_call": NodeConfig(
+        retryable=True,  # LLM can have transient failures
+        max_retries=3,
+        retry_backoff="exponential"
+    ),
+    "load_local": NodeConfig(
+        retryable=False,  # Local storage rarely fails
+        max_retries=0
+    )
+}
+
+# Good - Node checks its config
+class LLMCallNode:
+    async def run(self, ctx):
+        config = ctx.state.workflow_def.node_configs["llm_call"]
+        if error and config.retryable:
+            return LLMCallNode()  # Retry by returning self
 ```
 
 ### 2. Atomic Multi-Field Updates
@@ -600,4 +898,40 @@ new_state = replace(
 )
 ```
 
-This completes the Phase 2 documentation of state mutations and transformations.
+### 5. Domain-Agnostic Mutations
+```python
+# Good - Domain-agnostic pattern
+def update_phase_state(state: WorkflowState, phase_def: PhaseDefinition, output: Any):
+    """Works for any domain."""
+    return state.with_phase_complete(phase_def.phase_name, create_storage_ref(output))
+
+# Bad - Domain-specific logic
+def update_agentool_state(state: WorkflowState, ...):
+    """Only works for AgenTool domain."""
+    ...
+```
+
+## Meta-Framework State Evolution Summary
+
+The meta-framework with atomic decomposition transforms state mutations from monolithic phase operations to fine-grained atomic node mutations. This enables:
+
+1. **Atomic Operations**: Each node performs a single, specific mutation
+2. **Selective Retry**: Only retry failed atomic operations, not entire phases
+3. **Resource Efficiency**: Don't repeat expensive operations (LLM) when storage fails
+4. **Clear Responsibility**: Each atomic node has one mutation responsibility
+5. **Error Isolation**: Different error handling strategies by node type
+6. **Observable Mutations**: Track exactly which atomic operation modified state
+
+### State-Based Node Configuration Summary
+
+| Node Type | State Mutation | Retryable | Retry Strategy | Iteration |
+|-----------|---------------|-----------|----------------|----------|
+| DependencyCheckNode | None (read-only) | No | N/A | No |
+| LoadDependenciesNode | Updates domain_data | Configurable | State-based | No |
+| TemplateRenderNode | None (deterministic) | No | N/A | No |
+| LLMCallNode | Updates domain_data | Yes | State-based retry | No |
+| SchemaValidationNode | None (validation) | No | Triggers refinement | No |
+| SavePhaseOutputNode | Updates phase_outputs | Configurable | State-based | No |
+| StateUpdateNode | Updates completed_phases | No | N/A | No |
+| QualityGateNode | Updates quality_scores | No | Returns next node | No |
+| IterableNode | Updates iter_index, iter_results | Configurable | Self-return | Yes |

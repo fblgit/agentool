@@ -1,4 +1,4 @@
-# Node Catalog - Phase 1 & 2 Specification
+# Node Catalog - Meta-Framework Specification
 
 ## References
 
@@ -7,62 +7,42 @@
 - [Node Catalog (this doc)](NODE_CATALOG.md)
 - [Data Flow Requirements](DATA_FLOW_REQUIREMENTS.md)
 - [Graph Type Definitions](GRAPH_TYPE_DEFINITIONS.md)
+- [State Mutations](STATE_MUTATIONS.md)
 
 ## Overview
 
-This catalog enumerates all node types in the workflow graph system, providing technical specifications without implementation details. Each node is designed as an atomic operation following the single responsibility principle.
+This catalog enumerates node types in the **meta-framework workflow system**. The primary innovation is the **GenericPhaseNode** which starts phases by returning the first atomic node, which then chains to subsequent nodes. This atomic node chaining ensures:
 
-## Node Type Hierarchy
+- **Resilience**: Storage failures don't require re-running LLM inference
+- **Reusability**: Same atomic nodes used across all phases
+- **Observability**: Fine-grained execution tracking
+- **Parallelism**: Independent operations run concurrently
+
+## Meta-Framework Node Hierarchy
 
 ```mermaid
-graph TD
-    BaseNode[BaseNode - Abstract]
-    BaseNode --> StorageNode[StorageNode - Abstract]
-    BaseNode --> TransformNode[TransformNode - Abstract]
-    BaseNode --> ValidationNode[ValidationNode - Abstract]
-    BaseNode --> LLMNode[LLMNode - Abstract]
-    BaseNode --> ControlNode[ControlNode - Abstract]
+graph TB
+    BaseNode[BaseNode Abstract] --> GenericPhaseNode[GenericPhaseNode]
+    BaseNode --> AtomicNodes[Atomic Nodes]
     
-    StorageNode --> LoadKVNode
-    StorageNode --> SaveKVNode
-    StorageNode --> LoadFSNode
-    StorageNode --> SaveFSNode
-    StorageNode --> BatchLoadNode
-    StorageNode --> BatchSaveNode
-    StorageNode --> ExistsCheckNode
-    StorageNode --> DeleteNode
+    GenericPhaseNode --> PhaseStart[Starts Phase Execution]
     
-    TransformNode --> JSONParseNode
-    TransformNode --> JSONSerializeNode
-    TransformNode --> TemplateRenderNode
-    TransformNode --> CodeFormatNode
-    TransformNode --> DataMergeNode
-    TransformNode --> DataFilterNode
-    TransformNode --> DataMapNode
-    TransformNode --> DataReduceNode
+    AtomicNodes --> Storage[Storage Operations]
+    AtomicNodes --> LLM[LLM Operations] 
+    AtomicNodes --> Validation[Validation Operations]
+    AtomicNodes --> Control[Control Flow]
     
-    ValidationNode --> SyntaxValidationNode
-    ValidationNode --> ImportValidationNode
-    ValidationNode --> SchemaValidationNode
-    ValidationNode --> QualityGateNode
-    ValidationNode --> DependencyCheckNode
-    ValidationNode --> TypeCheckNode
+    Storage --> LoadDep[LoadDependenciesNode]
+    Storage --> SaveOut[SavePhaseOutputNode]
     
-    LLMNode --> PromptBuilderNode
-    LLMNode --> LLMCallNode
-    LLMNode --> ResponseParserNode
-    LLMNode --> RefinementNode
-    LLMNode --> BatchLLMNode
-    LLMNode --> StreamingLLMNode
+    LLM --> Template[TemplateRenderNode]
+    LLM --> Call[LLMCallNode]
     
-    ControlNode --> ConditionalNode
-    ControlNode --> ParallelMapNode
-    ControlNode --> SequentialMapNode
-    ControlNode --> AggregatorNode
-    ControlNode --> RetryNode
-    ControlNode --> LoopNode
-    ControlNode --> ForkNode
-    ControlNode --> JoinNode
+    Validation --> Schema[SchemaValidationNode]
+    Validation --> Quality[QualityGateNode]
+    
+    Control --> Condition[ConditionalNode]
+    Control --> Iteration[IterableNode]
 ```
 
 ## Base Node Types
@@ -70,7 +50,7 @@ graph TD
 ### BaseNode (Abstract)
 **Purpose**: Root class for all nodes in the system  
 **Signature**: `BaseNode[StateT, DepsT, OutputT]`  
-**Required Method**: `async def run(self, ctx: GraphRunContext[StateT, DepsT]) -> NextNode | End[OutputT]`
+**Required Method**: `async def run(self, ctx: GraphRunContext[StateT, DepsT]) -> BaseNode | End[OutputT]`
 
 **Data Requirements**:
 - Input: GraphRunContext with state and dependencies
@@ -78,7 +58,7 @@ graph TD
 
 **Phase 2 Type Definition**:
 ```python
-from pydantic_graph import BaseNode, GraphRunContext, NextNode, End
+from pydantic_graph import BaseNode, GraphRunContext, End
 from typing import TypeVar, Generic, Optional, Dict, Any, List, Tuple
 from dataclasses import dataclass, field, replace
 import uuid
@@ -94,164 +74,406 @@ class BaseNodeExtended(BaseNode[StateT, DepsT, OutputT]):
     node_name: str = "base_node"
     retry_config: Optional[Dict[str, Any]] = None
     
-    async def run(self, ctx: GraphRunContext[StateT, DepsT]) -> NextNode | End[OutputT]:
+    async def run(self, ctx: GraphRunContext[StateT, DepsT]) -> BaseNode | End[OutputT]:
         """Must be implemented by subclasses."""
         raise NotImplementedError
 ```
 
-### StorageNode (Abstract)
-**Purpose**: Base for all storage operation nodes  
+### GenericPhaseNode (Phase Starter)
+**Purpose**: Starts any workflow phase by returning first atomic node  
 **Extends**: BaseNode  
-**Common Pattern**: Key-based operations on storage systems
+**Pattern**: Returns first node which chains to rest - no sub-graphs
 
-### TransformNode (Abstract)
-**Purpose**: Base for data transformation operations  
-**Extends**: BaseNode  
-**Common Pattern**: Input data → Transform → Output data
-
-### ValidationNode (Abstract)
-**Purpose**: Base for validation and checking operations  
-**Extends**: BaseNode  
-**Common Pattern**: Input → Validate → Pass/Fail result
-
-### LLMNode (Abstract)
-**Purpose**: Base for LLM interaction nodes  
-**Extends**: BaseNode  
-**Common Pattern**: Prompt → LLM Call → Response
-
-### ControlNode (Abstract)
-**Purpose**: Base for flow control operations  
-**Extends**: BaseNode  
-**Common Pattern**: Evaluate condition → Route execution
-
-## Storage Nodes
-
-### LoadKVNode
-**Purpose**: Load data from storage_kv  
-**Operation**: Retrieve value by key from key-value store
-
-**Data Requirements**:
-```
-Input State:
-  - key: str (reference to storage location)
-Output State:
-  - loaded_data: Any (deserialized data)
-  - load_timestamp: datetime
-```
-
-**Phase 2 Type Definition**:
+**Atomic Decomposition**:
 ```python
 @dataclass
-class LoadKVNode(StorageNode[WorkflowState, WorkflowDeps, WorkflowState]):
-    """Load data from key-value storage."""
-    storage_key: str  # Key to load from
-    target_field: str  # State field to populate
-    required: bool = True  # Whether missing key is error
+class GenericPhaseNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
+    """Starts a phase by returning its first atomic node."""
     
-    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> NextNode:
-        # Access storage via deps
-        storage_client = ctx.deps.storage_client
+    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode | End[WorkflowState]:
+        """Start phase by returning first atomic node - does NOT do the work itself."""
+        # Read phase definition from state
+        phase_def = ctx.state.workflow_def.phases[ctx.state.current_phase]
         
-        # Load data
-        data = await storage_client.load_kv(self.storage_key)
-        
-        if data is None and self.required:
-            raise ValueError(f"Required key not found: {self.storage_key}")
-        
-        # Create storage reference
-        ref = StorageRef(
-            storage_type='kv',
-            key=self.storage_key,
-            created_at=datetime.now()
+        # Update state to track current node
+        new_state = replace(
+            ctx.state,
+            current_node=phase_def.atomic_nodes[0] if phase_def.atomic_nodes else None
         )
         
-        # Update state with reference
-        new_state = ctx.state.with_storage_ref(
-            ref_type=self.target_field,
-            ref=ref
-        )
+        # Return first atomic node - it will chain to the rest
+        # Each node reads its configuration from state
+        if phase_def.atomic_nodes:
+            return create_node_instance(phase_def.atomic_nodes[0])
+        else:
+            return End(new_state)
+
+def create_node_instance(node_id: str) -> BaseNode:
+    """Create node instance without constructor params."""
+    NODE_REGISTRY = {
+        'dependency_check': DependencyCheckNode,
+        'load_dependencies': LoadDependenciesNode,
+        'template_render': TemplateRenderNode,
+        'llm_call': LLMCallNode,
+        'schema_validation': SchemaValidationNode,
+        'save_output': SavePhaseOutputNode,
+        'state_update': StateUpdateNode,
+        'quality_gate': QualityGateNode,
+    }
+    return NODE_REGISTRY[node_id]()
+```
+
+### Example Atomic Node Sequence
+```python
+# Phase defines the sequence
+phase_def = PhaseDefinition(
+    phase_name='analyzer',
+    atomic_nodes=[
+        'dependency_check',
+        'load_dependencies', 
+        'template_render',
+        'llm_call',
+        'schema_validation',
+        'save_output',
+        'state_update',
+        'quality_gate'
+    ],
+    # ... other config
+)
+            phase_name=self.phase_def.phase_name
+        ))
         
-        return self.next  # Next node in the graph
+        # 8. Quality gate (determines next action)
+        if self.phase_def.allow_refinement:
+            nodes.append(QualityGateNode(
+                threshold=self.phase_def.quality_threshold,
+                refine_node=self,  # Loop back to this phase
+                continue_node=NextPhaseNode()
+            ))
+        
+        return Graph(nodes=nodes)
+    
+    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode | End[WorkflowState]:
+        """Return first atomic node to start phase execution."""
+        # In pydantic_graph, we don't execute sub-graphs within nodes
+        # Instead, we return the first node of the atomic sequence
+        # The graph execution engine handles the flow
+        
+        # Start with dependency check
+        return DependencyCheckNode(self.phase_def.dependencies)
+```
+
+### StorageNode (Abstract)
+**Purpose**: Base for storage operations  
+**Extends**: BaseNode  
+**Used By**: GenericPhaseNode for loading/storing phase data
+
+### ValidationNode (Abstract)
+**Purpose**: Base for validation operations  
+**Extends**: BaseNode  
+**Used By**: GenericPhaseNode for schema validation
+
+### ControlNode (Abstract)
+**Purpose**: Base for flow control  
+**Extends**: BaseNode  
+**Used By**: Graph orchestration for refinement and sequencing
+
+## Atomic Storage Nodes
+
+### LoadKVNode
+**Purpose**: Atomic KV storage read operation  
+**Operation**: Load single value from key-value store  
+**Retry**: Yes - transient storage failures
+
+**Type Definition**:
+```python
+@dataclass
+class LoadKVNode(StorageNode[WorkflowState, WorkflowDeps, Any]):
+    """Atomic KV load operation."""
+    storage_key: str
+    required: bool = True
+    
+    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode:
+        try:
+            data = await ctx.deps.storage_client.load_kv(self.storage_key)
+            if data is None and self.required:
+                raise ValueError(f"Required key not found: {self.storage_key}")
+            
+            # Store in state for next node
+            new_state = replace(
+                ctx.state,
+                domain_data={
+                    **ctx.state.domain_data,
+                    f'loaded_{self.storage_key}': data
+                }
+            )
+            return self.next
+        except Exception as e:
+            # Storage failure - can be retried
+            raise RetryableError(f"KV load failed: {e}")
 ```
 
 ### SaveKVNode
-**Purpose**: Save data to storage_kv  
-**Operation**: Store value with key in key-value store
+**Purpose**: Atomic KV storage write operation  
+**Operation**: Save single value to key-value store  
+**Retry**: Yes - transient storage failures
 
-**Data Requirements**:
-```
-Input State:
-  - key: str
-  - data: Any (serializable)
-Output State:
-  - save_ref: str (storage reference)
-  - save_timestamp: datetime
-```
-
-**Phase 2 Type Definition**:
+**Type Definition**:
 ```python
 @dataclass
-class SaveKVNode(StorageNode[WorkflowState, WorkflowDeps, WorkflowState]):
-    """Save data to key-value storage."""
-    storage_key: str  # Key to save to
-    source_field: str  # State field to save from
-    ttl_seconds: Optional[int] = None  # Time to live
+class SaveKVNode(StorageNode[WorkflowState, WorkflowDeps, StorageRef]):
+    """Atomic KV save operation."""
+    storage_key: str
+    data_field: str  # Field in state.domain_data
     
-    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> NextNode:
-        # Get data from state
-        data = getattr(ctx.state, self.source_field)
+    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode:
+        data = ctx.state.domain_data.get(self.data_field)
+        if data is None:
+            raise ValueError(f"No data in {self.data_field}")
         
-        # Save to storage
-        storage_client = ctx.deps.storage_client
-        await storage_client.save_kv(
-            key=self.storage_key,
-            data=data,
-            ttl=self.ttl_seconds
+        try:
+            await ctx.deps.storage_client.save_kv(self.storage_key, data)
+            
+            # Create reference
+            ref = StorageRef(
+                storage_type='kv',
+                key=self.storage_key,
+                created_at=datetime.now()
+            )
+            
+            # Update state with reference
+            new_state = replace(
+                ctx.state,
+                phase_outputs={
+                    **ctx.state.phase_outputs,
+                    self.storage_key: ref
+                }
+            )
+            return self.next
+        except Exception as e:
+            # Storage failure - can be retried
+            raise RetryableError(f"KV save failed: {e}")
+```
+
+### LoadDependenciesNode (Composite)
+**Purpose**: Orchestrates parallel loading of dependencies  
+**Operation**: Uses atomic LoadKVNode/LoadFSNode for each dependency  
+**Retry**: Yes - each load independently retryable
+
+**Type Definition**:
+```python
+@dataclass
+class LoadDependenciesNode(BaseNode[WorkflowState, WorkflowDeps, Dict[str, Any]]):
+    """Orchestrates loading of phase dependencies."""
+    # Reads dependencies from state.workflow_def.phases[current_phase].dependencies
+    
+    def build_load_graph(self) -> Graph:
+        """Build sub-graph for parallel dependency loading."""
+        nodes = []
+        for dep in self.dependencies:
+            # Each dependency loaded by atomic node with state-based retry
+            pass
+        
+        # No longer building sub-graphs - load directly with state-based retry
+        return None
+    
+    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode:
+        # Load dependencies directly with state-based retry
+        config = ctx.state.workflow_def.node_configs.get("load_dependencies")
+        retry_key = f"{ctx.state.current_phase}_load_dependencies"
+        retry_count = ctx.state.retry_counts.get(retry_key, 0)
+        
+        try:
+            # Load all dependencies
+            dependency_data = {}
+            for dep in self.dependencies:
+                key = f'{ctx.state.domain}/{ctx.state.workflow_id}/{dep}'
+                result = await ctx.deps.storage_client.load_kv(key)
+                dependency_data[dep] = result
+            
+            # Update state with loaded dependencies
+            new_state = replace(
+                ctx.state,
+                domain_data={
+                    **ctx.state.domain_data,
+                    'loaded_dependencies': dependency_data
+                }
+            )
+            
+            # Chain to next node
+            return TemplateRenderNode()
+            
+        except Exception as e:
+            if config and config.retryable and retry_count < config.max_retries:
+                # Retry by returning self with updated retry count
+                new_state = replace(
+                    ctx.state,
+                    retry_counts={**ctx.state.retry_counts, retry_key: retry_count + 1}
+                )
+                return LoadDependenciesNode()
+            else:
+                return ErrorNode(error=str(e))
+```
+
+### SavePhaseOutputNode (Atomic)
+**Purpose**: Save phase output with state-based retry  
+**Operation**: Save to storage, chain to next node  
+**Retry**: Configurable via state (usually False for local storage)
+
+**Type Definition**:
+```python
+@dataclass
+class SavePhaseOutputNode(BaseNode[WorkflowState, WorkflowDeps, StorageRef]):
+    """Orchestrates saving phase output."""
+    phase_name: str
+    storage_pattern: str
+    storage_type: Literal['kv', 'fs'] = 'kv'
+    enable_versioning: bool = True
+    
+    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode:
+        # Get output data from domain_data
+        output_key = f'{self.phase_name}_llm_response'
+        output_data = ctx.state.domain_data.get(output_key)
+        
+        if not output_data:
+            raise NonRetryableError(f"No output data for {self.phase_name}")
+        
+        # Generate storage key
+        storage_key = self.storage_pattern.format(
+            domain=ctx.state.domain,
+            workflow_id=ctx.state.workflow_id,
+            phase=self.phase_name
         )
         
-        # Create storage reference
-        ref = StorageRef(
-            storage_type='kv',
-            key=self.storage_key,
-            created_at=datetime.now(),
-            size_bytes=len(json.dumps(data))
-        )
+        # Add version if refinement occurred
+        if self.enable_versioning:
+            version = ctx.state.refinement_count.get(self.phase_name, 0)
+            storage_key = f"{storage_key}/v{version}"
         
-        # Update state with reference
-        new_state = ctx.state.with_storage_ref(
-            ref_type=f"{self.source_field}_ref",
-            ref=ref
-        )
+        # Use appropriate atomic save node
+        if self.storage_type == 'kv':
+            save_node = SaveKVNode(
+                storage_key=storage_key,
+                data_field=output_key
+            )
+        else:
+            save_node = SaveFSNode(
+                file_path=storage_key,
+                data_field=output_key
+            )
         
-        return self.next  # Next node in the graph
+        # Save directly with state-based retry configuration
+        config = ctx.state.workflow_def.node_configs.get("save_phase_output")
+        retry_key = f"{ctx.state.current_phase}_save"
+        retry_count = ctx.state.retry_counts.get(retry_key, 0)
+        
+        try:
+            # Execute save
+            if self.storage_type == 'kv':
+                await ctx.deps.storage_client.save_kv(storage_key, output_data)
+            else:
+                await ctx.deps.storage_client.save_fs(storage_key, output_data)
+                
+            # Create storage reference
+            ref = StorageRef(
+                storage_type=self.storage_type,
+                key=storage_key,
+                created_at=datetime.now()
+            )
+            
+            # Chain to next node
+            return StateUpdateNode()
+            
+        except Exception as e:
+            if config and config.retryable and retry_count < config.max_retries:
+                # Retry by returning self
+                new_state = replace(
+                    ctx.state,
+                    retry_counts={**ctx.state.retry_counts, retry_key: retry_count + 1}
+                )
+                return SavePhaseOutputNode()
+            else:
+                return ErrorNode(error=str(e))
 ```
 
-### LoadFSNode
-**Purpose**: Load file from storage_fs  
-**Operation**: Read file content from filesystem
+### LoadFSNode (Atomic)
+**Purpose**: Atomic file system read operation  
+**Operation**: Load single file from filesystem  
+**Retry**: Yes - I/O errors are retryable
 
-**Data Requirements**:
-```
-Input State:
-  - path: str (file path)
-Output State:
-  - content: str (file content)
-  - metadata: FileMetadata
+**Type Definition**:
+```python
+@dataclass
+class LoadFSNode(StorageNode[WorkflowState, WorkflowDeps, str]):
+    """Atomic file load operation."""
+    file_path: str
+    encoding: str = 'utf-8'
+    
+    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode:
+        try:
+            content = await ctx.deps.storage_client.load_fs(
+                self.file_path,
+                encoding=self.encoding
+            )
+            
+            # Store in domain_data
+            new_state = replace(
+                ctx.state,
+                domain_data={
+                    **ctx.state.domain_data,
+                    f'loaded_file_{self.file_path}': content
+                }
+            )
+            return self.next
+        except IOError as e:
+            raise RetryableError(f"File load failed: {e}")
 ```
 
-### SaveFSNode
-**Purpose**: Save file to storage_fs  
-**Operation**: Write content to filesystem
+### SaveFSNode (Atomic)
+**Purpose**: Atomic file system write operation  
+**Operation**: Save single file to filesystem  
+**Retry**: Yes - I/O errors are retryable
 
-**Data Requirements**:
-```
-Input State:
-  - path: str
-  - content: str
-  - create_parents: bool
-Output State:
-  - file_ref: str
-  - bytes_written: int
+**Type Definition**:
+```python
+@dataclass
+class SaveFSNode(StorageNode[WorkflowState, WorkflowDeps, StorageRef]):
+    """Atomic file save operation."""
+    file_path: str
+    data_field: str  # Field in domain_data
+    create_parents: bool = True
+    
+    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode:
+        data = ctx.state.domain_data.get(self.data_field)
+        if data is None:
+            raise NonRetryableError(f"No data in {self.data_field}")
+        
+        try:
+            bytes_written = await ctx.deps.storage_client.save_fs(
+                self.file_path,
+                data,
+                create_parents=self.create_parents
+            )
+            
+            # Create reference
+            ref = StorageRef(
+                storage_type='fs',
+                key=self.file_path,
+                size_bytes=bytes_written,
+                created_at=datetime.now()
+            )
+            
+            # Update state
+            new_state = replace(
+                ctx.state,
+                phase_outputs={
+                    **ctx.state.phase_outputs,
+                    self.file_path: ref
+                }
+            )
+            return self.next
+        except IOError as e:
+            raise RetryableError(f"File save failed: {e}")
 ```
 
 ### BatchLoadNode
@@ -339,18 +561,53 @@ Output State:
   - serialization_metadata: Dict
 ```
 
-### TemplateRenderNode
-**Purpose**: Render Jinja2 templates  
-**Operation**: Template + context → rendered output
+### TemplateRenderNode (Atomic)
+**Purpose**: Deterministic template rendering  
+**Operation**: Render Jinja2 templates with variables  
+**Retry**: No - deterministic operation, failures are bugs
+**Cache**: Yes - same input always produces same output
 
-**Data Requirements**:
-```
-Input State:
-  - template_name: str
-  - context: Dict[str, Any]
-Output State:
-  - rendered: str
-  - template_metadata: Dict
+**Type Definition**:
+```python
+@dataclass
+class TemplateRenderNode(TransformNode[WorkflowState, WorkflowDeps, Dict[str, str]]):
+    """Atomic template rendering operation."""
+    system_template: str  # Path to system template
+    user_template: str    # Path to user template
+    
+    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode:
+        # Get dependencies from domain_data
+        dependencies = ctx.state.domain_data.get('loaded_dependencies', {})
+        
+        # Extract variables for templates
+        variables = {
+            'workflow_id': ctx.state.workflow_id,
+            'domain': ctx.state.domain,
+            'phase': ctx.state.current_phase,
+            **dependencies,
+            **ctx.state.domain_data
+        }
+        
+        # Render templates (deterministic)
+        system_prompt = ctx.deps.template_engine.render(
+            self.system_template,
+            variables
+        )
+        user_prompt = ctx.deps.template_engine.render(
+            self.user_template,
+            variables
+        )
+        
+        # Store rendered prompts for LLM node
+        new_state = replace(
+            ctx.state,
+            domain_data={
+                **ctx.state.domain_data,
+                'rendered_system_prompt': system_prompt,
+                'rendered_user_prompt': user_prompt
+            }
+        )
+        return self.next
 ```
 
 ### CodeFormatNode
@@ -456,67 +713,181 @@ Output State:
   - forbidden_imports: List[str]
 ```
 
-### SchemaValidationNode
-**Purpose**: Validate against Pydantic schema  
-**Operation**: Type checking with Pydantic models
+### SchemaValidationNode (Atomic)
+**Purpose**: Validate data against Pydantic schema  
+**Operation**: Type checking and coercion  
+**Retry**: No - validation failures trigger refinement
 
-**Data Requirements**:
-```
-Input State:
-  - data: Any
-  - schema_ref: str (reference to schema)
-Output State:
-  - schema_valid: bool
-  - validation_errors: List[ValidationError]
-  - coerced_data: Any
-```
-
-### QualityGateNode
-**Purpose**: Check quality thresholds  
-**Operation**: Compare metrics against thresholds
-
-**Data Requirements**:
-```
-Input State:
-  - metrics: Dict[str, float]
-  - thresholds: Dict[str, float]
-Output State:
-  - passed: bool
-  - failed_metrics: List[str]
-  - quality_report: Dict
-```
-
-### DependencyCheckNode
-**Purpose**: Verify dependencies available  
-**Operation**: Check required dependencies exist
-
-**Data Requirements**:
-```
-Input State:
-  - dependencies: List[str]
-  - check_type: Literal['import', 'pip', 'system']
-Output State:
-  - dependencies_met: bool
-  - missing: List[str]
-  - versions: Dict[str, str]
-```
-
-### TypeCheckNode
-**Purpose**: Static type checking  
-**Operation**: Validate type annotations
-
-**Data Requirements**:
-```
-Input State:
-  - code: str
-  - strict_mode: bool
-Output State:
-  - type_valid: bool
-  - type_errors: List[TypeError]
-  - type_coverage: float
+**Type Definition**:
+```python
+@dataclass
+class SchemaValidationNode(ValidationNode[WorkflowState, WorkflowDeps, ValidationResult]):
+    """Atomic schema validation."""
+    schema: Type[BaseModel]
+    data_field: str = 'llm_response'  # Field to validate
+    
+    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode:
+        # Get data to validate
+        data = ctx.state.domain_data.get(
+            f'{ctx.state.current_phase}_{self.data_field}'
+        )
+        
+        if data is None:
+            raise NonRetryableError(f"No data to validate in {self.data_field}")
+        
+        try:
+            # Validate and coerce
+            validated = self.schema.model_validate(data)
+            
+            # Store validated data
+            new_state = replace(
+                ctx.state,
+                domain_data={
+                    **ctx.state.domain_data,
+                    f'{ctx.state.current_phase}_validated': validated.model_dump(),
+                    'validation_passed': True
+                }
+            )
+            return self.next
+            
+        except ValidationError as e:
+            # Validation failed - triggers refinement
+            new_state = replace(
+                ctx.state,
+                domain_data={
+                    **ctx.state.domain_data,
+                    'validation_errors': e.errors(),
+                    'validation_passed': False
+                }
+            )
+            # Don't raise - let QualityGateNode handle
+            return self.next
 ```
 
-## LLM Nodes
+### QualityGateNode (Atomic)
+**Purpose**: Determine refinement or continuation  
+**Operation**: Check quality and route to appropriate next node  
+**Retry**: No - decision node
+
+**Type Definition**:
+```python
+@dataclass
+class QualityGateNode(ControlNode[WorkflowState, WorkflowDeps, WorkflowState]):
+    """Quality gate with refinement decision."""
+    quality_threshold: float = 0.8
+    max_refinements: int = 3
+    phase_name: str
+    
+    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode:
+        # Check validation
+        validation_passed = ctx.state.domain_data.get('validation_passed', False)
+        
+        # Get quality score (from validation or evaluation)
+        quality_score = ctx.state.quality_scores.get(self.phase_name, 0.0)
+        if validation_passed:
+            quality_score = 1.0  # Validation pass = full quality
+        
+        # Get refinement count
+        refinement_count = ctx.state.refinement_count.get(self.phase_name, 0)
+        
+        # Decide next action
+        if quality_score >= self.quality_threshold:
+            # Quality met - continue to next phase
+            return NextPhaseNode()
+        elif refinement_count < self.max_refinements:
+            # Refine - re-execute phase with feedback
+            feedback = self._generate_feedback(
+                ctx.state.domain_data.get('validation_errors', [])
+            )
+            
+            new_state = replace(
+                ctx.state,
+                refinement_count={
+                    **ctx.state.refinement_count,
+                    self.phase_name: refinement_count + 1
+                },
+                domain_data={
+                    **ctx.state.domain_data,
+                    'refinement_feedback': feedback
+                }
+            )
+            
+            # Re-execute this phase
+            phase_def = ctx.deps.phase_registry.get(
+                ctx.state.domain,
+                self.phase_name
+            )
+            return GenericPhaseNode(phase_def=phase_def)
+        else:
+            # Max refinements reached - continue anyway
+            return NextPhaseNode()
+```
+
+### DependencyCheckNode (Atomic)
+**Purpose**: Validate phase dependencies are satisfied  
+**Operation**: Check previous phases completed  
+**Retry**: No - missing dependencies are non-retryable
+
+**Type Definition**:
+```python
+@dataclass
+class DependencyCheckNode(ValidationNode[WorkflowState, WorkflowDeps, None]):
+    """Validate phase dependencies."""
+    dependencies: List[str]
+    
+    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode:
+        missing = []
+        for dep in self.dependencies:
+            if dep not in ctx.state.completed_phases:
+                missing.append(dep)
+        
+        if missing:
+            raise NonRetryableError(
+                f"Missing dependencies: {missing}. "
+                f"Completed: {ctx.state.completed_phases}"
+            )
+        
+        # All dependencies satisfied
+        return LoadDependenciesNode(self.dependencies)  # Continue to loading
+```
+
+### StateUpdateNode (Atomic)
+**Purpose**: Update workflow state after phase completion  
+**Operation**: Mark phase complete and determine next phase  
+**Retry**: No - state updates always succeed
+
+**Type Definition**:
+```python
+@dataclass
+class StateUpdateNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
+    """Update state after successful phase execution."""
+    phase_name: str
+    
+    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode:
+        # Get storage reference if output was saved
+        storage_ref = ctx.state.phase_outputs.get(self.phase_name)
+        
+        # Mark phase complete
+        new_completed = ctx.state.completed_phases | {self.phase_name}
+        
+        # Find next phase
+        next_phase = None
+        for phase in ctx.state.phase_sequence:
+            if phase not in new_completed:
+                next_phase = phase
+                break
+        
+        # Update state
+        new_state = replace(
+            ctx.state,
+            completed_phases=new_completed,
+            current_phase=next_phase
+        )
+        
+        return NextPhaseNode()  # Continue to next phase selection
+```
+
+## Atomic LLM Nodes
 
 ### PromptBuilderNode
 **Purpose**: Construct prompts from templates  
@@ -534,74 +905,72 @@ Output State:
   - prompt_metadata: Dict
 ```
 
-### LLMCallNode
-**Purpose**: Execute LLM API call  
-**Operation**: Send prompt, receive response
+### LLMCallNode (Atomic)
+**Purpose**: Single atomic LLM API call  
+**Operation**: Execute LLM inference (expensive, non-retryable)  
+**Retry**: No - expensive operation, handle failures at orchestration level
 
-**Data Requirements**:
-```
-Input State:
-  - prompt: str
-  - model: str (model identifier)
-  - parameters: ModelParameters
-Output State:
-  - response: str
-  - usage: TokenUsage
-  - model_metadata: Dict
-```
-
-**Phase 2 Type Definition**:
+**Type Definition**:
 ```python
 @dataclass
 class LLMCallNode(LLMNode[WorkflowState, WorkflowDeps, WorkflowState]):
-    """Execute LLM API call."""
-    prompt_field: str  # State field containing prompt
-    response_field: str  # State field to store response
-    model_override: Optional[str] = None  # Override default model
-    parameters_override: Optional[ModelParameters] = None
+    """Atomic LLM call - expensive, should not retry."""
+    system_prompt_field: str = 'rendered_system_prompt'
+    user_prompt_field: str = 'rendered_user_prompt'
+    output_schema: Optional[Type[BaseModel]] = None
+    model_config: Optional[ModelParameters] = None
     
-    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> NextNode:
-        # Get prompt from state
-        prompt = getattr(ctx.state, self.prompt_field)
+    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode:
+        # Get prompts from domain_data (rendered by previous node)
+        system_prompt = ctx.state.domain_data.get(self.system_prompt_field)
+        user_prompt = ctx.state.domain_data.get(self.user_prompt_field)
         
-        # Determine model and parameters
-        model = self.model_override or ctx.deps.models.default_model
-        params = self.parameters_override or ctx.deps.models.parameters.get(
-            ctx.state.phase_status.current_phase,
-            ModelParameters()
+        if not system_prompt or not user_prompt:
+            raise ValueError("Prompts not found in state")
+        
+        # Determine model
+        model = self.model_config or ctx.deps.models.get_model_for_phase(
+            ctx.state.current_phase
         )
         
-        # Call LLM with rate limiting
-        async with ctx.deps.get_semaphore('llm'):
-            response = await ctx.deps.llm_client.call(
-                prompt=prompt,
-                model=model,
-                **params.model_dump()
+        try:
+            # Call LLM (expensive operation)
+            async with ctx.deps.get_semaphore('llm'):
+                if self.output_schema:
+                    # Structured output
+                    from pydantic_ai import Agent
+                    agent = Agent(
+                        model.model_name,
+                        output_type=self.output_schema,
+                        system_prompt=system_prompt
+                    )
+                    result = await agent.run(user_prompt)
+                    response_data = result.output.model_dump()
+                else:
+                    # Text output
+                    response = await ctx.deps.llm_client.call(
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                        **model.model_dump()
+                    )
+                    response_data = response.text
+            
+            # Store response in domain_data for next node
+            new_state = replace(
+                ctx.state,
+                domain_data={
+                    **ctx.state.domain_data,
+                    f'{ctx.state.current_phase}_llm_response': response_data
+                },
+                total_token_usage=self._update_token_usage(ctx.state, response)
             )
-        
-        # Track token usage
-        usage = TokenUsage(
-            prompt_tokens=response.prompt_tokens,
-            completion_tokens=response.completion_tokens,
-            total_tokens=response.total_tokens,
-            model=model
-        )
-        
-        # Update state
-        new_state = replace(
-            ctx.state,
-            **{self.response_field: response.text},
-            total_token_usage={
-                **ctx.state.total_token_usage,
-                ctx.state.phase_status.current_phase: 
-                    ctx.state.total_token_usage.get(
-                        ctx.state.phase_status.current_phase, 
-                        TokenUsage(0, 0, 0, model)
-                    ) + usage
-            }
-        )
-        
-        return self.next  # Next node in the graph
+            
+            return SchemaValidationNode(self.output_schema)  # Continue to validation
+            
+        except Exception as e:
+            # LLM failures are not retryable at this level
+            # Orchestrator decides whether to retry entire phase
+            raise NonRetryableError(f"LLM call failed: {e}")
 ```
 
 ### ResponseParserNode
@@ -619,20 +988,64 @@ Output State:
   - extraction_errors: List[str]
 ```
 
-### RefinementNode
-**Purpose**: Iterative improvement with LLM  
-**Operation**: Apply feedback to improve output
+### RefinementLoopNode
+**Purpose**: Manage refinement iterations for GenericPhaseNode  
+**Operation**: Check quality and trigger re-execution with feedback
 
 **Data Requirements**:
 ```
 Input State:
-  - current_output: str
-  - feedback: str
-  - iteration: int
+  - phase_name: str
+  - quality_score: float
+  - max_refinements: int
 Output State:
-  - refined_output: str
-  - changes_made: List[str]
-  - improvement_score: float
+  - should_refine: bool
+  - refinement_feedback: str
+  - refinement_count: int
+```
+
+**Phase 2 Type Definition**:
+```python
+@dataclass
+class RefinementLoopNode(ControlNode[WorkflowState, WorkflowDeps, WorkflowState]):
+    """Control refinement iterations for phases."""
+    phase_name: str
+    quality_threshold: float = 0.8
+    max_refinements: int = 3
+    
+    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode:
+        # Get current quality score
+        quality_score = ctx.state.quality_scores.get(self.phase_name, 0.0)
+        refinement_count = ctx.state.refinement_count.get(self.phase_name, 0)
+        
+        # Check if refinement needed
+        if quality_score >= self.quality_threshold:
+            # Quality meets threshold, continue to next phase
+            return self._get_next_phase_node(ctx.state)
+        
+        if refinement_count >= self.max_refinements:
+            # Max refinements reached, continue anyway
+            return self._get_next_phase_node(ctx.state)
+        
+        # Generate refinement feedback
+        feedback = self._generate_feedback(ctx.state, quality_score)
+        
+        # Update state for refinement
+        new_state = replace(
+            ctx.state,
+            refinement_count={
+                **ctx.state.refinement_count,
+                self.phase_name: refinement_count + 1
+            },
+            domain_data={
+                **ctx.state.domain_data,
+                f'{self.phase_name}_feedback': feedback
+            }
+        )
+        
+        # Re-execute the phase with feedback
+        phase_def = ctx.deps.phase_registry.get(ctx.state.domain, self.phase_name)
+        return GenericPhaseNode(phase_def=phase_def)
 ```
 
 ### BatchLLMNode
@@ -669,142 +1082,196 @@ Output State:
 
 ## Control Flow Nodes
 
-### ConditionalNode
-**Purpose**: Branch execution based on condition  
-**Operation**: Evaluate condition, choose path
+### StateBasedConditionalNode
+**Purpose**: State-driven conditional branching aligned with meta-framework  
+**Operation**: Evaluate condition from state configuration, choose path
 
 **Data Requirements**:
 ```
 Input State:
-  - condition_data: Any
-  - condition_type: str
+  - workflow_def.conditions[condition_name]: ConditionConfig
+  - Any state data referenced by condition
 Output State:
-  - branch_taken: Literal['true', 'false']
+  - branch_taken: Literal['true', 'false']  
   - condition_result: bool
 ```
 
 **Flow Pattern**:
 ```mermaid
 graph LR
-    Cond{Condition} -->|True| TrueBranch
-    Cond -->|False| FalseBranch
+    StateCheck{Read Condition Config} --> Eval{Evaluate}
+    Eval -->|True| TrueBranch[Execute True Path]
+    Eval -->|False| FalseBranch[Execute False Path]
+    StateCheck --> StateCondition[State Path Condition]
+    StateCheck --> QualityGate[Quality Gate Condition]
+    StateCheck --> CustomCondition[Custom Function]
+```
+
+**State-Driven Configuration Examples**:
+```python
+# State-driven condition examples
+conditions = {
+    # Quality gate condition
+    "quality_check": ConditionConfig(
+        condition_type="quality_gate",
+        quality_field="current_phase",
+        threshold=0.8
+    ),
+    
+    # State path condition
+    "complexity_check": ConditionConfig(
+        condition_type="state_path",
+        state_path="domain_data.complexity",
+        operator="==",
+        expected_value="high"
+    ),
+    
+    # Threshold condition
+    "iteration_limit": ConditionConfig(
+        condition_type="threshold",
+        state_path="refinement_count.current_phase",
+        operator=">=", 
+        expected_value=3
+    )
+}
 ```
 
 **Phase 2 Type Definition**:
 ```python
 @dataclass
-class ConditionalNode(ControlNode[WorkflowState, WorkflowDeps, WorkflowState]):
-    """Branch execution based on condition."""
-    condition: Callable[[WorkflowState], bool]  # Condition function
-    true_node: BaseNode  # Node if condition is true
-    false_node: BaseNode  # Node if condition is false
+class StateBasedConditionalNode(ControlNode[WorkflowState, WorkflowDeps, WorkflowState]):
+    """State-driven conditional branching."""
+    condition_name: str  # Name of condition in workflow_def.conditions
+    true_node_id: str    # Node ID if condition is true
+    false_node_id: str   # Node ID if condition is false
     
-    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> NextNode:
-        # Evaluate condition
-        result = self.condition(ctx.state)
+    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode:
+        # Get condition configuration from state
+        condition_config = ctx.state.workflow_def.conditions.get(self.condition_name)
+        if not condition_config:
+            raise ValueError(f"Condition '{self.condition_name}' not found in workflow definition")
         
-        # Choose next node
-        next_node = self.true_node if result else self.false_node
+        # Evaluate condition against current state
+        result = condition_config.evaluate(ctx.state)
         
-        # Track branch taken (optional)
+        # Choose next node based on result
+        next_node_id = self.true_node_id if result else self.false_node_id
+        
+        # Update state to track decision
         new_state = replace(
             ctx.state,
-            processing=replace(
-                ctx.state.processing,
-                last_condition_result=result
-            )
+            domain_data={
+                **ctx.state.domain_data,
+                'last_condition_result': result,
+                'last_branch_taken': 'true' if result else 'false',
+                'last_condition_name': self.condition_name
+            }
         )
         
-        return next_node  # Node instance with state passed via graph context
+        # Return next node instance
+        return self.create_node_instance(next_node_id, new_state)
+    
+    def create_node_instance(self, node_id: str, state: WorkflowState) -> BaseNode:
+        """Create node instance based on ID - reads from state configuration."""
+        # This would use the same factory pattern as GenericPhaseNode
+        # Implementation depends on node registry/factory system
+        return create_node_from_id(node_id, state)
+
 ```
 
-### ParallelMapNode
-**Purpose**: Execute sub-graph for each item in parallel  
-**Operation**: Parallel processing of collection
+### IterableNode
+**Purpose**: Process items through iteration with self-return pattern  
+**Operation**: State-based iteration compatible with pydantic_graph
 
 **Data Requirements**:
 ```
 Input State:
-  - items: List[Any]
-  - max_workers: int
+  - iter_items: List[Any]
+  - iter_index: int
+  - iter_results: List[Any]
 Output State:
-  - results: List[Any]
-  - execution_times: List[float]
-  - failed_items: List[int]
+  - Updated iter_index and iter_results
+  - Or transition to next node when complete
 ```
 
-**Phase 2 Type Definition**:
+**Correct Implementation (State-Based Iteration)**:
 ```python
 @dataclass
-class ParallelMapNode(ControlNode[WorkflowState, WorkflowDeps, WorkflowState]):
-    """Execute sub-graph for each item in parallel."""
-    items_field: str  # State field containing items list
-    sub_graph: Graph  # Graph to execute per item
-    max_workers: int = 4  # Max parallel executions
-    results_field: str = "parallel_results"  # Where to store results
+class IterableNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
+    """Process items through self-return pattern - no sub-graphs."""
     
-    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> NextNode:
-        # Get items from state
-        items = getattr(ctx.state, self.items_field)
+    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode | End[WorkflowState]:
+        # Get iteration config from state
+        node_config = ctx.state.workflow_def.node_configs[ctx.state.current_node]
         
-        # Execute sub-graph for each item in parallel
-        async def process_item(item: Any) -> Tuple[Any, float]:
-            start_time = time.time()
-            # Create item-specific state
-            item_state = replace(
-                ctx.state,
-                processing=replace(
-                    ctx.state.processing,
-                    current_item=item
-                )
-            )
-            # Run sub-graph
-            result = await self.sub_graph.run(
-                state=item_state,
-                deps=ctx.deps
-            )
-            return result, time.time() - start_time
+        if not node_config.iter_enabled:
+            # Single execution mode
+            result = await self.process_once(ctx)
+            return self.get_next_node(ctx.state)
         
-        # Use ProcessPoolExecutor from deps
-        with ctx.deps.process_executor as executor:
-            futures = [process_item(item) for item in items]
-            results = await asyncio.gather(*futures, return_exceptions=True)
+        # Get items and current index
+        items = ctx.state.iter_items
+        idx = ctx.state.iter_index
         
-        # Separate successful results and failures
-        successful_results = []
-        execution_times = []
-        failed_indices = []
+        if idx >= len(items):
+            # Iteration complete - move to next node
+            return self.get_next_node(ctx.state)
         
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
-                failed_indices.append(i)
-            else:
-                successful_results.append(result[0])
-                execution_times.append(result[1])
+        # Process current item
+        item = items[idx]
+        result = await self.process_item(item, ctx)
         
-        # Update state with results
+        # Update state with result
         new_state = replace(
             ctx.state,
-            **{self.results_field: successful_results},
-            processing=replace(
-                ctx.state.processing,
-                parallel_execution_times=execution_times,
-                parallel_failed_indices=failed_indices
-            )
+            iter_results=ctx.state.iter_results + [result],
+            iter_index=idx + 1
         )
         
-        return self.next  # Next node in the graph
+        # Return self to continue iteration, or next node if done
+        if idx + 1 < len(items):
+            return IterableNode()  # Continue iteration
+        else:
+            return self.get_next_node(new_state)  # Move to next node
+```
+
+**Parallel Execution with Graph.iter()**:
+```python
+# Use Graph.iter() for parallel control, not sub-graphs
+async def parallel_process(graph, items):
+    tasks = []
+    
+    async with graph.iter(StartNode(), state=initial_state) as run:
+        async for node in run:
+            if isinstance(node, IterableNode) and node.iter_enabled:
+                # Fork parallel processing
+                for item in items:
+                    item_state = replace(initial_state, iter_items=[item])
+                    task = asyncio.create_task(
+                        graph.run(node, state=item_state)
+                    )
+                    tasks.append(task)
+                
+                # Gather results
+                results = await asyncio.gather(*tasks)
+                
+                # Continue with aggregated results
+                next_node = AggregateResultsNode(results=results)
+                await run.next(next_node)
 ```
 
 **Flow Pattern**:
 ```mermaid
 graph LR
-    Items --> P1[Process 1]
-    Items --> P2[Process 2]
-    Items --> P3[Process N]
-    P1 --> Results
-    P2 --> Results
-    P3 --> Results
+    Start[Item 0] --> Process[IterableNode]
+    Process -->|self-return| Process
+    Process -->|done| Next[NextNode]
+    
+    subgraph "Parallel via Graph.iter()"
+        P1[Process Item 1] 
+        P2[Process Item 2]
+        P3[Process Item N]
+    end
 ```
 
 ### SequentialMapNode
@@ -836,20 +1303,54 @@ Output State:
   - aggregation_metadata: Dict
 ```
 
-### RetryNode
-**Purpose**: Retry failed operations  
-**Operation**: Exponential backoff retry logic
+### State-Based Retry Pattern
+**Purpose**: Retry through state tracking and self-return  
+**Operation**: Retry configured in NodeConfig within state
 
-**Data Requirements**:
+**Implementation Pattern**:
+```python
+@dataclass
+class AtomicNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
+    """Base pattern for atomic nodes with state-based retry."""
+    
+    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode | End[WorkflowState]:
+        # Get configuration from state
+        config = ctx.state.workflow_def.node_configs[ctx.state.current_node]
+        retry_key = f"{ctx.state.current_phase}_{ctx.state.current_node}"
+        retry_count = ctx.state.retry_counts.get(retry_key, 0)
+        
+        try:
+            # Execute operation
+            result = await self.execute(ctx)
+            
+            # Success - return next node
+            return self.get_next_node(ctx.state, result)
+            
+        except Exception as e:
+            if config.retryable and retry_count < config.max_retries:
+                # Retry by returning self with updated retry count
+                new_state = replace(
+                    ctx.state,
+                    retry_counts={**ctx.state.retry_counts, retry_key: retry_count + 1}
+                )
+                return self.__class__()  # Return self to retry
+            else:
+                return ErrorNode(error=str(e))
 ```
-Input State:
-  - operation_state: Any
-  - retry_count: int
-  - max_retries: int
-Output State:
-  - result: Any
-  - attempts_made: int
-  - retry_errors: List[str]
+
+**State Configuration**:
+```python
+node_configs = {
+    "llm_call": NodeConfig(
+        retryable=True,  # API can have transient failures
+        max_retries=3,
+        retry_backoff="exponential"
+    ),
+    "load_local": NodeConfig(
+        retryable=False,  # Local storage rarely fails
+        max_retries=0
+    )
+}
 ```
 
 ### LoopNode
@@ -906,21 +1407,44 @@ Output State:
   - join_metadata: Dict
 ```
 
-## Node Composition Patterns
+## Atomic Decomposition Patterns
 
-### Sub-Graph Composition
+### Why Atomic Decomposition?
 
-Nodes can contain sub-graphs for complex operations:
+1. **Failure Isolation**: Storage failure doesn't invalidate LLM response
+2. **Selective Retry**: Retry only failed operations, not entire phase
+3. **Caching**: Cache expensive operations (LLM) independently
+4. **Observability**: Track each operation's success/failure/duration
+5. **Parallelism**: Run independent operations concurrently
+
+### Atomic Node Chaining (Replaces Sub-Graphs)
+
+**REMOVED: build_phase_subgraph - violated pydantic_graph constraints**
+
+Nodes cannot execute sub-graphs - they chain by returning next node:
 
 ```python
+# CORRECT: GenericPhaseNode returns first atomic node
 @dataclass
-class ComplexOperationNode(BaseNode[...]):
-    sub_graph: Graph  # Contains other nodes
-    
-    async def run(self, ctx):
-        # Execute sub-graph with current state
-        result = await self.sub_graph.run(...)
-        return NextNode(result)
+class GenericPhaseNode(BaseNode):
+    async def run(self, ctx) -> BaseNode:
+        # Read phase definition from state
+        phase_def = ctx.state.workflow_def.phases[ctx.state.current_phase]
+        
+        # Return first atomic node - it will chain to the rest
+        return DependencyCheckNode()
+
+# CORRECT: Each atomic node returns the next
+@dataclass  
+class DependencyCheckNode(BaseNode):
+    async def run(self, ctx) -> BaseNode:
+        # Validate dependencies
+        for dep in self.get_dependencies(ctx.state):
+            if dep not in ctx.state.completed_phases:
+                raise NonRetryableError(f"Dependency {dep} not satisfied")
+        
+        # Chain to next atomic node
+        return LoadDependenciesNode()
 ```
 
 ### Dynamic Node Selection
@@ -949,8 +1473,8 @@ async def run(self, ctx):
         new_field=computed_value,
         # Existing fields preserved
     )
-    # Pass accumulated state forward
-    return NextNode(state=new_state)
+    # Return next node - state is managed by GraphRunContext
+    return NextPhaseNode()  # Example next node
 ```
 
 ## Data Flow Requirements
@@ -1017,10 +1541,115 @@ Key patterns established:
 - Parallel operations use executor from deps
 - Conditional nodes use callable predicates
 
-## Phase 3 Specifications
+## Meta-Framework Atomic Orchestration
 
-Phase 3 will add:
-- Complete implementation examples for all node types
-- Integration test scenarios with real workflows
-- Performance benchmarks for parallel execution
-- Migration guides from monolithic to graph-based
+### State-Driven Configuration Flow
+
+```mermaid
+graph TB
+    WD[WorkflowDefinition in State] --> PHASES[phases]
+    WD --> CONFIGS[node_configs]
+    WD --> CONDITIONS[conditions]
+    
+    PHASES --> PD[PhaseDefinition]
+    PD --> ATOMS[atomic_nodes list]
+    PD --> DEPS[dependencies list]
+    PD --> SCHEMAS[input/output schemas]
+    
+    CONFIGS --> NC[NodeConfig]
+    NC --> RETRY[Retry settings]
+    NC --> ITER[Iteration settings]
+    
+    CONDITIONS --> CC[ConditionConfig]
+    CC --> EVAL[Evaluation logic]
+    
+    subgraph execution[Node Execution Pattern]
+        NODE[Any Atomic Node] --> READ[Read from State]
+        READ --> CONFIG[Get node config]
+        READ --> PHASE[Get phase definition]
+        
+        CONFIG --> BEHAVIOR{Apply Config}
+        BEHAVIOR --> EXEC[Execute with config]
+        EXEC --> RESULT[Process result]
+        
+        RESULT --> SUCCESS[Return next node]
+        RESULT --> RETRY[Return self for retry]
+        RESULT --> ERROR[Return ErrorNode]
+    end
+    
+    WD -.->|Configures| NODE
+    
+```
+
+### Complete Phase Execution Flow
+
+```mermaid
+stateDiagram-v2
+    [*] --> DependencyCheck
+    DependencyCheck --> LoadDeps: Valid
+    DependencyCheck --> Error: Invalid
+    
+    LoadDeps --> LoadDeps: Storage Error (self-return)
+    LoadDeps --> Error: Max Retries
+    LoadDeps --> RenderTemplates: Success
+    
+    RenderTemplates --> LLMCall: Templates Ready
+    LLMCall --> ValidateOutput: Response Received
+    LLMCall --> Error: LLM Failure
+    
+    ValidateOutput --> SaveOutput: Valid
+    ValidateOutput --> Refinement: Invalid
+    
+    SaveOutput --> RetrySave: Storage Error  
+    RetrySave --> SaveOutput: Retry
+    RetrySave --> Error: Max Retries
+    SaveOutput --> UpdateState: Success
+    
+    UpdateState --> QualityGate
+    QualityGate --> NextPhase: Pass
+    QualityGate --> Refinement: Fail
+    
+    Refinement --> RenderTemplates: With Feedback
+    NextPhase --> [*]
+    Error --> [*]
+```
+
+### Benefits of Atomic Decomposition
+
+```python
+# Example: Storage fails after expensive LLM call
+async def handle_storage_failure():
+    """
+    Without atomic decomposition:
+    - Entire phase fails
+    - Must re-run LLM call ($$$)
+    - User waits longer
+    
+    With atomic decomposition:
+    - Only SavePhaseOutputNode fails
+    - LLM response cached in state
+    - SavePhaseOutputNode uses state-based retry (self-return)
+    - No repeated LLM inference
+    """
+    
+    # Phase execution with atomic nodes
+    result = await phase_graph.run(
+        start_node=DependencyCheckNode(dependencies),
+        state=state,
+        deps=deps
+    )
+    
+    # If storage fails, only storage node retries
+    # LLM response preserved in state.domain_data
+```
+
+### Cross-Domain Workflows
+```python
+# Mix phases from different domains
+hybrid_workflow = [
+    GenericPhaseNode(PHASE_REGISTRY['agentool.analyzer']),
+    GenericPhaseNode(PHASE_REGISTRY['api.designer']),
+    GenericPhaseNode(PHASE_REGISTRY['workflow.orchestrator']),
+    GenericPhaseNode(PHASE_REGISTRY['agentool.evaluator'])
+]
+```

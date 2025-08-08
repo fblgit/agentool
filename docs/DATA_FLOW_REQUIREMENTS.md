@@ -1,4 +1,4 @@
-# Data Flow Requirements Specification
+# Data Flow Requirements - Meta-Framework Specification
 
 ## References
 
@@ -7,127 +7,176 @@
 - [Node Catalog](NODE_CATALOG.md)
 - [Data Flow Requirements (this doc)](DATA_FLOW_REQUIREMENTS.md)
 - [Graph Type Definitions](GRAPH_TYPE_DEFINITIONS.md)
+- [State Mutations](STATE_MUTATIONS.md)
 
 ## Overview
 
-This document specifies the data requirements, flow patterns, and state transformations throughout the workflow graph system. It establishes the contracts between phases and defines how data moves through the system.
+This document specifies the data requirements, flow patterns, and state transformations for the **meta-framework workflow system**. Unlike traditional workflows with fixed phases, the meta-framework enables domain-agnostic data flows where phases are defined as configurations. Every phase follows the universal pattern:
 
-## Data Flow Architecture
+### Data Flow Through Atomic Nodes
 
 ```mermaid
 graph TB
-    subgraph "External Input"
-        UI[User Input]
-        CFG[Configuration]
+    S0[Initial State] --> DC[DependencyCheck]
+    DC --> LD[LoadDependencies]
+    LD --> S1[State + Dependencies]
+    
+    S1 --> TR[TemplateRender] 
+    TR --> S2[State + Templates]
+    
+    S2 --> LLM[LLMCall]
+    LLM --> S3[State + LLM Output]
+    
+    S3 --> SV[SchemaValidation]
+    SV --> SO[SaveOutput]
+    SO --> S4[State + Storage Ref]
+    
+    S4 --> SU[StateUpdate]
+    SU --> S5[State + Completion]
+    
+    S5 --> QG[QualityGate]
+    QG --> S6[Final State]
+    
+    subgraph flow[Node Chaining Pattern]
+        CHAIN[Each node returns next node]
+        STATE[State accumulates through chain]
     end
-    
-    subgraph "Data Storage Layer"
-        KV[(Storage KV)]
-        FS[(Storage FS)]
-        MEM[(Memory Cache)]
-    end
-    
-    subgraph "Processing Pipeline"
-        subgraph "Phase 1: Analysis"
-            A1[Load Catalog]
-            A2[Analyze Task]
-            A3[Identify Gaps]
-            A4[Store Analysis]
-        end
-        
-        subgraph "Phase 2: Specification"
-            S1[Load Analysis]
-            S2[Generate Specs]
-            S3[Validate Specs]
-            S4[Store Specs]
-        end
-        
-        subgraph "Phase 3: Crafting"
-            C1[Load Specs]
-            C2[Generate Code]
-            C3[Format Code]
-            C4[Store Code]
-        end
-        
-        subgraph "Phase 4: Evaluation"
-            E1[Load Code]
-            E2[Validate]
-            E3[Evaluate Quality]
-            E4{Decision}
-            E5[Store Final]
-            E6[Refine]
-        end
-    end
-    
-    UI --> A1
-    CFG --> A1
-    
-    A1 --> KV
-    A4 --> KV
-    S1 --> KV
-    S4 --> KV
-    C1 --> KV
-    C4 --> FS
-    E1 --> FS
-    E5 --> FS
-    
-    E4 -->|Pass| E5
-    E4 -->|Fail| E6
-    E6 --> E2
 ```
 
-## Phase Data Requirements
+**`InputSchema → Variables → TemplateRender → LLM Call → OutputSchema → Storage`**
 
-### Initial Input Requirements
+## Meta-Framework Data Flow Architecture
 
-```yaml
-UserInput:
-  task_description:
-    type: str
-    required: true
-    description: "Natural language description of desired functionality"
-    example: "Create a session management tool with TTL support"
-  
-  workflow_config:
-    type: WorkflowConfig
-    required: true
-    fields:
-      workflow_id: str  # Unique identifier
-      models: ModelConfig  # LLM model configurations
-      thresholds: QualityThresholds  # Quality gates
-      max_iterations: int  # Refinement limit
-      parallel_workers: int  # Concurrency limit
+```mermaid
+graph TB
+    Config[Phase Definitions] --> Registry[Phase Registry]
+    Registry --> Pipeline[Universal Processing Pipeline]
+    
+    Pipeline --> Load[Load Dependencies]
+    Load --> Template[Render Templates]
+    Template --> LLM[Execute LLM]
+    LLM --> Validate[Validate Output]
+    Validate --> Store[Store Results]
+    
+    Store --> Storage[(Storage Layer)]
+    
+    subgraph domains[Domain Examples]
+        AgenTool[AgenTool Domain]
+        API[API Design Domain]  
+        Workflow[Workflow Domain]
+        Docs[Documentation Domain]
+    end
+    
+    domains --> Registry
 ```
 
-### Phase 1: Analysis Requirements
+## Universal Phase Data Requirements
 
-#### Input Data
+### Meta-Framework Input Pattern
+
 ```yaml
-AnalysisInput:
-  sources:
-    - catalog_ref: "catalog"  # Full AgenTool catalog (key only)
-    - task_description: str  # From user input
-    - workflow_id: str  # From config
+UniversalPhaseInput:
+  # Core fields (all phases)
+  workflow_id: str
+  domain: str  # 'agentool', 'api', 'workflow', etc.
+  phase_name: str
   
-  required_state_fields:
-    - workflow_id
-    - task_description
-    - catalog_loaded
+  # Dependencies from previous phases
+  dependencies: Dict[str, Any]  # Loaded from phase_outputs
+  
+  # Domain-specific context
+  domain_data: Dict[str, Any]  # Flexible per domain
+  
+  # Template variables
+  template_vars:
+    task_description: str
+    existing_outputs: Dict[str, Any]
+    configuration: Dict[str, Any]
 ```
 
-#### Output Data
+### Atomic Node Data Flow
+
 ```yaml
-AnalysisOutput:
-  storage_refs:
-    - analysis_ref: "workflow/{workflow_id}/analysis"  # Key only, no prefix
-    - catalog_ref: "workflow/{workflow_id}/catalog"    # Key only, no prefix
+AtomicNodeDataFlow:
+  DependencyCheckNode:
+    reads_from_state: phase_def.dependencies  # Gets deps from state
+    output: bool  # All dependencies satisfied
+    error: NonRetryableError  # Missing dependency
   
-  state_mutations:
-    - analysis_complete: bool
-    - missing_tools: List[str]
-    - existing_tools: List[str]
-    - system_design: str
-    - guidelines: List[str]
+  LoadDependenciesNode:
+    reads_from_state: phase_def.dependencies  # Gets deps from state
+    output: Dict[str, Any]  # Loaded data
+    error: RetryableError  # Storage failure
+  
+  TemplateRenderNode:
+    reads_from_state: phase_def.templates, domain_data  # Templates and vars from state
+    output: Tuple[str, str]  # (system_prompt, user_prompt)
+    error: NonRetryableError  # Template syntax error
+  
+  LLMCallNode:
+    reads_from_state: rendered_prompts, phase_def.output_schema  # From state
+    output: BaseModel  # Validated response
+    error: NonRetryableError  # API failure (orchestrator decides)
+  
+  SchemaValidationNode:
+    reads_from_state: llm_output, phase_def.output_schema  # From state
+    output: BaseModel  # Validated data
+    error: NonRetryableError  # Triggers refinement
+  
+  SavePhaseOutputNode:
+    reads_from_state: current_phase, domain_data  # Phase and data from state
+    output: StorageRef  # Reference to stored data
+    error: RetryableError  # Storage failure
+  
+  StateUpdateNode:
+    reads_from_state: current_phase, phase_outputs  # From state
+    output: WorkflowState  # Updated state
+    error: Never  # Immutable operations don't fail
+  
+  QualityGateNode:
+    reads_from_state: quality_scores, phase_def.quality_threshold  # From state
+    output: bool  # Pass/fail
+    error: Never  # Returns false on failure
+```
+
+### Generic Phase Data Pattern
+
+#### Phase Definition Data Flow
+```yaml
+PhaseDefinition:
+  # Identity and Sequence
+  phase_name: str  # Phase identifier
+  atomic_nodes: List[str]  # Ordered sequence of atomic node IDs
+  
+  # Input requirements
+  input_schema: Type[BaseModel]  # Validates incoming data
+  dependencies: List[str]  # Previous phases needed
+  
+  # Processing
+  template_variables: List[str]  # Variables for templates
+  system_template: str  # System prompt template path
+  user_template: str  # User prompt template path
+  
+  # Output specification
+  output_schema: Type[BaseModel]  # Validates LLM output
+  storage_pattern: str  # Where to store results
+  storage_type: Literal['kv', 'fs']  # Storage backend
+```
+
+#### Universal Output Pattern
+```yaml
+PhaseOutput:
+  # Standard fields
+  phase_name: str
+  success: bool
+  storage_ref: StorageRef
+  
+  # Domain-specific data
+  data: Dict[str, Any]  # Validated by output_schema
+  
+  # Quality metrics
+  quality_score: Optional[float]
+  validation_results: Optional[ValidationResult]
 ```
 
 #### Data Transformations
@@ -145,153 +194,99 @@ graph LR
     end
 ```
 
-### Phase 2: Specification Requirements
+### Domain-Specific Phase Examples
 
-#### Input Data
+#### AgenTool Domain Phases
+
 ```yaml
-SpecificationInput:
-  sources:
-    - analysis_ref: "storage_kv:workflow/{workflow_id}/analysis"
-    - missing_tools: List[str]  # From state
-    - existing_tools: List[str]  # From state
-    - templates_ref: "storage_fs:templates/specs/*"
-  
-  required_state_fields:
-    - analysis_complete: true
-    - missing_tools: List[str]
-    - workflow_id: str
+AgenToolAnalyzer:
+  input_schema: AnalyzerInput
+  dependencies: []
+  template_variables: ['task_description', 'catalog']
+  output_schema: AnalyzerOutput
+  storage_pattern: '{domain}/{workflow_id}/analysis'
+
+AgenToolSpecifier:
+  input_schema: SpecifierInput
+  dependencies: ['analyzer']
+  template_variables: ['analysis', 'missing_tools']
+  output_schema: SpecifierOutput
+  storage_pattern: '{domain}/{workflow_id}/specifications'
+
+AgenToolCrafter:
+  input_schema: CrafterInput
+  dependencies: ['specifier']
+  template_variables: ['specifications', 'examples']
+  output_schema: CrafterOutput
+  storage_pattern: '{domain}/{workflow_id}/implementations'
+
+AgenToolEvaluator:
+  input_schema: EvaluatorInput
+  dependencies: ['crafter']
+  template_variables: ['code', 'specifications']
+  output_schema: EvaluatorOutput
+  storage_pattern: '{domain}/{workflow_id}/evaluations'
 ```
 
-#### Output Data
+#### API Design Domain Phases
 ```yaml
-SpecificationOutput:
-  storage_refs:
-    - specs_ref: "workflow/{workflow_id}/specs"  # Key only
-    - individual_specs: "workflow/{workflow_id}/specifications/{tool_name}"  # Key only
-  
-  state_mutations:
-    - specification_complete: bool
-    - tool_specs: List[ToolSpec]
-    - spec_count: int
-    - spec_validation_results: Dict[str, bool]
+APIAnalyzer:
+  input_schema: APIAnalysisInput
+  dependencies: []
+  template_variables: ['requirements', 'examples']
+  output_schema: APIAnalysisOutput
+  storage_pattern: '{domain}/{workflow_id}/api_analysis'
+
+APIDesigner:
+  input_schema: APIDesignInput
+  dependencies: ['analyzer']
+  template_variables: ['analysis', 'patterns']
+  output_schema: APIDesignOutput
+  storage_pattern: '{domain}/{workflow_id}/api_design'
+
+APIGenerator:
+  input_schema: APIGeneratorInput
+  dependencies: ['designer']
+  template_variables: ['design', 'openapi_spec']
+  output_schema: APIGeneratorOutput
+  storage_pattern: '{domain}/{workflow_id}/api_implementation'
 ```
 
-#### Data Transformations
+### Universal Data Transformation Pattern
+
 ```mermaid
 graph LR
-    subgraph "Specification Transformations"
-        AN[Analysis] --> SP[Specifier]
-        TM[Templates] --> SP
-        SP --> TS1[Tool Spec 1]
-        SP --> TS2[Tool Spec 2]
-        SP --> TSN[Tool Spec N]
-        TS1 --> VAL[Validator]
-        TS2 --> VAL
-        TSN --> VAL
-        VAL --> ST[Storage]
+    subgraph "Atomic Phase Transformation"
+        DC[DependencyCheck] --> LD[LoadDependencies]
+        LD --> EV[ExtractVariables]
+        EV --> TR[TemplateRender]
+        TR --> LC[LLMCall]
+        LC --> SV[SchemaValidation]
+        SV --> SO[SaveOutput]
+        SO --> SU[StateUpdate]
+        SU --> QG[QualityGate]
+    end
+    
+    subgraph "Error Handling"
+        LD -.->|RetryableError| LD
+        SO -.->|RetryableError| SO
+        LC -.->|NonRetryableError| PO[PhaseOrchestrator]
+        SV -.->|ValidationError| RF[RefinementLoop]
+    end
+    
+    subgraph "Data Flow"
+        PrevPhase[Previous Phase Output] --> DC
+        PhDef[Phase Definition] --> EV
+        TmplEng[Template Engine] --> TR
+        Schema[Output Schema] --> SV
+        Storage[(Storage)] --> SO
+        SU --> NextPhase[Next Phase Input]
     end
 ```
 
-### Phase 3: Crafting Requirements
+## Meta-Framework State Evolution
 
-#### Input Data
-```yaml
-CraftingInput:
-  sources:
-    - specs_refs: List["storage_kv:workflow/{workflow_id}/specifications/*"]
-    - templates_ref: "storage_fs:templates/code/*"
-    - examples_ref: "storage_fs:examples/*"
-  
-  required_state_fields:
-    - specification_complete: true
-    - tool_specs: List[ToolSpec]
-    - workflow_id: str
-```
-
-#### Output Data
-```yaml
-CraftingOutput:
-  storage_refs:
-    - code_files: "generated/{workflow_id}/*.py"  # Path only, no prefix
-    - implementations: "workflow/{workflow_id}/implementations/{tool_name}"  # Key only
-  
-  state_mutations:
-    - crafting_complete: bool
-    - code_refs: Dict[str, str]  # tool_name -> file_path
-    - lines_of_code: Dict[str, int]
-    - implementation_metadata: Dict[str, Any]
-```
-
-#### Data Transformations
-```mermaid
-graph LR
-    subgraph "Crafting Transformations"
-        SP[Specs] --> CR[Crafter]
-        TM[Templates] --> CR
-        EX[Examples] --> CR
-        CR --> CD1[Code 1]
-        CR --> CD2[Code 2]
-        CR --> CDN[Code N]
-        CD1 --> FMT[Formatter]
-        CD2 --> FMT
-        CDN --> FMT
-        FMT --> ST[Storage]
-    end
-```
-
-### Phase 4: Evaluation Requirements
-
-#### Input Data
-```yaml
-EvaluationInput:
-  sources:
-    - code_refs: Dict["storage_fs:generated/{workflow_id}/*.py"]
-    - specs_refs: List["storage_kv:workflow/{workflow_id}/specifications/*"]
-    - reference_impl: "storage_fs:src/agentoolkit/*"
-  
-  required_state_fields:
-    - crafting_complete: true
-    - code_refs: Dict[str, str]
-    - workflow_id: str
-```
-
-#### Output Data
-```yaml
-EvaluationOutput:
-  storage_refs:
-    - validations: "workflow/{workflow_id}/validations/{tool_name}"  # Key only
-    - final_code: "generated/{workflow_id}/final/*.py"  # Path only
-    - summary: "generated/{workflow_id}/SUMMARY.md"  # Path only
-  
-  state_mutations:
-    - evaluation_complete: bool
-    - validation_results: Dict[str, ValidationResult]
-    - quality_scores: Dict[str, float]
-    - needs_refinement: List[str]
-    - refinement_count: Dict[str, int]
-    - production_ready: bool
-```
-
-#### Data Transformations
-```mermaid
-graph LR
-    subgraph "Evaluation Transformations"
-        CD[Code] --> SV[Syntax Validator]
-        SV --> IV[Import Validator]
-        IV --> QE[Quality Evaluator]
-        QE --> DEC{Decision}
-        DEC -->|Pass| FIN[Finalizer]
-        DEC -->|Fail| REF[Refiner]
-        REF --> FB[Feedback]
-        FB --> IMP[Improver]
-        IMP --> SV
-        FIN --> ST[Storage]
-    end
-```
-
-## State Evolution Pattern
-
-### State Accumulation Model
+### Universal State Pattern
 
 ```mermaid
 sequenceDiagram
@@ -313,111 +308,110 @@ sequenceDiagram
     Note over S3: Final state contains all deltas
 ```
 
-### State Schema Evolution
+### Domain-Agnostic State Schema
 
 ```yaml
 WorkflowState:
-  # Metadata (immutable after creation)
-  metadata:
-    workflow_id: str
-    started_at: datetime
-    task_description: str
+  # Core Identity
+  workflow_id: str
+  domain: str  # 'agentool', 'api', 'workflow', etc.
+  created_at: datetime
   
-  # Phase Completion Tracking
-  phases:
-    analysis_complete: bool
-    specification_complete: bool
-    crafting_complete: bool
-    evaluation_complete: bool
+  # Universal Phase Tracking
+  phase_sequence: List[str]  # Ordered phases to execute
+  completed_phases: Set[str]  # Phases completed
+  current_phase: Optional[str]  # Active phase
   
-  # Data References (accumulate over time)
-  references:
-    storage_kv: Dict[str, str]
-    storage_fs: Dict[str, str]
+  # Universal Storage References
+  phase_outputs: Dict[str, StorageRef]  # phase_name -> output location
   
-  # Processing State (mutable)
-  processing:
-    current_phase: str
-    current_tools: List[str]
-    completed_tools: List[str]
-    failed_tools: List[str]
+  # Domain-Specific Data (flexible)
+  domain_data: Dict[str, Any]  # Validated per domain
   
-  # Results (accumulate)
-  results:
-    missing_tools: List[str]
-    tool_specs: List[ToolSpec]
-    code_refs: Dict[str, str]
-    validation_results: Dict[str, Any]
-    quality_scores: Dict[str, float]
+  # Quality and Refinement
+  quality_scores: Dict[str, float]  # phase -> score
+  refinement_count: Dict[str, int]  # phase -> iterations
+  validation_results: Dict[str, ValidationResult]
   
-  # Refinement Tracking
-  refinement:
-    iteration_count: Dict[str, int]
-    refinement_history: List[RefinementRecord]
-    improvement_scores: Dict[str, float]
+  # Token Usage
+  total_token_usage: Dict[str, TokenUsage]  # phase -> usage
 ```
 
-## Data Storage Patterns
+## Meta-Framework Storage Patterns
 
-### Storage Key Conventions
+### Universal Storage Key Convention
 
 ```yaml
-StorageKeyPatterns:
-  # Key-Value Storage (storage_kv)
-  workflow_data:
-    pattern: "workflow/{workflow_id}/{data_type}"
+UniversalStoragePattern:
+  # Pattern: {domain}/{workflow_id}/{phase}/{item}
+  
+  # Key-Value Storage
+  phase_outputs:
+    pattern: "{domain}/{workflow_id}/{phase_name}"
     examples:
-      - "workflow/abc123/analysis"
-      - "workflow/abc123/specifications/auth_tool"
-      - "workflow/abc123/validations/auth_tool"
+      - "agentool/abc123/analyzer"
+      - "api/xyz789/designer"
+      - "workflow/def456/orchestrator"
   
-  catalog_data:
-    pattern: "catalog"
-    description: "Global AgenTool catalog"
-  
-  # File Storage (storage_fs)
-  generated_code:
-    pattern: "generated/{workflow_id}/{stage}/*.py"
+  versioned_outputs:
+    pattern: "{domain}/{workflow_id}/{phase_name}/v{version}"
     examples:
-      - "generated/abc123/draft/auth_tool.py"
-      - "generated/abc123/final/auth_tool.py"
+      - "agentool/abc123/crafter/v0"  # Initial
+      - "agentool/abc123/crafter/v1"  # After refinement
   
+  # File Storage
+  generated_artifacts:
+    pattern: "{domain}/{workflow_id}/{phase_name}/*"
+    examples:
+      - "agentool/abc123/crafter/auth_tool.py"
+      - "api/xyz789/generator/openapi.yaml"
+      - "workflow/def456/orchestrator/graph.json"
+  
+  # Templates (shared across domains)
   templates:
-    pattern: "templates/{type}/*"
+    pattern: "templates/{domain}/{phase_type}/*"
     examples:
-      - "templates/specs/tool_spec.jinja"
-      - "templates/code/agentool.jinja"
-  
-  summaries:
-    pattern: "generated/{workflow_id}/*.md"
-    examples:
-      - "generated/abc123/SUMMARY.md"
-      - "generated/abc123/TEST_REPORT.md"
+      - "templates/agentool/analyzer.jinja"
+      - "templates/api/designer.jinja"
+      - "templates/shared/quality_criteria.jinja"
 ```
 
-### Reference Management
+### Meta-Framework Reference Management
 
 ```python
-# Pattern for storing references in state
-@dataclass
-class StateWithRefs:
-    # Direct data (small, frequently accessed)
+@dataclass(frozen=True)
+class WorkflowState:
+    """Universal state with storage references."""
+    # Identity
     workflow_id: str
-    current_phase: str
+    domain: str
     
-    # References to external data (large, infrequently accessed)
-    analysis_ref: str  # → "storage_kv:workflow/{id}/analysis"
-    code_refs: Dict[str, str]  # → {"tool": "storage_fs:path"}
+    # Phase outputs stored as references
+    phase_outputs: Dict[str, StorageRef]  # phase_name -> StorageRef
     
-    def resolve_ref(self, ref: str) -> Any:
-        """Resolve reference to actual data."""
-        storage_type, key = ref.split(":", 1)
-        ...
+    def get_phase_data(self, phase: str, deps: WorkflowDeps) -> Any:
+        """Load phase output from storage."""
+        if phase not in self.phase_outputs:
+            return None
+        
+        ref = self.phase_outputs[phase]
+        if ref.storage_type == 'kv':
+            return deps.storage_client.load_kv(ref.key)
+        else:
+            return deps.storage_client.load_fs(ref.key)
+    
+    def with_phase_output(self, phase: str, ref: StorageRef) -> 'WorkflowState':
+        """Add phase output reference."""
+        return replace(
+            self,
+            phase_outputs={**self.phase_outputs, phase: ref},
+            completed_phases=self.completed_phases | {phase}
+        )
 ```
 
 ## Parallel Processing Data Requirements
 
-### Parallel Map Pattern
+### Parallel Map Pattern with Atomic Nodes
 
 ```yaml
 ParallelMapRequirements:
@@ -430,14 +424,64 @@ ParallelMapRequirements:
     description: "Each parallel execution gets isolated state copy"
     pattern: |
       for item in items:
-        item_state = copy.deepcopy(base_state)
-        item_state.current_item = item
-        results.append(process(item_state))
+        # States are immutable - use replace() not deepcopy
+        item_state = replace(
+            base_state,
+            iter_items=[item],
+            iter_index=0
+        )
+        # Each item processed through atomic node chaining
+        results.append(await item_graph.run(item_state))
+  
+  atomic_parallelization:
+    storage_operations: "Parallel with rate limiting"
+    llm_operations: "Sequential to control costs"
+    template_operations: "Parallel with caching"
+    validation_operations: "Parallel, no limits"
   
   output:
     results: List[Any]  # Ordered results
     execution_times: List[float]
     failed_indices: List[int]
+    retry_counts: Dict[int, int]  # Item index -> retry count
+```
+
+### State-Based Node Configuration
+
+```yaml
+NodeConfigurationByType:
+  LLMNodes:
+    pattern: "Retryable with exponential backoff"
+    retryable: true  # API can have transient failures
+    max_retries: 3
+    retry_backoff: "exponential"
+    cacheable: true
+    cache_ttl: 3600  # 1 hour
+  
+  LocalStorageNodes:
+    pattern: "Usually not retryable (local operations)"
+    retryable: false  # Local storage rarely fails
+    max_retries: 0
+    cacheable: false  # Always fetch fresh
+  
+  TemplateNodes:
+    pattern: "Deterministic, cacheable"
+    retryable: false  # Failures are bugs
+    max_retries: 0
+    cacheable: true
+    cache_ttl: -1  # Session lifetime
+  
+  ValidationNodes:
+    pattern: "Triggers refinement, not retry"
+    retryable: false
+    max_retries: 0
+    failure_handling: "Return RefinementNode"
+  
+  IterationNodes:
+    pattern: "Self-return for continuation"
+    iter_enabled: true
+    iter_in_type: List[Item]
+    iter_out_type: List[Result]
 ```
 
 ### Data Aggregation Pattern
@@ -462,51 +506,56 @@ AggregationRequirements:
       output: List[Error]  # Non-null errors
 ```
 
-## Refinement Loop Data Flow
+## Meta-Framework Refinement Pattern
 
-### Refinement State Tracking
+### Universal Refinement Flow
 
 ```yaml
-RefinementState:
-  current_iteration: int
-  max_iterations: int
+RefinementPattern:
+  # Applied to any phase via configuration
+  phase_definition:
+    allow_refinement: bool
+    quality_threshold: float
+    max_refinements: int
   
-  quality_history:
-    - iteration: int
-      score: float
-      issues: List[str]
-      improvements: List[str]
+  # Refinement state tracking
+  refinement_state:
+    phase_name: str
+    iteration: int
+    quality_scores: List[float]  # Score history
+    refinement_feedback: List[str]  # Feedback history
+    storage_refs: List[StorageRef]  # Version history
   
-  code_versions:
-    - iteration: int
-      code_ref: str
-      changes_made: List[str]
-  
-  termination_reason:
-    type: Literal['quality_met', 'max_iterations', 'no_improvement']
-    details: str
+  # Termination conditions
+  termination:
+    quality_met: score >= threshold
+    max_iterations: iteration >= max_refinements
+    no_improvement: scores[-1] <= scores[-2]
 ```
 
-### Refinement Data Flow
+### Meta-Framework Refinement Loop
 
 ```mermaid
 graph TB
-    subgraph "Refinement Loop"
-        CV[Current Version] --> EVAL{Evaluate}
-        EVAL -->|Score < Threshold| FB[Generate Feedback]
-        FB --> PROMPT[Build Refinement Prompt]
-        PROMPT --> LLM[LLM Refinement]
-        LLM --> NV[New Version]
-        NV --> EVAL
-        EVAL -->|Score >= Threshold| DONE[Complete]
-        EVAL -->|Max Iterations| DONE
+    PhaseOut[Phase Output] --> Quality{Quality Check}
+    Quality -->|Below Threshold| Feedback[Generate Feedback]
+    Feedback --> Variables[Update Variables]
+    Variables --> ReRender[Re-render Templates]
+    ReRender --> ReLLM[Re-execute LLM]
+    ReLLM --> NewOut[New Output]
+    NewOut --> Quality
+    Quality -->|Meets Threshold| Store[Store Final]
+    Quality -->|Max Iterations| Store
+    
+    subgraph tracking[State Tracking]
+        QS[Update quality scores]
+        RC[Update refinement count]
+        PO[Update phase outputs]
     end
     
-    subgraph "State Updates"
-        EVAL --> S1[Update quality_history]
-        LLM --> S2[Update code_versions]
-        DONE --> S3[Set termination_reason]
-    end
+    Quality -.-> QS
+    ReLLM -.-> RC
+    Store -.-> PO
 ```
 
 ## Data Validation Requirements
@@ -557,19 +606,43 @@ OutputValidation:
 
 ## Data Consistency Guarantees
 
-### Atomicity
+### Atomicity at Node Level
 
 ```yaml
-AtomicOperations:
-  storage_transaction:
-    pattern: "All-or-nothing storage updates"
+AtomicNodeOperations:
+  # Each node is an atomic operation
+  LoadDependenciesNode:
+    pattern: "Load all or fail completely"
     implementation: |
       try:
-        save_all_refs(data)
-        commit()
-      except:
-        rollback()
+        deps = {}
+        for phase in required_phases:
+          deps[phase] = await load_kv(get_key(phase))
+        return deps
+      except StorageError as e:
+        raise RetryableError(f"Failed to load {phase}", retry_after=2.0)
   
+  SavePhaseOutputNode:
+    pattern: "Save with versioning or fail"
+    implementation: |
+      try:
+        key = generate_key(phase, version)
+        await save_kv(key, data)
+        return StorageRef(key=key, version=version)
+      except StorageError as e:
+        raise RetryableError(f"Failed to save {phase}", retry_after=2.0)
+  
+  LLMCallNode:
+    pattern: "Single expensive operation, no partial results"
+    implementation: |
+      try:
+        response = await llm.generate(prompts, schema)
+        return response  # Fully validated
+      except APIError as e:
+        # Don't retry at node level - too expensive
+        raise NonRetryableError(f"LLM call failed: {e}")
+  
+  # State updates are always atomic (immutable)
   state_update:
     pattern: "Immutable state updates"
     implementation: |
@@ -649,29 +722,82 @@ SizeLimits:
   llm_response: 4000 tokens  # Model dependent
 ```
 
-### Caching Strategy
+### Caching Strategy for Atomic Nodes
 
 ```yaml
-CachingLayers:
-  memory_cache:
-    scope: "Node execution"
-    ttl: 300  # seconds
-    items:
-      - template_renders
-      - small_storage_reads
+AtomicNodeCaching:
+  # Cache by node type
+  TemplateRenderNode:
+    scope: "Session"
+    key: "template_path + hash(variables)"
+    ttl: "Session lifetime"
+    reason: "Deterministic - same input always produces same output"
   
-  disk_cache:
-    scope: "Workflow execution"
-    ttl: 3600  # seconds
-    items:
-      - llm_responses
-      - large_computations
+  LLMCallNode:
+    scope: "Workflow"
+    key: "model + hash(prompts + schema)"
+    ttl: 3600  # 1 hour
+    reason: "Expensive - avoid redundant API calls"
   
-  no_cache:
-    items:
-      - state_mutations
-      - storage_writes
-      - validation_results
+  LoadDependenciesNode:
+    scope: "None"
+    reason: "Always fetch fresh to ensure consistency"
+  
+  SavePhaseOutputNode:
+    scope: "None"
+    reason: "Must always write through"
+  
+  SchemaValidationNode:
+    scope: "Request"
+    key: "schema + hash(data)"
+    ttl: 60  # 1 minute
+    reason: "Cheap but frequent - short cache"
+  
+  DependencyCheckNode:
+    scope: "Phase"
+    key: "phase_name + deps_list"
+    ttl: 300  # 5 minutes
+    reason: "Dependencies unlikely to change mid-execution"
 ```
 
-This specification provides the complete data flow architecture for Phase 1. Phase 2 will add detailed field definitions and concrete type specifications. Phase 3 will include implementation examples and integration patterns.
+### Parallel Execution with Graph.iter()
+
+```yaml
+ParallelExecutionPattern:
+  description: "Use Graph.iter() for controlled parallelism"
+  implementation: |
+    async with graph.iter(start_node, state=initial_state) as run:
+      tasks = []
+      async for node in run:
+        if isinstance(node, IterableNode) and node.iter_enabled:
+          # Fork parallel tasks for items
+          for item in state.iter_items:
+            item_state = replace(state, iter_items=[item])
+            task = asyncio.create_task(graph.run(node, state=item_state))
+            tasks.append(task)
+          
+          # Gather results
+          results = await asyncio.gather(*tasks)
+          
+          # Continue with aggregated results
+          aggregated_state = replace(state, iter_results=results)
+          next_node = node.get_next_node(aggregated_state)
+          await run.next(next_node)
+  
+  benefits:
+    - Fine-grained control over parallelism
+    - No sub-graph execution within nodes
+    - State isolation per parallel branch
+    - Compatible with pydantic_graph patterns
+```
+
+## Meta-Framework Benefits
+
+### Data Flow Advantages
+
+1. **Universal Pattern**: All phases follow same data flow
+2. **Domain Flexibility**: Any domain can define phases
+3. **Type Safety**: Schemas validate all data transitions
+4. **Storage Efficiency**: References minimize state size
+5. **Version Control**: Built-in versioning for refinements
+6. **Parallel Ready**: Isolated state enables parallelism

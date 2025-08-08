@@ -1,8 +1,12 @@
-# Graph Type Definitions - Phase 2
+# Graph Type Definitions - Meta-Framework Types
 
 ## Overview
 
-This document provides complete type definitions for the workflow graph system, establishing the data plane with full field specifications, type compositions, and inter-type dependencies. All types follow a strict dependency order where base types are defined before dependent types.
+This document provides complete type definitions for the **meta-framework workflow system**, where phases are defined as data rather than code. The type system supports domain-agnostic workflows through a universal pattern:
+
+**`PhaseDefinition + GenericPhaseNode + WorkflowState = Any Domain Workflow`**
+
+All types follow a strict dependency order where base types are defined before dependent types.
 
 ## References
 
@@ -11,11 +15,19 @@ This document provides complete type definitions for the workflow graph system, 
 - [Node Catalog](NODE_CATALOG.md)
 - [Data Flow Requirements](DATA_FLOW_REQUIREMENTS.md)
 - [Graph Type Definitions (this doc)](GRAPH_TYPE_DEFINITIONS.md)
+- [State Mutations](STATE_MUTATIONS.md)
 
 ## Type Dependency Hierarchy
 
 ```mermaid
 graph TD
+    subgraph "Meta-Framework Core"
+        PhaseDefinition[PhaseDefinition]
+        PhaseRegistry[PhaseRegistry]
+        TemplateEngine[TemplateEngine]
+        DomainValidator[DomainValidator]
+    end
+    
     subgraph "Foundation Types"
         StorageRef[StorageRef]
         TokenUsage[TokenUsage]
@@ -24,24 +36,17 @@ graph TD
         ModelParameters[ModelParameters]
     end
     
-    subgraph "Domain Types"
-        ToolSpec[ToolSpec]
-        CodeBlock[CodeBlock]
-        QualityMetrics[QualityMetrics]
-        RefinementRecord[RefinementRecord]
-    end
-    
-    subgraph "State Components"
-        WorkflowMetadata[WorkflowMetadata]
-        PhaseStatus[PhaseStatus]
-        ProcessingState[ProcessingState]
-        StorageReferences[StorageReferences]
-    end
-    
-    subgraph "Main State"
+    subgraph "Universal State"
         WorkflowState[WorkflowState]
-        EvaluationState[EvaluationState]
-        RefinementState[RefinementState]
+        PhaseTracking[PhaseTracking]
+        DomainData[DomainData]
+        QualityTracking[QualityTracking]
+    end
+    
+    subgraph "Domain Schemas"
+        BasePhaseInput[BasePhaseInput]
+        BasePhaseOutput[BasePhaseOutput]
+        DomainSchemas[Domain-Specific Schemas]
     end
     
     subgraph "Dependencies"
@@ -73,6 +78,174 @@ graph TD
     ModelConfig --> WorkflowDeps
     QualityThresholds --> WorkflowDeps
     StorageConfig --> WorkflowDeps
+```
+
+## Meta-Framework Core Types
+
+### PhaseDefinition (Canonical)
+
+```python
+from typing import Type, List, Dict, Any, Optional
+from pydantic import BaseModel
+
+@dataclass(frozen=True)
+class PhaseDefinition:
+    """Defines a workflow phase as configuration."""
+    # Identity
+    phase_name: str                    # e.g., 'analyzer', 'designer', 'generator'
+    domain: str                        # e.g., 'agentool', 'api', 'workflow'
+    
+    # Atomic Node Sequence
+    atomic_nodes: List[str]            # Ordered list of atomic node IDs to execute
+    
+    # Schemas
+    input_schema: Type[BaseModel]      # Pydantic model for input validation
+    output_schema: Type[BaseModel]     # Pydantic model for output validation
+    
+    # Templates
+    system_template: str               # Path to system prompt template
+    user_template: str                 # Path to user prompt template
+    template_variables: List[str]     # Required variables for templates
+    
+    # Storage
+    storage_pattern: str               # e.g., '{domain}/{workflow_id}/{phase}'
+    storage_type: Literal['kv', 'fs'] = 'kv'  # Default to key-value storage
+    
+    # Dependencies
+    dependencies: List[str]            # Required previous phases
+    optional_dependencies: List[str] = field(default_factory=list)
+    
+    # Configuration
+    model_config: ModelParameters      # LLM configuration for this phase
+    retry_config: Dict[str, Any] = field(default_factory=lambda: {
+        'max_retries': 3,
+        'backoff_factor': 2
+    })
+    
+    # Validation
+    quality_threshold: float = 0.8    # Minimum quality score to pass
+    allow_refinement: bool = True     # Whether phase supports refinement
+    max_refinements: int = 3          # Maximum refinement iterations
+    
+    def get_storage_key(self, workflow_id: str) -> str:
+        """Generate storage key for this phase."""
+        return self.storage_pattern.format(
+            domain=self.domain,
+            workflow_id=workflow_id,
+            phase=self.phase_name
+        )
+```
+
+### PhaseRegistry
+
+```python
+@dataclass
+class PhaseRegistry:
+    """Central registry for all phase definitions."""
+    phases: Dict[str, PhaseDefinition] = field(default_factory=dict)
+    validators: Dict[str, DomainValidator] = field(default_factory=dict)
+    
+    def register(self, definition: PhaseDefinition) -> None:
+        """Register a phase definition."""
+        key = f"{definition.domain}.{definition.phase_name}"
+        self.phases[key] = definition
+    
+    def get(self, domain: str, phase: str) -> PhaseDefinition:
+        """Retrieve a phase definition."""
+        key = f"{domain}.{phase}"
+        if key not in self.phases:
+            raise KeyError(f"Phase not found: {key}")
+        return self.phases[key]
+    
+    def list_domains(self) -> List[str]:
+        """List all registered domains."""
+        domains = set()
+        for key in self.phases.keys():
+            domain, _ = key.split('.', 1)
+            domains.add(domain)
+        return sorted(domains)
+    
+    def list_phases(self, domain: str) -> List[str]:
+        """List all phases for a domain."""
+        phases = []
+        for key, definition in self.phases.items():
+            if key.startswith(f"{domain}."):
+                phases.append(definition.phase_name)
+        return phases
+```
+
+### TemplateEngine
+
+```python
+@dataclass
+class TemplateEngine:
+    """Template rendering engine for phase prompts."""
+    template_dir: str = 'templates'
+    cache_templates: bool = True
+    _cache: Dict[str, str] = field(default_factory=dict)
+    
+    def render(self, template_path: str, variables: Dict[str, Any]) -> str:
+        """Render a template with variables."""
+        # Load template (with caching)
+        template = self._load_template(template_path)
+        
+        # Render with Jinja2
+        from jinja2 import Template
+        jinja_template = Template(template)
+        return jinja_template.render(**variables)
+    
+    def _load_template(self, path: str) -> str:
+        """Load template from file system."""
+        if self.cache_templates and path in self._cache:
+            return self._cache[path]
+        
+        full_path = f"{self.template_dir}/{path}"
+        with open(full_path, 'r') as f:
+            template = f.read()
+        
+        if self.cache_templates:
+            self._cache[path] = template
+        
+        return template
+```
+
+### DomainValidator
+
+```python
+@dataclass
+class DomainValidator:
+    """Validates domain-specific data and transitions."""
+    domain: str
+    validation_rules: Dict[str, Callable[[Any], bool]]
+    
+    def validate_phase_input(self, phase: str, data: Any) -> ValidationResult:
+        """Validate input data for a phase."""
+        errors = []
+        warnings = []
+        
+        rule_key = f"{phase}_input"
+        if rule_key in self.validation_rules:
+            rule = self.validation_rules[rule_key]
+            if not rule(data):
+                errors.append(ValidationError(
+                    error_type='schema',
+                    message=f"Input validation failed for {phase}",
+                    severity='error'
+                ))
+        
+        return ValidationResult(
+            valid=len(errors) == 0,
+            errors=errors,
+            warnings=warnings,
+            metadata={'phase': phase, 'domain': self.domain}
+        )
+    
+    def validate_phase_transition(self, from_phase: str, to_phase: str, state: WorkflowState) -> bool:
+        """Validate transition between phases."""
+        # Check dependencies satisfied
+        # Validate required data present
+        # Ensure domain consistency
+        return True
 ```
 
 ## Foundation Types
@@ -174,9 +347,45 @@ class ModelParameters:
     seed: Optional[int] = None  # For reproducibility
 ```
 
-## Domain Types
+## Universal Schema Types
 
-### ToolSpec
+### BasePhaseInput
+
+```python
+@dataclass(frozen=True)
+class BasePhaseInput(BaseModel):
+    """Base input schema for all phases."""
+    workflow_id: str                   # Workflow identifier
+    domain: str                        # Domain context
+    phase: str                         # Current phase name
+    dependencies: Dict[str, Any]       # Data from dependent phases
+    context: Dict[str, Any] = field(default_factory=dict)  # Additional context
+    
+    class Config:
+        extra = 'forbid'  # Strict validation
+```
+
+### BasePhaseOutput
+
+```python
+@dataclass(frozen=True)
+class BasePhaseOutput(BaseModel):
+    """Base output schema for all phases."""
+    phase: str                         # Phase that generated this output
+    success: bool                      # Whether phase succeeded
+    data: Dict[str, Any]              # Phase-specific output data
+    metadata: Dict[str, Any]          # Execution metadata
+    quality_score: Optional[float] = None  # Quality assessment if applicable
+    
+    class Config:
+        extra = 'forbid'
+```
+
+## Domain-Specific Types
+
+### AgenTool Domain Types
+
+#### ToolSpec
 
 ```python
 @dataclass(frozen=True)
@@ -398,52 +607,62 @@ class StorageReferences:
     test_implementations: Dict[str, StorageRef] = field(default_factory=dict)
 ```
 
-## Main State Types
+## Universal State Types
 
 ### WorkflowState
 
 ```python
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Set
 from dataclasses import dataclass, field, replace
 
 @dataclass(frozen=True)
 class WorkflowState:
-    """Immutable state for the entire workflow."""
+    """Universal immutable state for any domain workflow."""
     # Identity
-    metadata: WorkflowMetadata
+    workflow_id: str
+    domain: str  # 'agentool', 'api', 'workflow', etc.
+    created_at: datetime = field(default_factory=datetime.now)
     
-    # Progress tracking
-    phase_status: PhaseStatus
-    processing: ProcessingState
+    # Phase tracking
+    phase_sequence: List[str]  # Ordered list of phases to execute
+    completed_phases: Set[str] = field(default_factory=set)
+    current_phase: Optional[str] = None
     
-    # Data references
-    storage: StorageReferences
+    # Universal storage
+    phase_outputs: Dict[str, StorageRef] = field(default_factory=dict)
     
-    # Analysis results (accumulated)
-    missing_tools: List[str] = field(default_factory=list)
-    existing_tools: List[str] = field(default_factory=list)
-    system_design: Optional[str] = None
-    guidelines: List[str] = field(default_factory=list)
+    # Domain-specific data (flexible per domain)
+    domain_data: Dict[str, Any] = field(default_factory=dict)
     
-    # Specification results (accumulated)
-    tool_specifications: List[ToolSpec] = field(default_factory=list)
-    
-    # Crafting results (accumulated)
-    generated_code: Dict[str, CodeBlock] = field(default_factory=dict)
-    
-    # Evaluation results (accumulated)
+    # Quality tracking
+    quality_scores: Dict[str, float] = field(default_factory=dict)
     validation_results: Dict[str, ValidationResult] = field(default_factory=dict)
-    quality_metrics: Dict[str, QualityMetrics] = field(default_factory=dict)
-    needs_refinement: List[str] = field(default_factory=list)
+    
+    # Refinement tracking
+    refinement_count: Dict[str, int] = field(default_factory=dict)
+    refinement_history: Dict[str, List[RefinementRecord]] = field(default_factory=dict)
     
     # Token usage tracking
     total_token_usage: Dict[str, TokenUsage] = field(default_factory=dict)  # phase -> usage
     
-    def with_phase_complete(self, phase: str) -> 'WorkflowState':
+    def with_phase_complete(self, phase: str, output_ref: StorageRef) -> 'WorkflowState':
         """Return new state with phase marked complete."""
-        updates = {f"{phase}_complete": True}
-        new_phase_status = replace(self.phase_status, **updates)
-        return replace(self, phase_status=new_phase_status)
+        return replace(
+            self,
+            completed_phases=self.completed_phases | {phase},
+            phase_outputs={**self.phase_outputs, phase: output_ref},
+            current_phase=self._get_next_phase(phase)
+        )
+    
+    def _get_next_phase(self, current: str) -> Optional[str]:
+        """Determine next phase in sequence."""
+        try:
+            idx = self.phase_sequence.index(current)
+            if idx < len(self.phase_sequence) - 1:
+                return self.phase_sequence[idx + 1]
+        except ValueError:
+            pass
+        return None
     
     def with_storage_ref(self, ref_type: str, ref: StorageRef, tool_name: Optional[str] = None) -> 'WorkflowState':
         """Return new state with added storage reference."""
@@ -653,30 +872,239 @@ class WorkflowDeps:
         return asyncio.Semaphore(limits.get(resource, 10))
 ```
 
+## Atomic Node Types
+
+### Error Hierarchy
+
+```python
+from typing import Optional, Any
+
+class WorkflowError(Exception):
+    """Base class for all workflow errors."""
+    pass
+
+class RetryableError(WorkflowError):
+    """Error that can be retried (transient failures)."""
+    def __init__(self, message: str, retry_after: Optional[float] = None):
+        super().__init__(message)
+        self.retry_after = retry_after  # Seconds to wait before retry
+
+class NonRetryableError(WorkflowError):
+    """Error that should not be retried (permanent failures)."""
+    pass
+
+class StorageError(RetryableError):
+    """Storage operation failed (network, permissions, etc)."""
+    pass
+
+class LLMError(NonRetryableError):
+    """LLM call failed (expensive, handle at orchestrator level)."""
+    pass
+
+class ValidationError(NonRetryableError):
+    """Validation failed (triggers refinement, not retry)."""
+    pass
+```
+
+### State-Based Configuration Types (Canonical)
+
+These are the canonical type definitions for the state-driven architecture. Other documents should reference these definitions.
+
+```python
+@dataclass(frozen=True)
+class WorkflowDefinition:
+    """Complete workflow definition in state."""
+    domain: str                             # Context (agentool, api, etc)
+    phases: Dict[str, PhaseDefinition]      # All phase definitions
+    phase_sequence: List[str]               # Execution order
+    node_configs: Dict[str, NodeConfig]     # Node behavior configs
+    conditions: Dict[str, ConditionConfig] = field(default_factory=dict)  # Conditional logic configs
+
+@dataclass(frozen=True)
+class PhaseDefinition:
+    """Single phase configuration."""
+    phase_name: str                    # Unique phase identifier
+    atomic_nodes: List[str]            # Sequence of node IDs
+    dependencies: List[str]            # Required previous phases
+    input_schema: Type[BaseModel]      # Input validation
+    output_schema: Type[BaseModel]     # Output validation
+    templates: TemplateConfig          # Template paths
+    storage_pattern: str               # Storage key pattern
+    storage_type: Literal['kv', 'fs'] # Storage backend
+    quality_threshold: float           # Quality gate threshold
+    allow_refinement: bool             # Can refine on quality failure
+
+@dataclass(frozen=True)
+class ConditionConfig:
+    """Configuration for conditional logic."""
+    condition_type: Literal['state_path', 'quality_gate', 'threshold', 'custom'] 
+    # State path conditions (e.g., "domain_data.complexity == 'high'")
+    state_path: Optional[str] = None        # Path to state value
+    operator: Optional[str] = None          # Comparison operator
+    expected_value: Optional[Any] = None    # Value to compare against
+    # Quality gate conditions
+    quality_field: Optional[str] = None     # Quality metric field name
+    threshold: Optional[float] = None       # Threshold value
+    # Custom function conditions  
+    function_name: Optional[str] = None     # Name of registered function
+    parameters: Dict[str, Any] = field(default_factory=dict)  # Function parameters
+    
+    def evaluate(self, state: 'WorkflowState') -> bool:
+        """Evaluate condition against workflow state."""
+        if self.condition_type == 'state_path':
+            return self._evaluate_state_path(state)
+        elif self.condition_type == 'quality_gate':
+            return self._evaluate_quality_gate(state)  
+        elif self.condition_type == 'threshold':
+            return self._evaluate_threshold(state)
+        elif self.condition_type == 'custom':
+            return self._evaluate_custom(state)
+        return False
+    
+    def _evaluate_state_path(self, state: 'WorkflowState') -> bool:
+        """Evaluate state path condition."""
+        # Navigate state using path (e.g., "domain_data.complexity")
+        value = state
+        for part in self.state_path.split('.'):
+            if hasattr(value, part):
+                value = getattr(value, part)
+            elif isinstance(value, dict) and part in value:
+                value = value[part]
+            else:
+                return False
+        
+        # Apply operator comparison
+        if self.operator == '==':
+            return value == self.expected_value
+        elif self.operator == '!=':
+            return value != self.expected_value
+        elif self.operator == '>':
+            return value > self.expected_value
+        elif self.operator == '<':
+            return value < self.expected_value
+        elif self.operator == '>=':
+            return value >= self.expected_value
+        elif self.operator == '<=':
+            return value <= self.expected_value
+        elif self.operator == 'in':
+            return value in self.expected_value
+        elif self.operator == 'not_in':
+            return value not in self.expected_value
+        return False
+    
+    def _evaluate_quality_gate(self, state: 'WorkflowState') -> bool:
+        """Evaluate quality gate condition."""
+        if self.quality_field not in state.quality_scores:
+            return False
+        score = state.quality_scores[self.quality_field]
+        return score >= self.threshold
+    
+    def _evaluate_threshold(self, state: 'WorkflowState') -> bool:
+        """Evaluate threshold condition."""
+        # Generic threshold evaluation using state path
+        return self._evaluate_state_path(state)
+    
+    def _evaluate_custom(self, state: 'WorkflowState') -> bool:
+        """Evaluate custom function condition."""
+        # This would call a registered function by name
+        # For now, return False as placeholder
+        return False
+
+@dataclass(frozen=True)
+class NodeConfig:
+    """Configuration for node behavior."""
+    node_type: str                          # Node category
+    retryable: bool = False                 # Can retry on failure
+    max_retries: int = 0                    # Max retry attempts
+    retry_backoff: str = "exponential"      # Backoff strategy
+    # Iteration support
+    iter_enabled: bool = False              # Process items one by one
+    iter_in_type: Optional[Type] = None     # Input items type
+    iter_out_type: Optional[Type] = None    # Output items type
+    # Caching
+    cacheable: bool = False                 # Can cache results
+    cache_ttl: int = 0                      # Cache time-to-live
+```
+
+### Atomic Storage Node Types
+
+```python
+@dataclass
+class DependencyCheckNode(BaseNode[WorkflowState, WorkflowDeps, None]):
+    """Validates dependencies are satisfied."""
+    
+    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode:
+        # Read dependencies from phase definition in state
+        phase_def = ctx.state.workflow_def.phases[ctx.state.current_phase]
+        
+        for dep in phase_def.dependencies:
+            if dep not in ctx.state.completed_phases:
+                raise NonRetryableError(f"Dependency {dep} not satisfied")
+        return LoadDependenciesNode()  # Return next node in chain
+
+@dataclass  
+class StateUpdateNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
+    """Updates workflow state after phase completion."""
+    
+    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode:
+        # Read current phase from state
+        phase_name = ctx.state.current_phase
+        
+        # Mark phase complete
+        new_state = replace(
+            ctx.state,
+            completed_phases=ctx.state.completed_phases | {phase_name},
+            current_phase=self._get_next_phase(ctx.state)
+        )
+        return QualityGateNode()  # Return next node in chain
+
+@dataclass
+class NextPhaseNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
+    """Determines next phase to execute."""
+    
+    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode | End[WorkflowState]:
+        # Find next incomplete phase
+        for phase in ctx.state.phase_sequence:
+            if phase not in ctx.state.completed_phases:
+                # Update state to new phase
+                new_state = replace(ctx.state, current_phase=phase)
+                # GenericPhaseNode will read phase from state
+                return GenericPhaseNode()
+        
+        # All phases complete
+        return End(ctx.state)
+```
+
 ## Inter-Type Contracts
 
 ### Node Input/Output Contracts
 
 ```python
-# Storage Node Contracts
-LoadKVNode: (WorkflowState, WorkflowDeps) -> WorkflowState with loaded data
-SaveKVNode: (WorkflowState, WorkflowDeps) -> WorkflowState with StorageRef
+# Atomic Storage Node Contracts
+LoadKVNode: (WorkflowState, WorkflowDeps) -> Any (loaded data)
+SaveKVNode: (WorkflowState, WorkflowDeps) -> StorageRef
+LoadDependenciesNode: (WorkflowState, WorkflowDeps) -> Dict[str, Any]
+SavePhaseOutputNode: (WorkflowState, WorkflowDeps) -> StorageRef
+DependencyCheckNode: (WorkflowState, WorkflowDeps) -> None (validation only)
+StateUpdateNode: (WorkflowState, WorkflowDeps) -> WorkflowState
 
 # Transform Node Contracts  
-JSONParseNode: (WorkflowState with json_string) -> WorkflowState with parsed_data
-TemplateRenderNode: (WorkflowState with template_ref) -> WorkflowState with rendered_text
+JSONParseNode: (WorkflowState with json_string) -> Any (parsed data)
+TemplateRenderNode: (WorkflowState with templates) -> Dict[str, str] (rendered prompts)
 
 # Validation Node Contracts
-SyntaxValidationNode: (WorkflowState with CodeBlock) -> WorkflowState with ValidationError[]
-QualityGateNode: (WorkflowState with QualityMetrics) -> ConditionalNode | End
+SchemaValidationNode: (Any data, Type[BaseModel]) -> ValidationResult
+QualityGateNode: (WorkflowState with quality_scores) -> BaseNode (refine or continue)
+DependencyCheckNode: (WorkflowState with dependencies) -> None (raises if invalid)
 
 # LLM Node Contracts
-LLMCallNode: (WorkflowState with prompt) -> WorkflowState with response + TokenUsage
-RefinementNode: (EvaluationState) -> EvaluationState with RefinementRecord
+LLMCallNode: (WorkflowState with prompts) -> Any (LLM response)
+RefinementLoopNode: (WorkflowState) -> GenericPhaseNode | NextPhaseNode
 
 # Control Node Contracts
-ParallelMapNode: (WorkflowState with List[items]) -> WorkflowState with List[results]
-ConditionalNode: (WorkflowState) -> NodeA | NodeB based on condition
+IterableNode: (WorkflowState with items) -> WorkflowState (self-return or next)
+ConditionalNode: (WorkflowState) -> BaseNode (true_node or false_node)
+NextPhaseNode: (WorkflowState) -> GenericPhaseNode | End[WorkflowState]
 ```
 
 ### State Mutation Rules
@@ -735,5 +1163,3 @@ def update_with_analysis(state: WorkflowState, analysis: AnalyzerOutput) -> Work
 - `evaluation_iteration <= max_iterations`
 - All `StorageRef` keys must follow naming convention
 - All `ToolSpec` names must be lowercase_underscore
-
-This completes the Phase 2 type definitions with full field specifications and type relationships.
