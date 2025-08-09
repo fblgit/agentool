@@ -194,10 +194,10 @@ class BaseNode(PydanticBaseNode[StateT, DepsT, OutputT], MetricsMixin):
         logger.error(f'Non-retryable error in {ctx.state.current_node}: {error}')
         return ErrorNode(error=str(error), node_id=ctx.state.current_node)
     
-    def get_next_node(self, ctx: GraphRunContext[StateT, DepsT]) -> Optional[str]:
+    def get_next_node(self, state: StateT) -> Optional[str]:
         """Get the next node in the current phase's sequence."""
-        if hasattr(ctx.state, 'get_next_atomic_node'):
-            return ctx.state.get_next_atomic_node()
+        if hasattr(state, 'get_next_atomic_node'):
+            return state.get_next_atomic_node()
         return None
     
     def create_next_node(self, node_id: str) -> 'BaseNode':
