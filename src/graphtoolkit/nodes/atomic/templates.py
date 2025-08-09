@@ -48,9 +48,11 @@ class TemplateRenderNode(AtomicNode[WorkflowState, Any, Dict[str, str]]):
         # Render system template
         if phase_def.templates.system_template:
             try:
+                # Template name should be the path without extension (e.g., "smoke/system/analyzer")
+                template_name = phase_def.templates.system_template.replace('.jinja', '').replace('.j2', '')
                 result = await injector.run('templates', {
                     'operation': 'render',
-                    'template_name': phase_def.templates.system_template.replace('templates/', '').replace('.jinja', ''),
+                    'template_name': template_name,
                     'variables': variables
                 })
                 
@@ -66,9 +68,11 @@ class TemplateRenderNode(AtomicNode[WorkflowState, Any, Dict[str, str]]):
         # Render user template
         if phase_def.templates.user_template:
             try:
+                # Template name should be the path without extension (e.g., "smoke/prompts/analyze_ingredients")
+                template_name = phase_def.templates.user_template.replace('.jinja', '').replace('.j2', '')
                 result = await injector.run('templates', {
                     'operation': 'render',
-                    'template_name': phase_def.templates.user_template.replace('templates/', '').replace('.jinja', ''),
+                    'template_name': template_name,
                     'variables': variables
                 })
                 
@@ -113,15 +117,11 @@ class TemplateRenderNode(AtomicNode[WorkflowState, Any, Dict[str, str]]):
         
         return variables
     
-    async def update_state(self, state: WorkflowState, result: Dict[str, str]) -> WorkflowState:
-        """Update state with rendered templates."""
-        return replace(
-            state,
-            domain_data={
-                **state.domain_data,
-                'rendered_prompts': result
-            }
-        )
+    async def update_state_in_place(self, state: WorkflowState, result: Dict[str, str]) -> None:
+        """Update state with rendered templates - modifies in place."""
+        logger.info(f"Storing rendered prompts for {state.current_phase}: {list(result.keys())}")
+        state.domain_data['rendered_prompts'] = result
+        logger.info(f"State now has domain_data keys: {list(state.domain_data.keys())}")
 
 
 @dataclass

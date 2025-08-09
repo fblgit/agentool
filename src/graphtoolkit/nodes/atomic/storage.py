@@ -5,7 +5,7 @@ Atomic nodes for storage operations with state-driven retry.
 
 import logging
 import time
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List
 
@@ -39,7 +39,7 @@ class DependencyCheckNode(BaseNode[WorkflowState, Any, None]):
         # Chain to next node (LoadDependencies)
         next_node_id = self.get_next_node(ctx.state)
         if next_node_id:
-            new_state = replace(ctx.state, current_node=next_node_id)
+            ctx.state.current_node = next_node_id
             return create_node_instance(next_node_id)
         
         # No dependencies to load, skip to next
@@ -107,15 +107,9 @@ class LoadDependenciesNode(AtomicNode[WorkflowState, Any, Dict[str, Any]]):
         
         return loaded_data
     
-    async def update_state(self, state: WorkflowState, result: Dict[str, Any]) -> WorkflowState:
-        """Update state with loaded dependencies."""
-        return replace(
-            state,
-            domain_data={
-                **state.domain_data,
-                'loaded_dependencies': result
-            }
-        )
+    async def update_state_in_place(self, state: WorkflowState, result: Dict[str, Any]) -> None:
+        """Update state with loaded dependencies - modifies in place."""
+        state.domain_data['loaded_dependencies'] = result
 
 
 @dataclass
@@ -158,7 +152,9 @@ class SavePhaseOutputNode(AtomicNode[WorkflowState, Any, StorageRef]):
         
         try:
             # Save using agentoolkit storage system with metrics tracking
+            logger.info(f"Getting storage client for phase {phase_name}")
             storage_client = ctx.deps.get_storage_client()
+            logger.info(f"Got storage client: {storage_client}")
             start_time = time.time()
             
             if phase_def.storage_type == StorageType.KV:
@@ -200,18 +196,13 @@ class SavePhaseOutputNode(AtomicNode[WorkflowState, Any, StorageRef]):
             
         except Exception as e:
             # Storage errors are retryable
+            logger.error(f"SavePhaseOutputNode error: {e}", exc_info=True)
             raise StorageError(f'Failed to save {phase_name} output: {e}')
     
-    async def update_state(self, state: WorkflowState, result: StorageRef) -> WorkflowState:
-        """Update state with storage reference."""
+    async def update_state_in_place(self, state: WorkflowState, result: StorageRef) -> None:
+        """Update state with storage reference - modifies in place."""
         phase_name = state.current_phase
-        return replace(
-            state,
-            phase_outputs={
-                **state.phase_outputs,
-                phase_name: result
-            }
-        )
+        state.phase_outputs[phase_name] = result
 
 
 @dataclass

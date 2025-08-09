@@ -28,8 +28,10 @@ class LLMCallNode(AtomicNode[WorkflowState, Any, Any]):
             raise NonRetryableError(f'Phase {ctx.state.current_phase} not found')
         
         # Get rendered prompts from state
+        logger.info(f"Looking for rendered_prompts in domain_data. Keys: {list(ctx.state.domain_data.keys())}")
         prompts = ctx.state.domain_data.get('rendered_prompts', {})
         if not prompts:
+            logger.error(f"No rendered_prompts found. domain_data: {ctx.state.domain_data}")
             raise NonRetryableError('No rendered prompts available')
         
         system_prompt = prompts.get('system_prompt', '')
@@ -65,9 +67,11 @@ class LLMCallNode(AtomicNode[WorkflowState, Any, Any]):
     def _get_model_for_phase(self, ctx: GraphRunContext[WorkflowState, Any]) -> str:
         """Determine which model to use for this phase."""
         # Check if deps has model configuration
-        if hasattr(ctx.deps, 'models'):
-            return ctx.deps.models.get_model_for_phase(ctx.state.current_phase)
-        
+        if hasattr(ctx.deps, 'models') and ctx.deps.models:
+            # Use the configured model
+            if ctx.deps.models.provider and ctx.deps.models.model:
+                return f"{ctx.deps.models.provider}:{ctx.deps.models.model}"
+            
         # Default model
         return 'openai:gpt-4o'
     
@@ -115,34 +119,45 @@ class LLMCallNode(AtomicNode[WorkflowState, Any, Any]):
         try:
             from pydantic_ai import Agent
             
+            logger.info(f"Creating pydantic-ai agent with model: {model}")
+            logger.info(f"Output schema: {output_schema}")
+            
+            # Handle test model specially
+            if model == 'test:test':
+                from pydantic_ai.models.test import TestModel
+                model_instance = TestModel()
+            else:
+                model_instance = model
+            
             # Create agent with appropriate model
             agent = Agent(
-                model,
+                model_instance,
                 system_prompt=system_prompt,
-                result_type=output_schema if output_schema else str
+                output_type=output_schema if output_schema else str
             )
             
+            logger.info(f"Running agent with prompt: {user_prompt[:100]}...")
             # Run the agent
             result = await agent.run(user_prompt)
             
-            # Return the data
-            return result.data if hasattr(result, 'data') else result
+            logger.info(f"Agent result type: {type(result)}, has output: {hasattr(result, 'output')}")
+            # Return the output
+            return result.output if hasattr(result, 'output') else result
             
-        except ImportError:
+        except ImportError as e:
+            logger.error(f"Import error: {e}")
             raise NonRetryableError('No LLM client available. Install pydantic-ai or configure LLM client in deps.')
         except Exception as e:
+            logger.error(f"LLM call error: {e}", exc_info=True)
             raise LLMError(f'LLM call failed: {e}')
     
-    async def update_state(self, state: WorkflowState, result: Any) -> WorkflowState:
-        """Update state with LLM response."""
+    async def update_state_in_place(self, state: WorkflowState, result: Any) -> None:
+        """Update state with LLM response - modifies in place."""
         phase_name = state.current_phase
         
         # Store raw response
-        new_domain_data = {
-            **state.domain_data,
-            f'{phase_name}_llm_response': result,
-            f'{phase_name}_output': result  # Also store as output for SavePhaseOutputNode
-        }
+        state.domain_data[f'{phase_name}_llm_response'] = result
+        state.domain_data[f'{phase_name}_output'] = result  # Also store as output for SavePhaseOutputNode
         
         # Update token usage if available
         # In production, this would come from the LLM response
@@ -151,21 +166,14 @@ class LLMCallNode(AtomicNode[WorkflowState, Any, Any]):
             prompt_tokens=len(state.domain_data.get('rendered_prompts', {}).get('user_prompt', '')) // 4,
             completion_tokens=len(str(result)) // 4,
             total_tokens=0,
-            model=self._get_model_for_phase(None)
+            model='test'  # Simple model string for testing
         )
         token_usage = replace(
             token_usage,
             total_tokens=token_usage.prompt_tokens + token_usage.completion_tokens
         )
         
-        return replace(
-            state,
-            domain_data=new_domain_data,
-            total_token_usage={
-                **state.total_token_usage,
-                phase_name: token_usage
-            }
-        )
+        state.total_token_usage[phase_name] = token_usage
 
 
 @dataclass

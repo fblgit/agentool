@@ -244,7 +244,7 @@ class RefinementRecord:
     code_after_ref: Optional[StorageRef] = None
 
 
-@dataclass(frozen=True)
+@dataclass
 class WorkflowState:
     """State-driven workflow execution.
     

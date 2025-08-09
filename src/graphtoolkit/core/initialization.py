@@ -21,6 +21,52 @@ from agentool.core.registry import AgenToolRegistry
 
 logger = logging.getLogger(__name__)
 
+# GraphToolkit metrics to be initialized
+_GRAPHTOOLKIT_METRICS = {
+    # Node execution metrics
+    'graphtoolkit.dependencycheck.executions.total': {'type': 'counter', 'unit': 'count'},
+    'graphtoolkit.dependencycheck.executions.success': {'type': 'counter', 'unit': 'count'},
+    'graphtoolkit.dependencycheck.executions.failure': {'type': 'counter', 'unit': 'count'},
+    'graphtoolkit.dependencycheck.duration.seconds': {'type': 'timer', 'unit': 'seconds'},
+    
+    'graphtoolkit.loaddependencies.executions.total': {'type': 'counter', 'unit': 'count'},
+    'graphtoolkit.loaddependencies.executions.success': {'type': 'counter', 'unit': 'count'},
+    'graphtoolkit.loaddependencies.executions.failure': {'type': 'counter', 'unit': 'count'},
+    'graphtoolkit.loaddependencies.duration.seconds': {'type': 'timer', 'unit': 'seconds'},
+    
+    'graphtoolkit.templaterender.executions.total': {'type': 'counter', 'unit': 'count'},
+    'graphtoolkit.templaterender.executions.success': {'type': 'counter', 'unit': 'count'},
+    'graphtoolkit.templaterender.executions.failure': {'type': 'counter', 'unit': 'count'},
+    'graphtoolkit.templaterender.duration.seconds': {'type': 'timer', 'unit': 'seconds'},
+    
+    'graphtoolkit.llmcall.executions.total': {'type': 'counter', 'unit': 'count'},
+    'graphtoolkit.llmcall.executions.success': {'type': 'counter', 'unit': 'count'},
+    'graphtoolkit.llmcall.executions.failure': {'type': 'counter', 'unit': 'count'},
+    'graphtoolkit.llmcall.duration.seconds': {'type': 'timer', 'unit': 'seconds'},
+    
+    'graphtoolkit.schemavalidation.executions.total': {'type': 'counter', 'unit': 'count'},
+    'graphtoolkit.schemavalidation.executions.success': {'type': 'counter', 'unit': 'count'},
+    'graphtoolkit.schemavalidation.executions.failure': {'type': 'counter', 'unit': 'count'},
+    'graphtoolkit.schemavalidation.duration.seconds': {'type': 'timer', 'unit': 'seconds'},
+    
+    'graphtoolkit.savephaseoutput.executions.total': {'type': 'counter', 'unit': 'count'},
+    'graphtoolkit.savephaseoutput.executions.success': {'type': 'counter', 'unit': 'count'},
+    'graphtoolkit.savephaseoutput.executions.failure': {'type': 'counter', 'unit': 'count'},
+    'graphtoolkit.savephaseoutput.duration.seconds': {'type': 'timer', 'unit': 'seconds'},
+    
+    'graphtoolkit.error.executions.total': {'type': 'counter', 'unit': 'count'},
+    'graphtoolkit.error.executions.success': {'type': 'counter', 'unit': 'count'},
+    'graphtoolkit.error.executions.failure': {'type': 'counter', 'unit': 'count'},
+    'graphtoolkit.error.duration.seconds': {'type': 'timer', 'unit': 'seconds'},
+    
+    # Workflow-level metrics
+    'graphtoolkit.workflow.executions.total': {'type': 'counter', 'unit': 'count'},
+    'graphtoolkit.workflow.executions.success': {'type': 'counter', 'unit': 'count'},
+    'graphtoolkit.workflow.executions.failure': {'type': 'counter', 'unit': 'count'},
+    'graphtoolkit.workflow.duration.seconds': {'type': 'timer', 'unit': 'seconds'},
+    'graphtoolkit.workflow.phases.completed': {'type': 'gauge', 'unit': 'count'},
+}
+
 
 @dataclass
 class InitializationConfig:
@@ -224,6 +270,8 @@ class GraphToolkitInitializer:
         """Initialize observability components."""
         if self.config.enable_metrics:
             self._initialize_component('metrics', self._create_metrics_agent)
+            # Initialize GraphToolkit-specific metrics
+            self._initialize_graphtoolkit_metrics()
     
     def _initialize_security_components(self) -> None:
         """Initialize security components."""
@@ -292,7 +340,23 @@ class GraphToolkitInitializer:
     
     def _create_templates_agent(self):
         from agentoolkit.system.templates import create_templates_agent
-        return create_templates_agent()
+        # Use the templates directory at the project root where our smoke templates are stored
+        import os
+        from pathlib import Path
+        
+        # Go from src/graphtoolkit/core to the project root, then to templates
+        templates_dir = Path(__file__).parent.parent.parent.parent / "templates"
+        
+        if not templates_dir.exists():
+            # Fallback to current directory templates
+            templates_dir = Path("templates")
+            
+        logger.info(f"Creating templates agent with directory: {templates_dir.absolute()}")
+        logger.info(f"Templates directory exists: {templates_dir.exists()}")
+        if templates_dir.exists():
+            logger.info(f"Templates directory contents: {list(templates_dir.iterdir())}")
+            
+        return create_templates_agent(templates_dir=str(templates_dir.absolute()))
     
     def _create_logging_agent(self):
         from agentoolkit.system.logging import create_logging_agent
@@ -349,6 +413,35 @@ class GraphToolkitInitializer:
     def _create_workflow_evaluator_agent(self):
         from agentoolkit.workflows.workflow_evaluator import create_workflow_evaluator_agent
         return create_workflow_evaluator_agent()
+    
+    def _initialize_graphtoolkit_metrics(self) -> None:
+        """Initialize all GraphToolkit metrics using the metrics agent."""
+        try:
+            injector = get_injector()
+            
+            # Create all metrics
+            import asyncio
+            loop = asyncio.get_event_loop()
+            
+            for metric_name, config in _GRAPHTOOLKIT_METRICS.items():
+                try:
+                    # Run the async operation synchronously
+                    loop.run_until_complete(
+                        injector.run('metrics', {
+                            'operation': 'create',
+                            'name': metric_name,
+                            'metric_type': config['type'],
+                            'unit': config['unit'],
+                            'description': f'GraphToolkit metric: {metric_name}'
+                        })
+                    )
+                    logger.debug(f"Created metric: {metric_name}")
+                except Exception as e:
+                    # Metric might already exist, that's ok
+                    logger.debug(f"Metric {metric_name} initialization: {e}")
+                    
+        except Exception as e:
+            logger.warning(f"Failed to initialize GraphToolkit metrics: {e}")
 
 
 # Module-level convenience functions

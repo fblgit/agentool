@@ -172,11 +172,8 @@ class BaseNode(PydanticBaseNode[StateT, DepsT, OutputT], MetricsMixin):
             
             # Update retry count in state
             # Note: In actual implementation, state update happens through context
-            # This is a simplified representation
-            new_state = replace(
-                ctx.state,
-                retry_counts={**ctx.state.retry_counts, retry_key: retry_count + 1}
-            )
+            # Increment retry count - modify in place
+            ctx.state.retry_counts[retry_key] = retry_count + 1
             
             # Return self to retry
             return self.__class__()
@@ -215,21 +212,13 @@ class ErrorNode(BaseNode[StateT, DepsT, StateT]):
     
     async def execute(self, ctx: GraphRunContext[StateT, DepsT]) -> End[StateT]:
         """Record error and end execution."""
-        # Update state with error information
+        # Update state with error information - modify in place
         if hasattr(ctx.state, 'domain_data'):
-            new_state = replace(
-                ctx.state,
-                domain_data={
-                    **ctx.state.domain_data,
-                    'error': self.error,
-                    'error_node': self.node_id,
-                    'error_time': datetime.now().isoformat()
-                }
-            )
-        else:
-            new_state = ctx.state
+            ctx.state.domain_data['error'] = self.error
+            ctx.state.domain_data['error_node'] = self.node_id
+            ctx.state.domain_data['error_time'] = datetime.now().isoformat()
         
-        return End(new_state)
+        return End(ctx.state)
 
 
 @dataclass  
@@ -247,23 +236,22 @@ class AtomicNode(BaseNode[StateT, DepsT, OutputT]):
         # Perform our atomic operation
         result = await self.perform_operation(ctx)
         
-        # Update state with result
-        new_state = await self.update_state(ctx.state, result)
+        # Update state with result - directly modify the mutable state
+        await self.update_state_in_place(ctx.state, result)
         
-        # Get next node in chain
-        # Update context with new state for next node lookup
-        updated_ctx = GraphRunContext(new_state, ctx.deps)
-        next_node_id = self.get_next_node(updated_ctx)
+        # Get next node in chain based on current position
+        next_node_id = self.get_next_node(ctx.state)
         
         if next_node_id:
             # Update current_node in state for next execution
-            new_state = replace(new_state, current_node=next_node_id)
+            ctx.state.current_node = next_node_id
             
-            # Chain to next node
-            return self.create_next_node(next_node_id)
+            # Chain to next node - it will receive the same context with updated state
+            next_node = self.create_next_node(next_node_id)
+            return next_node
         else:
             # No more nodes in this phase
-            return await self.complete_phase(ctx, new_state)
+            return await self.complete_phase(ctx, ctx.state)
     
     async def perform_operation(self, ctx: GraphRunContext[StateT, DepsT]) -> Any:
         """Perform the atomic operation.
@@ -271,35 +259,33 @@ class AtomicNode(BaseNode[StateT, DepsT, OutputT]):
         """
         raise NotImplementedError
     
-    async def update_state(self, state: StateT, result: Any) -> StateT:
-        """Update state with operation result.
+    async def update_state_in_place(self, state: StateT, result: Any) -> None:
+        """Update state with operation result - modifies state in place.
         Default implementation stores in domain_data.
         """
         if hasattr(state, 'domain_data'):
             key = f'{state.current_node}_result'
-            return replace(
-                state,
-                domain_data={**state.domain_data, key: result}
-            )
+            state.domain_data[key] = result
+    
+    async def update_state(self, state: StateT, result: Any) -> StateT:
+        """Legacy method for compatibility - now just modifies in place."""
+        await self.update_state_in_place(state, result)
         return state
     
     async def complete_phase(self, ctx: GraphRunContext[StateT, DepsT], state: StateT) -> Union['BaseNode', End[OutputT]]:
         """Handle phase completion.
         Default implementation moves to next phase.
         """
-        # Mark phase as complete
+        # Mark phase as complete - modify in place
         if hasattr(state, 'completed_phases') and hasattr(state, 'current_phase'):
-            new_state = replace(
-                state,
-                completed_phases=state.completed_phases | {state.current_phase}
-            )
+            state.completed_phases.add(state.current_phase)
             
             # Get next phase
             if hasattr(ctx.state, 'workflow_def'):
                 next_phase = ctx.state.workflow_def.get_next_phase(state.current_phase)
                 if next_phase:
                     # Move to next phase
-                    from .control import NextPhaseNode
+                    from .atomic.control import NextPhaseNode
                     return NextPhaseNode()
         
         # No more phases - workflow complete

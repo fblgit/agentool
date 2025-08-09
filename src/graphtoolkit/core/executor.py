@@ -60,11 +60,14 @@ class WorkflowExecutor:
             graph = self._build_graph(initial_state)
             
             # Execute using pydantic_graph
-            final_state = await graph.run(
+            result = await graph.run(
                 GenericPhaseNode(),
                 state=initial_state,
                 deps=self.deps
             )
+            
+            # The result is the final state (WorkflowState)
+            final_state = result
             
             # Extract outputs from state
             outputs = self._extract_outputs(final_state)
@@ -99,29 +102,56 @@ class WorkflowExecutor:
         Returns:
             Configured Graph instance
         """
+        # Import all node modules to ensure registration
+        from ..nodes import generic, atomic
+        
         # Get all unique node types from workflow definition
         all_node_types = set()
         
         for phase_def in initial_state.workflow_def.phases.values():
             all_node_types.update(phase_def.atomic_nodes)
         
-        # Create node instances
-        nodes = []
+        # Collect node CLASSES (not instances)
+        node_classes = set()
         
-        # Always include GenericPhaseNode as entry point
-        nodes.append(GenericPhaseNode())
+        # Always include GenericPhaseNode class as entry point
+        node_classes.add(GenericPhaseNode)
         
-        # Add all atomic nodes that can be created
-        for node_type in all_node_types:
-            try:
-                node = create_node_instance(node_type)
-                if node:
-                    nodes.append(node)
-            except Exception as e:
-                logger.warning(f'Could not create node {node_type}: {e}')
+        # Import base classes first
+        from ..nodes.base import BaseNode, AtomicNode, ErrorNode
         
-        # Create and return graph
-        return Graph(nodes=nodes)
+        # Import all atomic node classes that are needed
+        # This approach loads all classes to ensure they're available in the graph
+        from ..nodes.atomic.storage import (
+            DependencyCheckNode, LoadDependenciesNode, SavePhaseOutputNode
+        )
+        from ..nodes.atomic.templates import TemplateRenderNode
+        from ..nodes.atomic.llm import LLMCallNode
+        from ..nodes.atomic.validation import SchemaValidationNode, QualityGateNode
+        from ..nodes.atomic.control import StateUpdateNode, NextPhaseNode
+        from ..nodes.generic import WorkflowEndNode
+        
+        # Add base classes to satisfy pydantic_graph's type checking
+        node_classes.add(BaseNode)
+        node_classes.add(AtomicNode)
+        node_classes.add(ErrorNode)
+        
+        # Add all node classes that might be used
+        # We include all to avoid "not included in graph" errors
+        node_classes.add(DependencyCheckNode)
+        node_classes.add(LoadDependenciesNode)
+        node_classes.add(SavePhaseOutputNode)
+        node_classes.add(TemplateRenderNode)
+        node_classes.add(LLMCallNode)
+        node_classes.add(SchemaValidationNode)
+        node_classes.add(QualityGateNode)
+        node_classes.add(StateUpdateNode)
+        node_classes.add(NextPhaseNode)
+        node_classes.add(WorkflowEndNode)
+        node_classes.add(ErrorNode)
+        
+        # Create and return graph with node CLASSES
+        return Graph(nodes=list(node_classes))
     
     def _extract_outputs(self, final_state: WorkflowState) -> Dict[str, Any]:
         """Extract outputs from final workflow state.
@@ -134,13 +164,14 @@ class WorkflowExecutor:
         """
         outputs = {}
         
-        # Extract from phase_outputs (storage references)
-        for phase_name, storage_ref in final_state.phase_outputs.items():
-            outputs[phase_name] = {
-                'storage_ref': str(storage_ref),
-                'phase': phase_name,
-                'created_at': storage_ref.created_at.isoformat()
-            }
+        # Extract from phase_outputs (storage references) if they exist
+        if hasattr(final_state, 'phase_outputs') and final_state.phase_outputs:
+            for phase_name, storage_ref in final_state.phase_outputs.items():
+                outputs[phase_name] = {
+                    'storage_ref': str(storage_ref),
+                    'phase': phase_name,
+                    'created_at': storage_ref.created_at.isoformat() if hasattr(storage_ref, 'created_at') else None
+                }
         
         # Extract from domain_data
         for key, value in final_state.domain_data.items():
@@ -549,6 +580,69 @@ async def execute_agentool_workflow(
             'outputs': {},
             'domain_data': {}
         }
+
+
+async def execute_smoke_workflow(
+    ingredients: List[str],
+    dietary_restrictions: Optional[List[str]] = None,
+    cuisine_preference: Optional[str] = None,
+    max_cook_time: Optional[int] = None,
+    model: str = 'openai:gpt-4o-mini',
+    workflow_id: Optional[str] = None,
+    enable_persistence: bool = False,
+    enable_refinement: bool = True
+) -> Dict[str, Any]:
+    """Execute a smoke test workflow for recipe generation.
+    
+    This is a lightweight E2E test workflow that exercises all GraphToolkit
+    capabilities with minimal complexity and cost.
+    
+    Args:
+        ingredients: List of available ingredients
+        dietary_restrictions: Optional dietary restrictions
+        cuisine_preference: Optional cuisine preference
+        max_cook_time: Optional max cooking time in minutes
+        model: LLM model to use (default: gpt-4o-mini for cost efficiency)
+        workflow_id: Optional workflow identifier
+        enable_persistence: Whether to enable state persistence
+        enable_refinement: Whether to enable quality-based refinement
+        
+    Returns:
+        Workflow execution results with recipe and evaluation
+    """
+    from ..domains.smoke import create_smoke_workflow
+    from .initialization import ensure_graphtoolkit_initialized, default_config
+    
+    # Ensure initialization
+    ensure_graphtoolkit_initialized(default_config())
+    
+    # Create smoke workflow
+    workflow_def, initial_state = create_smoke_workflow(
+        ingredients=ingredients,
+        dietary_restrictions=dietary_restrictions,
+        cuisine_preference=cuisine_preference,
+        max_cook_time=max_cook_time,
+        workflow_id=workflow_id,
+        enable_refinement=enable_refinement
+    )
+    
+    # Create dependencies with specified model
+    from .deps import ModelConfig, StorageConfig
+    deps = WorkflowDeps(
+        models=ModelConfig(provider=model.split(':')[0], model=model.split(':')[1]),
+        storage=StorageConfig(kv_backend='memory'),
+        metrics_enabled=True,
+        logging_level='INFO'
+    )
+    
+    # Create and run executor
+    executor = WorkflowExecutor(deps)
+    
+    # Run the workflow
+    result = await executor.run(initial_state)
+    
+    # Return the raw workflow result - let the caller extract what they need
+    return result
 
 
 async def execute_testsuite_workflow(
