@@ -75,13 +75,15 @@ class LoadDependenciesNode(AtomicNode[WorkflowState, Any, Dict[str, Any]]):
                 
                 if storage_ref.storage_type == StorageType.KV:
                     result = await storage_client.run('storage_kv', {
-                        'operation': 'load',
-                        'key': storage_ref.key
+                        'operation': 'get',
+                        'key': storage_ref.key,
+                        'namespace': 'workflow'
                     })
+                    # The result is already the output object (StorageKvOutput)
                     data = result.data if result.success else None
                 else:
                     result = await storage_client.run('storage_fs', {
-                        'operation': 'load',
+                        'operation': 'read',
                         'path': storage_ref.key
                     })
                     data = result.data if result.success else None
@@ -161,16 +163,17 @@ class SavePhaseOutputNode(AtomicNode[WorkflowState, Any, StorageRef]):
             
             if phase_def.storage_type == StorageType.KV:
                 result = await storage_client.run('storage_kv', {
-                    'operation': 'save',
+                    'operation': 'set',
                     'key': storage_key,
-                    'data': output_data
+                    'value': output_data,
+                    'namespace': 'workflow'
                 })
                 success = result.success
             else:
                 result = await storage_client.run('storage_fs', {
-                    'operation': 'save',
+                    'operation': 'write',
                     'path': storage_key,
-                    'data': output_data
+                    'content': output_data
                 })
                 success = result.success
             
