@@ -91,7 +91,60 @@ class TemplateRenderNode(AtomicNode[WorkflowState, Any, Dict[str, str]]):
         return rendered
     
     def _prepare_variables(self, ctx: GraphRunContext[WorkflowState, Any]) -> Dict[str, Any]:
-        """Prepare variables for template rendering."""
+        """Prepare variables for template rendering, ensuring all are JSON-serializable."""
+        import json
+        
+        def make_serializable(obj, seen=None):
+            """Convert any object to a JSON-serializable form."""
+            # Track seen objects to avoid infinite recursion
+            if seen is None:
+                seen = set()
+            
+            # Check for circular references
+            obj_id = id(obj)
+            if obj_id in seen:
+                return None  # Break circular reference
+            
+            # Handle basic types
+            if isinstance(obj, (str, int, float, bool, type(None))):
+                return obj
+            
+            # Add to seen set for complex objects
+            seen.add(obj_id)
+            
+            try:
+                # Handle lists and tuples
+                if isinstance(obj, (list, tuple)):
+                    return [make_serializable(item, seen) for item in obj]
+                # Handle sets
+                elif isinstance(obj, set):
+                    return list(obj)
+                # Handle dicts
+                elif isinstance(obj, dict):
+                    return {str(k): make_serializable(v, seen) for k, v in obj.items()}
+                # Handle Pydantic models
+                elif hasattr(obj, 'model_dump'):
+                    return obj.model_dump()
+                elif hasattr(obj, 'dict'):
+                    return obj.dict()
+                # Handle dataclasses (like ValidationResult)
+                elif hasattr(obj, '__dataclass_fields__'):
+                    from dataclasses import asdict
+                    return asdict(obj)
+                # Handle objects with __dict__ (but avoid infinite recursion)
+                elif hasattr(obj, '__dict__') and not callable(obj):
+                    result = {}
+                    for k, v in obj.__dict__.items():
+                        if not k.startswith('_'):
+                            result[k] = make_serializable(v, seen)
+                    return result
+                # Last resort: convert to string
+                else:
+                    return str(obj)
+            finally:
+                # Remove from seen set when done
+                seen.discard(obj_id)
+        
         state = ctx.state
         variables = {
             'workflow_id': state.workflow_id,
@@ -103,17 +156,36 @@ class TemplateRenderNode(AtomicNode[WorkflowState, Any, Dict[str, str]]):
         if 'loaded_dependencies' in state.domain_data:
             dependencies = state.domain_data['loaded_dependencies']
             for dep_name, dep_data in dependencies.items():
-                variables[f'dep_{dep_name}'] = dep_data
+                variables[f'dep_{dep_name}'] = make_serializable(dep_data)
         
         # Add any domain-specific data
         for key, value in state.domain_data.items():
             if key not in ['loaded_dependencies', 'rendered_prompts']:
-                variables[key] = value
+                variables[key] = make_serializable(value)
+        
+        # Add validation results if present (for refinement)
+        if state.validation_results:
+            for phase_name, validation_result in state.validation_results.items():
+                variables[f'validation_{phase_name}'] = make_serializable(validation_result)
         
         # Add phase-specific variables from state
         phase_def = ctx.state.get_current_phase_def()
         if phase_def and phase_def.templates and phase_def.templates.variables:
-            variables.update(phase_def.templates.variables)
+            for k, v in phase_def.templates.variables.items():
+                variables[k] = make_serializable(v)
+        
+        # Verify all variables are JSON-serializable
+        try:
+            json.dumps(variables)
+        except TypeError as e:
+            logger.warning(f"Some variables may not be serializable: {e}")
+            # Try to identify the problematic variable
+            for k, v in variables.items():
+                try:
+                    json.dumps({k: v})
+                except:
+                    logger.warning(f"Variable '{k}' is not serializable, converting to string")
+                    variables[k] = str(v)
         
         return variables
     

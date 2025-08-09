@@ -137,6 +137,14 @@ class SavePhaseOutputNode(AtomicNode[WorkflowState, Any, StorageRef]):
         if output_data is None:
             raise NonRetryableError(f'No output data for phase {phase_name}')
         
+        # Serialize output data if it's a Pydantic model
+        if hasattr(output_data, 'model_dump'):
+            # It's a Pydantic model, serialize it
+            output_data = output_data.model_dump()
+        elif hasattr(output_data, 'dict'):
+            # Older Pydantic version
+            output_data = output_data.dict()
+        
         # Generate storage key
         storage_key = phase_def.storage_pattern.format(
             domain=ctx.state.domain,

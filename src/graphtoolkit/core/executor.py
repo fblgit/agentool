@@ -66,8 +66,8 @@ class WorkflowExecutor:
                 deps=self.deps
             )
             
-            # The result is the final state (WorkflowState)
-            final_state = result
+            # The result is a GraphRunResult with output and state
+            final_state = result.state if hasattr(result, 'state') else result
             
             # Extract outputs from state
             outputs = self._extract_outputs(final_state)
@@ -128,7 +128,7 @@ class WorkflowExecutor:
         from ..nodes.atomic.templates import TemplateRenderNode
         from ..nodes.atomic.llm import LLMCallNode
         from ..nodes.atomic.validation import SchemaValidationNode, QualityGateNode
-        from ..nodes.atomic.control import StateUpdateNode, NextPhaseNode
+        from ..nodes.atomic.control import StateUpdateNode, NextPhaseNode, RefinementNode
         from ..nodes.generic import WorkflowEndNode
         
         # Add base classes to satisfy pydantic_graph's type checking
@@ -147,6 +147,7 @@ class WorkflowExecutor:
         node_classes.add(QualityGateNode)
         node_classes.add(StateUpdateNode)
         node_classes.add(NextPhaseNode)
+        node_classes.add(RefinementNode)
         node_classes.add(WorkflowEndNode)
         node_classes.add(ErrorNode)
         
