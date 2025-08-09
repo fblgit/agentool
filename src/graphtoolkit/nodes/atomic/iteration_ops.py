@@ -1,25 +1,23 @@
-"""
-GraphToolkit Iteration Operation Nodes.
+"""GraphToolkit Iteration Operation Nodes.
 
 Specific iteration nodes for common domain operations.
 """
 
-from typing import Any, Dict, List, Optional
-from dataclasses import dataclass, replace
 import logging
+from dataclasses import dataclass, replace
+from typing import Any, Dict, List
 
-from ..iteration import IterableNode
-from ..base import GraphRunContext, NonRetryableError
-from ...core.types import WorkflowState
 from ...core.factory import register_node_class
+from ...core.types import WorkflowState
+from ..base import GraphRunContext, NonRetryableError
+from ..iteration import IterableNode
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class ProcessToolsNode(IterableNode[Dict[str, Any], Dict[str, Any]]):
-    """
-    Process multiple tools in an AgenTool workflow.
+    """Process multiple tools in an AgenTool workflow.
     Iterates over missing tools to generate specifications.
     """
     
@@ -30,7 +28,7 @@ class ProcessToolsNode(IterableNode[Dict[str, Any], Dict[str, Any]]):
     ) -> Dict[str, Any]:
         """Process a single tool specification."""
         tool_name = tool.get('name', 'unknown')
-        logger.info(f"Processing tool: {tool_name}")
+        logger.info(f'Processing tool: {tool_name}')
         
         # Use LLM to generate tool specification
         from agentool.core.injector import get_injector
@@ -47,16 +45,16 @@ class ProcessToolsNode(IterableNode[Dict[str, Any], Dict[str, Any]]):
                 'description': tool.get('description', ''),
                 'input_schema': tool.get('input_schema', {}),
                 'output_schema': tool.get('output_schema', {}),
-                'implementation': f"# Implementation for {tool_name}",
-                'tests': f"# Tests for {tool_name}"
+                'implementation': f'# Implementation for {tool_name}',
+                'tests': f'# Tests for {tool_name}'
             }
             
-            logger.info(f"Generated specification for {tool_name}")
+            logger.info(f'Generated specification for {tool_name}')
             return specification
             
         except Exception as e:
-            logger.error(f"Failed to process tool {tool_name}: {e}")
-            raise NonRetryableError(f"Tool processing failed: {e}")
+            logger.error(f'Failed to process tool {tool_name}: {e}')
+            raise NonRetryableError(f'Tool processing failed: {e}')
     
     def _prepare_tool_prompt(self, tool: Dict[str, Any], state: WorkflowState) -> str:
         """Prepare prompt for tool specification."""
@@ -83,15 +81,15 @@ class ProcessToolsNode(IterableNode[Dict[str, Any], Dict[str, Any]]):
                 'tool_specifications': ctx.state.iter_results
             }
         )
-        ctx.state = new_state
         
-        return await super().on_iteration_complete(ctx)
+        # Pass new state via new context
+        new_ctx = GraphRunContext(state=new_state, deps=ctx.deps)
+        return await super().on_iteration_complete(new_ctx)
 
 
 @dataclass
 class ProcessEndpointsNode(IterableNode[Dict[str, Any], Dict[str, Any]]):
-    """
-    Process multiple API endpoints in an API workflow.
+    """Process multiple API endpoints in an API workflow.
     """
     
     async def process_item(
@@ -102,7 +100,7 @@ class ProcessEndpointsNode(IterableNode[Dict[str, Any], Dict[str, Any]]):
         """Process a single API endpoint."""
         path = endpoint.get('path', '/')
         method = endpoint.get('method', 'GET')
-        logger.info(f"Processing endpoint: {method} {path}")
+        logger.info(f'Processing endpoint: {method} {path}')
         
         # Generate endpoint implementation
         implementation = {
@@ -156,8 +154,7 @@ def test_{endpoint.get('name', 'endpoint')}():
 
 @dataclass
 class ProcessStepsNode(IterableNode[Dict[str, Any], Dict[str, Any]]):
-    """
-    Process workflow steps in a Workflow domain.
+    """Process workflow steps in a Workflow domain.
     """
     
     async def process_item(
@@ -167,7 +164,7 @@ class ProcessStepsNode(IterableNode[Dict[str, Any], Dict[str, Any]]):
     ) -> Dict[str, Any]:
         """Process a single workflow step."""
         step_name = step.get('name', 'unknown')
-        logger.info(f"Processing workflow step: {step_name}")
+        logger.info(f'Processing workflow step: {step_name}')
         
         # Generate step implementation
         return {
@@ -208,8 +205,7 @@ class {step.get('name', 'Step')}Step:
 
 @dataclass
 class ProcessContractsNode(IterableNode[Dict[str, Any], Dict[str, Any]]):
-    """
-    Process multiple smart contracts in a Blockchain workflow.
+    """Process multiple smart contracts in a Blockchain workflow.
     """
     
     async def process_item(
@@ -219,7 +215,7 @@ class ProcessContractsNode(IterableNode[Dict[str, Any], Dict[str, Any]]):
     ) -> Dict[str, Any]:
         """Process a single smart contract."""
         contract_name = contract.get('name', 'Contract')
-        logger.info(f"Processing contract: {contract_name}")
+        logger.info(f'Processing contract: {contract_name}')
         
         # Generate contract components
         return {
@@ -239,7 +235,7 @@ class ProcessContractsNode(IterableNode[Dict[str, Any], Dict[str, Any]]):
         elif platform == 'solana':
             return self._generate_rust_contract(contract)
         else:
-            return f"// Contract for {platform}"
+            return f'// Contract for {platform}'
     
     def _generate_solidity_contract(self, contract: Dict[str, Any]) -> str:
         """Generate Solidity contract."""
@@ -300,18 +296,17 @@ async function deploy() {{
     def _generate_audit_notes(self, contract: Dict[str, Any]) -> List[str]:
         """Generate audit notes for contract."""
         return [
-            f"Check for reentrancy vulnerabilities",
-            f"Verify access control implementation",
-            f"Review gas optimization opportunities",
-            f"Validate input sanitization",
-            f"Check for integer overflow/underflow"
+            'Check for reentrancy vulnerabilities',
+            'Verify access control implementation',
+            'Review gas optimization opportunities',
+            'Validate input sanitization',
+            'Check for integer overflow/underflow'
         ]
 
 
 @dataclass
 class BatchValidateNode(IterableNode[Any, bool]):
-    """
-    Validate multiple items in batch.
+    """Validate multiple items in batch.
     """
     
     async def process_item(
@@ -326,7 +321,7 @@ class BatchValidateNode(IterableNode[Any, bool]):
             required = item.get('required_fields', [])
             for field in required:
                 if field not in item:
-                    logger.warning(f"Missing required field: {field}")
+                    logger.warning(f'Missing required field: {field}')
                     return False
             return True
         else:
@@ -354,9 +349,10 @@ class BatchValidateNode(IterableNode[Any, bool]):
                 'validation_stats': validation_stats
             }
         )
-        ctx.state = new_state
         
-        return await super().on_iteration_complete(ctx)
+        # Pass new state via new context
+        new_ctx = GraphRunContext(state=new_state, deps=ctx.deps)
+        return await super().on_iteration_complete(new_ctx)
 
 
 # Register iteration operation nodes

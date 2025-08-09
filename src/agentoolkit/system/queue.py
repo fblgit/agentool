@@ -577,7 +577,6 @@ def create_queue_agent():
         name='queue',
         input_schema=QueueInput,
         output_type=QueueOutput,
-        use_typed_output=True,  # Enable typed output for queue (Tier 4 - depends on scheduler)
         routing_config=routing_config,
         tools=[manage_queue],
         system_prompt="Message queue for data bus operations. Routes messages between AgenTools.",

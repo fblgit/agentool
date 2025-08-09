@@ -771,7 +771,6 @@ def create_config_agent():
         routing_config=config_routing,
         tools=[config_get, config_set, config_delete, config_list, config_reload, config_validate],
         output_type=ConfigOutput,
-        use_typed_output=True,  # Enable typed output for config (Tier 2 - depends on storage_kv)
         system_prompt="Handle configuration management with hierarchical keys and environment variable support.",
         description="Configuration management with environment variable integration and validation",
         version="1.0.0",

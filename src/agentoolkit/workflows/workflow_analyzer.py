@@ -333,7 +333,6 @@ def create_workflow_analyzer_agent():
         routing_config=routing,
         tools=[analyze_task],
         output_type=WorkflowAnalyzerOutput,
-        use_typed_output=True,  # Enable typed output for workflow_analyzer
         system_prompt="Analyze AgenTool catalog to identify existing tools and gaps for new capabilities.",
         description="Analyzes the AgenTool ecosystem to determine what exists and what needs to be created for a given task",
         version="1.0.0",

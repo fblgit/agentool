@@ -1,24 +1,19 @@
-"""
-GraphToolkit Iteration Nodes.
+"""GraphToolkit Iteration Nodes.
 
 Nodes that support iteration over collections using self-return pattern.
 This replaces parallel sub-graphs with state-based iteration.
 """
 
-from typing import Any, List, Optional, TypeVar, Generic, Callable
-from dataclasses import dataclass, replace
-import logging
 import asyncio
+import logging
+from dataclasses import dataclass, replace
+from typing import Any, Callable, Generic, List, Optional, TypeVar
 
-from .base import (
-    BaseNode,
-    GraphRunContext,
-    End,
-    RetryableError,
-    NonRetryableError
-)
-from ..core.types import WorkflowState, NodeConfig
+from pydantic_graph import End, GraphRunContext
+
 from ..core.factory import register_node_class
+from ..core.types import WorkflowState
+from .base import BaseNode, NonRetryableError, RetryableError
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +24,7 @@ ResultT = TypeVar('ResultT')
 
 @dataclass
 class IterableNode(BaseNode[WorkflowState, Any, WorkflowState], Generic[ItemT, ResultT]):
-    """
-    Base class for nodes that iterate over items without sub-graphs.
+    """Base class for nodes that iterate over items without sub-graphs.
     
     Pattern:
     1. Check if iteration is enabled in node config
@@ -69,17 +63,16 @@ class IterableNode(BaseNode[WorkflowState, Any, WorkflowState], Generic[ItemT, R
                 iter_index=current_idx + 1
             )
             
-            # Update context state (in real pydantic_graph, this would be handled differently)
-            ctx.state = new_state
+            # State will be updated through node return, not direct mutation
             
             # Check if more items to process
             if current_idx + 1 < len(items):
                 # Return ourselves to process next item
-                logger.debug(f"Iteration {current_idx + 1}/{len(items)} complete, continuing...")
+                logger.debug(f'Iteration {current_idx + 1}/{len(items)} complete, continuing...')
                 return self.__class__()  # Self-return for next iteration
             else:
                 # All items processed
-                logger.info(f"Iteration complete: processed {len(items)} items")
+                logger.info(f'Iteration complete: processed {len(items)} items')
                 return await self.on_iteration_complete(ctx)
                 
         except Exception as e:
@@ -87,8 +80,7 @@ class IterableNode(BaseNode[WorkflowState, Any, WorkflowState], Generic[ItemT, R
             return await self.handle_iteration_error(ctx, current_idx, e)
     
     async def process_single(self, ctx: GraphRunContext[WorkflowState, Any]) -> BaseNode:
-        """
-        Process all items in a single execution (non-iteration mode).
+        """Process all items in a single execution (non-iteration mode).
         Default implementation processes items sequentially.
         """
         items = ctx.state.iter_items
@@ -101,7 +93,7 @@ class IterableNode(BaseNode[WorkflowState, Any, WorkflowState], Generic[ItemT, R
                 result = await self.process_item(item, ctx)
                 results.append(result)
             except Exception as e:
-                logger.error(f"Error processing item {item}: {e}")
+                logger.error(f'Error processing item {item}: {e}')
                 results.append(None)
         
         # Update state with all results
@@ -110,24 +102,23 @@ class IterableNode(BaseNode[WorkflowState, Any, WorkflowState], Generic[ItemT, R
             iter_results=results,
             iter_index=len(items)
         )
-        ctx.state = new_state
         
-        return await self.on_iteration_complete(ctx)
+        # Pass new state via new context
+        new_ctx = GraphRunContext(state=new_state, deps=ctx.deps)
+        return await self.on_iteration_complete(new_ctx)
     
     async def process_item(self, item: ItemT, ctx: GraphRunContext[WorkflowState, Any]) -> ResultT:
-        """
-        Process a single item.
+        """Process a single item.
         Must be implemented by subclasses.
         """
         raise NotImplementedError
     
     async def on_iteration_complete(self, ctx: GraphRunContext[WorkflowState, Any]) -> BaseNode:
-        """
-        Called when iteration is complete.
+        """Called when iteration is complete.
         Default implementation moves to next node.
         """
         # Get next node in chain
-        next_node_id = self.get_next_node(ctx.state)
+        next_node_id = self.get_next_node(ctx)
         
         if next_node_id:
             # Update state for next node
@@ -139,12 +130,12 @@ class IterableNode(BaseNode[WorkflowState, Any, WorkflowState], Generic[ItemT, R
                 iter_results=[],
                 iter_index=0
             )
-            ctx.state = new_state
             
+            # Return next node - state updates happen through node returns
             return self.create_next_node(next_node_id)
         else:
-            # No more nodes - phase complete
-            return await self.complete_phase(ctx, ctx.state)
+            # No more nodes - return End with current state
+            return End(ctx.state)
     
     async def handle_iteration_error(
         self,
@@ -157,31 +148,32 @@ class IterableNode(BaseNode[WorkflowState, Any, WorkflowState], Generic[ItemT, R
         
         if isinstance(error, RetryableError) and node_config and node_config.retryable:
             # Retry the current item
-            retry_key = f"{self._get_retry_key(ctx.state)}_item_{index}"
+            retry_key = f'{self._get_retry_key(ctx.state)}_item_{index}'
             retry_count = ctx.state.retry_counts.get(retry_key, 0)
             
             if retry_count < node_config.max_retries:
-                logger.info(f"Retrying item {index}: attempt {retry_count + 1}")
+                logger.info(f'Retrying item {index}: attempt {retry_count + 1}')
                 new_state = replace(
                     ctx.state,
                     retry_counts={**ctx.state.retry_counts, retry_key: retry_count + 1}
                 )
-                ctx.state = new_state
+                # Return self with updated retry count in state
+                # The graph engine will handle the state update
                 return self.__class__()  # Retry current item
         
         # Non-retryable or max retries exceeded - skip item
-        logger.error(f"Skipping item {index} due to error: {error}")
+        logger.error(f'Skipping item {index} due to error: {error}')
         
         # Add error result and continue
-        new_results = ctx.state.iter_results + [{"error": str(error), "index": index}]
+        new_results = ctx.state.iter_results + [{'error': str(error), 'index': index}]
         new_state = replace(
             ctx.state,
             iter_results=new_results,
             iter_index=index + 1
         )
-        ctx.state = new_state
         
         # Continue with next item if available
+        # Pass new state via new context
         if index + 1 < len(ctx.state.iter_items):
             return self.__class__()
         else:
@@ -190,8 +182,7 @@ class IterableNode(BaseNode[WorkflowState, Any, WorkflowState], Generic[ItemT, R
 
 @dataclass
 class BatchProcessNode(IterableNode[List[Any], List[Any]]):
-    """
-    Process items in batches for efficiency.
+    """Process items in batches for efficiency.
     """
     batch_size: int = 10
     
@@ -215,14 +206,14 @@ class BatchProcessNode(IterableNode[List[Any], List[Any]]):
                     iter_results=results,
                     iter_index=i + len(batch)
                 )
-                ctx.state = new_state
+                # Note: State updates happen through node returns, not direct mutation
                 
-                logger.info(f"Processed batch {i//self.batch_size + 1}: {len(batch)} items")
+                logger.info(f'Processed batch {i//self.batch_size + 1}: {len(batch)} items')
                 
             except Exception as e:
-                logger.error(f"Batch processing error: {e}")
+                logger.error(f'Batch processing error: {e}')
                 # Add error results for batch
-                results.extend([{"error": str(e)}] * len(batch))
+                results.extend([{'error': str(e)}] * len(batch))
         
         return await self.on_iteration_complete(ctx)
     
@@ -241,8 +232,7 @@ class BatchProcessNode(IterableNode[List[Any], List[Any]]):
 
 @dataclass
 class MapNode(IterableNode[Any, Any]):
-    """
-    Map a function over items using iteration.
+    """Map a function over items using iteration.
     """
     map_function: Optional[Callable] = None
     
@@ -256,7 +246,7 @@ class MapNode(IterableNode[Any, Any]):
                     return await result
                 return result
             except Exception as e:
-                raise NonRetryableError(f"Map function failed: {e}")
+                raise NonRetryableError(f'Map function failed: {e}')
         else:
             # Default: return item unchanged
             return item
@@ -264,8 +254,7 @@ class MapNode(IterableNode[Any, Any]):
 
 @dataclass
 class FilterNode(IterableNode[Any, Optional[Any]]):
-    """
-    Filter items based on a condition.
+    """Filter items based on a condition.
     """
     filter_function: Optional[Callable] = None
     
@@ -280,7 +269,7 @@ class FilterNode(IterableNode[Any, Optional[Any]]):
                 
                 return item if passes else None
             except Exception as e:
-                raise NonRetryableError(f"Filter function failed: {e}")
+                raise NonRetryableError(f'Filter function failed: {e}')
         else:
             # Default: pass all items
             return item
@@ -294,15 +283,15 @@ class FilterNode(IterableNode[Any, Optional[Any]]):
             ctx.state,
             iter_results=filtered_results
         )
-        ctx.state = new_state
         
-        return await super().on_iteration_complete(ctx)
+        # Pass new state via new context
+        new_ctx = GraphRunContext(state=new_state, deps=ctx.deps)
+        return await super().on_iteration_complete(new_ctx)
 
 
 @dataclass
 class AggregatorNode(BaseNode[WorkflowState, Any, Any]):
-    """
-    Aggregate results from iteration.
+    """Aggregate results from iteration.
     Not an IterableNode itself, but processes iteration results.
     """
     aggregation_function: Optional[Callable] = None
@@ -319,7 +308,7 @@ class AggregatorNode(BaseNode[WorkflowState, Any, Any]):
                 if asyncio.iscoroutine(aggregated):
                     aggregated = await aggregated
             except Exception as e:
-                raise NonRetryableError(f"Aggregation failed: {e}")
+                raise NonRetryableError(f'Aggregation failed: {e}')
         else:
             # Default: return results as-is
             aggregated = results
@@ -332,10 +321,10 @@ class AggregatorNode(BaseNode[WorkflowState, Any, Any]):
                 'aggregated_result': aggregated
             }
         )
-        ctx.state = new_state
         
-        # Continue to next node
-        next_node_id = self.get_next_node(ctx.state)
+        # Continue to next node with new state
+        new_ctx = GraphRunContext(state=new_state, deps=ctx.deps)
+        next_node_id = self.get_next_node(new_ctx)
         if next_node_id:
             return self.create_next_node(next_node_id)
         else:
@@ -344,8 +333,7 @@ class AggregatorNode(BaseNode[WorkflowState, Any, Any]):
 
 @dataclass
 class ParallelMapNode(IterableNode[Any, Any]):
-    """
-    Process items in parallel using asyncio.
+    """Process items in parallel using asyncio.
     Still uses self-return for state management but executes items concurrently.
     """
     max_concurrent: int = 5
@@ -364,8 +352,8 @@ class ParallelMapNode(IterableNode[Any, Any]):
                 try:
                     return await self.process_item(item, ctx)
                 except Exception as e:
-                    logger.error(f"Error processing item {index}: {e}")
-                    return {"error": str(e), "index": index}
+                    logger.error(f'Error processing item {index}: {e}')
+                    return {'error': str(e), 'index': index}
         
         # Process all items in parallel
         tasks = [
@@ -375,15 +363,16 @@ class ParallelMapNode(IterableNode[Any, Any]):
         
         results = await asyncio.gather(*tasks)
         
-        # Update state with all results
+        # Create new state with all results
         new_state = replace(
             ctx.state,
             iter_results=results,
             iter_index=len(items)
         )
-        ctx.state = new_state
         
-        return await self.on_iteration_complete(ctx)
+        # Pass new state to completion handler via new context
+        new_ctx = GraphRunContext(state=new_state, deps=ctx.deps)
+        return await self.on_iteration_complete(new_ctx)
 
 
 # Register iteration nodes

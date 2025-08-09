@@ -817,7 +817,6 @@ def create_scheduler_agent():
         name='scheduler',
         input_schema=SchedulerInput,
         output_type=SchedulerOutput,
-        use_typed_output=True,  # Enable typed output for scheduler
         routing_config=routing_config,
         tools=[manage_scheduler],
         system_prompt="Execute AgenTools on schedules. The execution engine for the AgenTool ecosystem.",

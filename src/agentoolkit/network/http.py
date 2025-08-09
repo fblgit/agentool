@@ -742,7 +742,6 @@ def create_http_agent():
             http_patch, http_head, http_options
         ],
         output_type=HttpOutput,
-        use_typed_output=True,  # Enable typed output for http (Tier 1 - no dependencies)
         system_prompt='Perform HTTP requests with authentication support.',
         description='Comprehensive HTTP client with authentication integration',
         version='1.0.0',

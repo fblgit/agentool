@@ -1,35 +1,23 @@
-"""
-GraphToolkit LLM Atomic Nodes.
+"""GraphToolkit LLM Atomic Nodes.
 
 LLM interaction nodes with state-driven retry configuration.
 """
 
-from typing import Any, Dict, Optional, List
-from dataclasses import dataclass, replace
 import json
 import logging
+from dataclasses import dataclass, replace
+from typing import Any, Dict, List, Optional
 
-from ..base import (
-    AtomicNode,
-    LLMError,
-    NonRetryableError,
-    GraphRunContext
-)
-from ...core.types import (
-    WorkflowState,
-    TokenUsage,
-    ModelParameters
-)
 from ...core.factory import register_node_class
-
+from ...core.types import ModelParameters, TokenUsage, WorkflowState
+from ..base import AtomicNode, GraphRunContext, LLMError, NonRetryableError
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class LLMCallNode(AtomicNode[WorkflowState, Any, Any]):
-    """
-    Execute LLM call with rendered prompts.
+    """Execute LLM call with rendered prompts.
     Expensive operation - retryable via configuration.
     """
     
@@ -37,18 +25,18 @@ class LLMCallNode(AtomicNode[WorkflowState, Any, Any]):
         """Execute LLM call with prompts from state."""
         phase_def = ctx.state.workflow_def.phases.get(ctx.state.current_phase)
         if not phase_def:
-            raise NonRetryableError(f"Phase {ctx.state.current_phase} not found")
+            raise NonRetryableError(f'Phase {ctx.state.current_phase} not found')
         
         # Get rendered prompts from state
         prompts = ctx.state.domain_data.get('rendered_prompts', {})
         if not prompts:
-            raise NonRetryableError("No rendered prompts available")
+            raise NonRetryableError('No rendered prompts available')
         
         system_prompt = prompts.get('system_prompt', '')
         user_prompt = prompts.get('user_prompt', '')
         
         if not user_prompt:
-            raise NonRetryableError("User prompt is required")
+            raise NonRetryableError('User prompt is required')
         
         # Get model configuration
         model_params = phase_def.model_config or ModelParameters()
@@ -67,12 +55,12 @@ class LLMCallNode(AtomicNode[WorkflowState, Any, Any]):
                 output_schema=phase_def.output_schema
             )
             
-            logger.info(f"LLM call successful for {ctx.state.current_phase}")
+            logger.info(f'LLM call successful for {ctx.state.current_phase}')
             return response
             
         except Exception as e:
             # LLM errors are now retryable via configuration
-            raise LLMError(f"LLM call failed: {e}")
+            raise LLMError(f'LLM call failed: {e}')
     
     def _get_model_for_phase(self, ctx: GraphRunContext[WorkflowState, Any]) -> str:
         """Determine which model to use for this phase."""
@@ -101,8 +89,8 @@ class LLMCallNode(AtomicNode[WorkflowState, Any, Any]):
             response = await ctx.deps.llm_client.complete(
                 model=model,
                 messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
+                    {'role': 'system', 'content': system_prompt},
+                    {'role': 'user', 'content': user_prompt}
                 ],
                 temperature=params.temperature,
                 max_tokens=params.max_tokens,
@@ -110,7 +98,7 @@ class LLMCallNode(AtomicNode[WorkflowState, Any, Any]):
                 frequency_penalty=params.frequency_penalty,
                 presence_penalty=params.presence_penalty,
                 stop=params.stop_sequences,
-                response_format={"type": "json"} if output_schema else None
+                response_format={'type': 'json'} if output_schema else None
             )
             
             # Parse response if schema provided
@@ -119,30 +107,31 @@ class LLMCallNode(AtomicNode[WorkflowState, Any, Any]):
                     data = json.loads(response.content)
                     return output_schema(**data)
                 except (json.JSONDecodeError, ValueError) as e:
-                    raise NonRetryableError(f"Failed to parse LLM response: {e}")
+                    raise NonRetryableError(f'Failed to parse LLM response: {e}')
             
             return response.content
         
-        # Fallback: return mock response for testing
-        logger.warning("No LLM client available, returning mock response")
-        if output_schema:
-            # Create mock instance of output schema
-            return self._create_mock_output(output_schema)
-        return "Mock LLM response"
-    
-    def _create_mock_output(self, schema: type) -> Any:
-        """Create a mock instance of the output schema."""
-        # This is a simplified mock - in production would be more sophisticated
+        # No LLM client available, try to use pydantic-ai
         try:
-            # Try to create with defaults
-            return schema()
-        except:
-            # Create with minimal required fields
-            return {
-                "success": True,
-                "data": {},
-                "phase": self.state.current_phase
-            }
+            from pydantic_ai import Agent
+            
+            # Create agent with appropriate model
+            agent = Agent(
+                model,
+                system_prompt=system_prompt,
+                result_type=output_schema if output_schema else str
+            )
+            
+            # Run the agent
+            result = await agent.run(user_prompt)
+            
+            # Return the data
+            return result.data if hasattr(result, 'data') else result
+            
+        except ImportError:
+            raise NonRetryableError('No LLM client available. Install pydantic-ai or configure LLM client in deps.')
+        except Exception as e:
+            raise LLMError(f'LLM call failed: {e}')
     
     async def update_state(self, state: WorkflowState, result: Any) -> WorkflowState:
         """Update state with LLM response."""
@@ -181,8 +170,7 @@ class LLMCallNode(AtomicNode[WorkflowState, Any, Any]):
 
 @dataclass
 class PromptBuilderNode(AtomicNode[WorkflowState, Any, Dict[str, str]]):
-    """
-    Build prompts from components without templates.
+    """Build prompts from components without templates.
     """
     system_components: List[str]
     user_components: List[str]
@@ -190,7 +178,7 @@ class PromptBuilderNode(AtomicNode[WorkflowState, Any, Dict[str, str]]):
     async def perform_operation(self, ctx: GraphRunContext[WorkflowState, Any]) -> Dict[str, str]:
         """Build prompts from components."""
         # Build system prompt
-        system_prompt = "\n\n".join(self.system_components)
+        system_prompt = '\n\n'.join(self.system_components)
         
         # Build user prompt with data from state
         user_parts = []
@@ -199,7 +187,7 @@ class PromptBuilderNode(AtomicNode[WorkflowState, Any, Dict[str, str]]):
             formatted = component.format(**ctx.state.domain_data)
             user_parts.append(formatted)
         
-        user_prompt = "\n\n".join(user_parts)
+        user_prompt = '\n\n'.join(user_parts)
         
         return {
             'system_prompt': system_prompt,
@@ -209,8 +197,7 @@ class PromptBuilderNode(AtomicNode[WorkflowState, Any, Dict[str, str]]):
 
 @dataclass
 class ResponseParserNode(AtomicNode[WorkflowState, Any, Any]):
-    """
-    Parse structured LLM responses.
+    """Parse structured LLM responses.
     """
     output_schema: Optional[type] = None
     
@@ -221,7 +208,7 @@ class ResponseParserNode(AtomicNode[WorkflowState, Any, Any]):
         
         response = ctx.state.domain_data.get(response_key)
         if response is None:
-            raise NonRetryableError(f"No LLM response found for {phase_name}")
+            raise NonRetryableError(f'No LLM response found for {phase_name}')
         
         if not self.output_schema:
             # No schema, return as-is
@@ -234,7 +221,7 @@ class ResponseParserNode(AtomicNode[WorkflowState, Any, Any]):
                 data = json.loads(response)
                 return self.output_schema(**data)
             except (json.JSONDecodeError, ValueError) as e:
-                raise NonRetryableError(f"Failed to parse response: {e}")
+                raise NonRetryableError(f'Failed to parse response: {e}')
         
         # Response might already be parsed
         if isinstance(response, self.output_schema):
@@ -244,13 +231,12 @@ class ResponseParserNode(AtomicNode[WorkflowState, Any, Any]):
         try:
             return self.output_schema(**response)
         except Exception as e:
-            raise NonRetryableError(f"Failed to validate response: {e}")
+            raise NonRetryableError(f'Failed to validate response: {e}')
 
 
 @dataclass
 class BatchLLMNode(AtomicNode[WorkflowState, Any, List[Any]]):
-    """
-    Execute multiple LLM calls in parallel.
+    """Execute multiple LLM calls in parallel.
     """
     prompts: List[Dict[str, str]]  # List of {system, user} prompts
     
@@ -279,7 +265,7 @@ class BatchLLMNode(AtomicNode[WorkflowState, Any, List[Any]]):
                 return await node.perform_operation(temp_ctx)
                 
             except Exception as e:
-                logger.error(f"Batch LLM call failed: {e}")
+                logger.error(f'Batch LLM call failed: {e}')
                 return None
         
         # Execute all calls in parallel

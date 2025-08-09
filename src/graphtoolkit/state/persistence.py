@@ -1,22 +1,16 @@
-"""
-GraphToolkit State Persistence.
+"""GraphToolkit State Persistence.
 
 State persistence and recovery mechanisms.
 """
 
-from typing import Optional, Any, Dict
-from dataclasses import asdict
-from pathlib import Path
 import json
 import logging
+from dataclasses import asdict
 from datetime import datetime
+from pathlib import Path
+from typing import Any
 
-from ..core.types import (
-    WorkflowState,
-    StorageRef,
-    StorageType
-)
-
+from ..core.types import StorageRef, StorageType, WorkflowState
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +20,7 @@ class StateSerializer:
     
     @staticmethod
     def serialize(state: WorkflowState) -> str:
-        """
-        Serialize workflow state to JSON string.
+        """Serialize workflow state to JSON string.
         
         Args:
             state: Workflow state to serialize
@@ -45,8 +38,7 @@ class StateSerializer:
     
     @staticmethod
     def deserialize(json_str: str) -> WorkflowState:
-        """
-        Deserialize workflow state from JSON string.
+        """Deserialize workflow state from JSON string.
         
         Args:
             json_str: JSON string representation
@@ -126,8 +118,7 @@ class StatePersistence:
     """Base class for state persistence backends."""
     
     async def save(self, state: WorkflowState) -> StorageRef:
-        """
-        Save workflow state.
+        """Save workflow state.
         
         Args:
             state: Workflow state to save
@@ -138,8 +129,7 @@ class StatePersistence:
         raise NotImplementedError
     
     async def load(self, ref: StorageRef) -> WorkflowState:
-        """
-        Load workflow state.
+        """Load workflow state.
         
         Args:
             ref: Storage reference
@@ -150,8 +140,7 @@ class StatePersistence:
         raise NotImplementedError
     
     async def list_checkpoints(self, workflow_id: str) -> list[StorageRef]:
-        """
-        List all checkpoints for a workflow.
+        """List all checkpoints for a workflow.
         
         Args:
             workflow_id: Workflow identifier
@@ -165,9 +154,8 @@ class StatePersistence:
 class FileStatePersistence(StatePersistence):
     """File-based state persistence."""
     
-    def __init__(self, base_dir: str = "workflow_states"):
-        """
-        Initialize file-based persistence.
+    def __init__(self, base_dir: str = 'workflow_states'):
+        """Initialize file-based persistence.
         
         Args:
             base_dir: Base directory for state files
@@ -178,8 +166,8 @@ class FileStatePersistence(StatePersistence):
     async def save(self, state: WorkflowState) -> StorageRef:
         """Save state to file."""
         # Generate filename
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"{state.workflow_id}_{state.current_phase}_{timestamp}.json"
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f'{state.workflow_id}_{state.current_phase}_{timestamp}.json'
         filepath = self.base_dir / state.workflow_id / filename
         
         # Create directory
@@ -189,7 +177,7 @@ class FileStatePersistence(StatePersistence):
         json_str = StateSerializer.serialize(state)
         filepath.write_text(json_str)
         
-        logger.info(f"Saved state to {filepath}")
+        logger.info(f'Saved state to {filepath}')
         
         return StorageRef(
             storage_type=StorageType.FS,
@@ -203,12 +191,12 @@ class FileStatePersistence(StatePersistence):
         filepath = Path(ref.key)
         
         if not filepath.exists():
-            raise FileNotFoundError(f"State file not found: {filepath}")
+            raise FileNotFoundError(f'State file not found: {filepath}')
         
         json_str = filepath.read_text()
         state = StateSerializer.deserialize(json_str)
         
-        logger.info(f"Loaded state from {filepath}")
+        logger.info(f'Loaded state from {filepath}')
         return state
     
     async def list_checkpoints(self, workflow_id: str) -> list[StorageRef]:
@@ -219,7 +207,7 @@ class FileStatePersistence(StatePersistence):
             return []
         
         checkpoints = []
-        for filepath in sorted(workflow_dir.glob("*.json")):
+        for filepath in sorted(workflow_dir.glob('*.json')):
             stat = filepath.stat()
             checkpoints.append(
                 StorageRef(
@@ -236,9 +224,8 @@ class FileStatePersistence(StatePersistence):
 class KVStatePersistence(StatePersistence):
     """Key-value store based state persistence."""
     
-    def __init__(self, storage_client: Any, prefix: str = "workflow_states"):
-        """
-        Initialize KV-based persistence.
+    def __init__(self, storage_client: Any, prefix: str = 'workflow_states'):
+        """Initialize KV-based persistence.
         
         Args:
             storage_client: Storage client with KV operations
@@ -250,8 +237,8 @@ class KVStatePersistence(StatePersistence):
     async def save(self, state: WorkflowState) -> StorageRef:
         """Save state to KV store."""
         # Generate key
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        key = f"{self.prefix}/{state.workflow_id}/{state.current_phase}/{timestamp}"
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        key = f'{self.prefix}/{state.workflow_id}/{state.current_phase}/{timestamp}'
         
         # Serialize state
         json_str = StateSerializer.serialize(state)
@@ -259,7 +246,7 @@ class KVStatePersistence(StatePersistence):
         # Save to KV store
         await self.storage_client.save_kv(key, json_str)
         
-        logger.info(f"Saved state to KV: {key}")
+        logger.info(f'Saved state to KV: {key}')
         
         return StorageRef(
             storage_type=StorageType.KV,
@@ -274,18 +261,18 @@ class KVStatePersistence(StatePersistence):
         json_str = await self.storage_client.load_kv(ref.key)
         
         if json_str is None:
-            raise KeyError(f"State not found in KV: {ref.key}")
+            raise KeyError(f'State not found in KV: {ref.key}')
         
         state = StateSerializer.deserialize(json_str)
         
-        logger.info(f"Loaded state from KV: {ref.key}")
+        logger.info(f'Loaded state from KV: {ref.key}')
         return state
     
     async def list_checkpoints(self, workflow_id: str) -> list[StorageRef]:
         """List all checkpoints for a workflow in KV store."""
         # This would need to be implemented based on the specific KV store
         # For now, return empty list
-        logger.warning("KV checkpoint listing not implemented")
+        logger.warning('KV checkpoint listing not implemented')
         return []
 
 
@@ -293,8 +280,7 @@ def create_checkpoint(
     state: WorkflowState,
     persistence: StatePersistence
 ) -> StorageRef:
-    """
-    Create a checkpoint of the current state.
+    """Create a checkpoint of the current state.
     
     Args:
         state: Current workflow state
@@ -325,8 +311,7 @@ def restore_checkpoint(
     ref: StorageRef,
     persistence: StatePersistence
 ) -> WorkflowState:
-    """
-    Restore state from a checkpoint.
+    """Restore state from a checkpoint.
     
     Args:
         ref: Storage reference

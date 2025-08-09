@@ -1,16 +1,15 @@
-"""
-GraphToolkit GenericPhaseNode.
+"""GraphToolkit GenericPhaseNode.
 
 The meta-framework orchestrator that starts phases by returning first atomic node.
 """
 
-from typing import Union, Optional, Any
+import logging
 from dataclasses import dataclass, replace
 from datetime import datetime
-import logging
+from typing import Any, Union
 
 try:
-    from pydantic_graph import BaseNode as PydanticBaseNode, GraphRunContext, End
+    from pydantic_graph import BaseNode as PydanticBaseNode, End, GraphRunContext
     HAS_PYDANTIC_GRAPH = True
 except ImportError:
     # Development stubs
@@ -28,18 +27,16 @@ except ImportError:
         def __init__(self, result):
             self.result = result
 
+from ..core.factory import create_node_instance, register_node_class
 from ..core.types import WorkflowState
-from ..core.factory import register_node_class, create_node_instance
 from .base import NonRetryableError
-
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class GenericPhaseNode(PydanticBaseNode):
-    """
-    Starts a phase by returning its first atomic node.
+    """Starts a phase by returning its first atomic node.
     
     This is the key innovation of the meta-framework:
     - Does NOT execute the phase work itself
@@ -49,8 +46,7 @@ class GenericPhaseNode(PydanticBaseNode):
     """
     
     async def run(self, ctx: GraphRunContext[WorkflowState, Any]) -> Union[PydanticBaseNode, End[WorkflowState]]:
-        """
-        Start phase execution by returning first atomic node.
+        """Start phase execution by returning first atomic node.
         
         The atomic nodes will chain together:
         DependencyCheck → LoadDependencies → TemplateRender → 
@@ -65,26 +61,26 @@ class GenericPhaseNode(PydanticBaseNode):
                 new_state = replace(ctx.state, current_phase=first_phase)
                 ctx = GraphRunContext(state=new_state, deps=ctx.deps)
             else:
-                raise NonRetryableError("No phases defined in workflow")
+                raise NonRetryableError('No phases defined in workflow')
         
         phase_name = ctx.state.current_phase
         phase_def = ctx.state.workflow_def.phases.get(phase_name)
         
         if not phase_def:
-            raise NonRetryableError(f"Phase {phase_name} not found in workflow definition")
+            raise NonRetryableError(f'Phase {phase_name} not found in workflow definition')
         
-        logger.info(f"Starting phase {phase_name} with {len(phase_def.atomic_nodes)} atomic nodes")
+        logger.info(f'Starting phase {phase_name} with {len(phase_def.atomic_nodes)} atomic nodes')
         
         # Check if phase already completed
         if phase_name in ctx.state.completed_phases:
-            logger.info(f"Phase {phase_name} already completed, moving to next")
+            logger.info(f'Phase {phase_name} already completed, moving to next')
             # Move to next phase
             from .atomic.control import NextPhaseNode
             return NextPhaseNode()
         
         # Get first atomic node in the phase
         if not phase_def.atomic_nodes:
-            logger.warning(f"Phase {phase_name} has no atomic nodes defined")
+            logger.warning(f'Phase {phase_name} has no atomic nodes defined')
             # Mark phase as complete and move on
             new_state = replace(
                 ctx.state,
@@ -101,7 +97,7 @@ class GenericPhaseNode(PydanticBaseNode):
             current_node=first_node_id
         )
         
-        logger.info(f"Phase {phase_name} starting with node {first_node_id}")
+        logger.info(f'Phase {phase_name} starting with node {first_node_id}')
         
         # Return first atomic node - it will chain to the rest
         # Each atomic node knows how to find the next node in sequence
@@ -110,21 +106,20 @@ class GenericPhaseNode(PydanticBaseNode):
 
 @dataclass
 class WorkflowStartNode(PydanticBaseNode):
-    """
-    Entry point for workflow execution.
+    """Entry point for workflow execution.
     Sets up initial state and returns GenericPhaseNode.
     """
     
     async def run(self, ctx: GraphRunContext[WorkflowState, Any]) -> Union[PydanticBaseNode, End[WorkflowState]]:
         """Initialize workflow and start first phase."""
-        logger.info(f"Starting workflow {ctx.state.workflow_id} for domain {ctx.state.domain}")
+        logger.info(f'Starting workflow {ctx.state.workflow_id} for domain {ctx.state.domain}')
         
         # Validate workflow definition
         if not ctx.state.workflow_def:
-            raise NonRetryableError("No workflow definition in state")
+            raise NonRetryableError('No workflow definition in state')
         
         if not ctx.state.workflow_def.phase_sequence:
-            raise NonRetryableError("No phase sequence defined")
+            raise NonRetryableError('No phase sequence defined')
         
         # Set current phase if not set
         if not ctx.state.current_phase:
@@ -133,7 +128,7 @@ class WorkflowStartNode(PydanticBaseNode):
             ctx = GraphRunContext(state=new_state, deps=ctx.deps)
         
         # Log workflow configuration
-        logger.info(f"Workflow has {len(ctx.state.workflow_def.phases)} phases: {ctx.state.workflow_def.phase_sequence}")
+        logger.info(f'Workflow has {len(ctx.state.workflow_def.phases)} phases: {ctx.state.workflow_def.phase_sequence}')
         
         # Return GenericPhaseNode to start first phase
         return GenericPhaseNode()
@@ -141,23 +136,22 @@ class WorkflowStartNode(PydanticBaseNode):
 
 @dataclass
 class WorkflowEndNode(PydanticBaseNode):
-    """
-    Terminal node for successful workflow completion.
+    """Terminal node for successful workflow completion.
     """
     
     async def run(self, ctx: GraphRunContext[WorkflowState, Any]) -> End[WorkflowState]:
         """Mark workflow as complete and return final state."""
-        logger.info(f"Workflow {ctx.state.workflow_id} completed successfully")
+        logger.info(f'Workflow {ctx.state.workflow_id} completed successfully')
         
         # Log summary
-        logger.info(f"Completed phases: {ctx.state.completed_phases}")
-        logger.info(f"Quality scores: {ctx.state.quality_scores}")
+        logger.info(f'Completed phases: {ctx.state.completed_phases}')
+        logger.info(f'Quality scores: {ctx.state.quality_scores}')
         
         # Calculate total token usage
         total_tokens = 0
         for phase, usage in ctx.state.total_token_usage.items():
             total_tokens += usage.total_tokens
-        logger.info(f"Total tokens used: {total_tokens}")
+        logger.info(f'Total tokens used: {total_tokens}')
         
         # Update final state
         final_state = replace(

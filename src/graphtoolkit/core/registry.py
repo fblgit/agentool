@@ -1,22 +1,13 @@
-"""
-GraphToolkit Phase Registry.
+"""GraphToolkit Phase Registry.
 
 Central registry for phase definitions across all domains.
 Enables dynamic workflow construction from registered phases.
 """
 
-from typing import Dict, List, Optional, Set
-from dataclasses import dataclass, field
 import logging
+from typing import Dict, List, Optional, Set
 
-from .types import (
-    PhaseDefinition,
-    WorkflowDefinition,
-    NodeConfig,
-    RetryBackoff,
-    ConditionConfig
-)
-
+from .types import ConditionConfig, NodeConfig, PhaseDefinition, RetryBackoff, WorkflowDefinition
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +28,7 @@ class PhaseRegistry:
         return cls._instance
     
     def register_phase(self, phase_key: str, phase_def: PhaseDefinition) -> None:
-        """
-        Register a phase definition.
+        """Register a phase definition.
         
         Args:
             phase_key: Unique key in format "domain.phase_name"
@@ -50,24 +40,22 @@ class PhaseRegistry:
         domain = phase_key.split('.')[0]
         self._domains.add(domain)
         self._phases[phase_key] = phase_def
-        logger.info(f"Registered phase: {phase_key}")
+        logger.info(f'Registered phase: {phase_key}')
     
     def register_domain(self, domain: str, phases: Dict[str, PhaseDefinition]) -> None:
-        """
-        Register all phases for a domain.
+        """Register all phases for a domain.
         
         Args:
             domain: Domain name
             phases: Dictionary of phase_name -> PhaseDefinition
         """
         for phase_name, phase_def in phases.items():
-            phase_key = f"{domain}.{phase_name}"
+            phase_key = f'{domain}.{phase_name}'
             self.register_phase(phase_key, phase_def)
-        logger.info(f"Registered {len(phases)} phases for domain: {domain}")
+        logger.info(f'Registered {len(phases)} phases for domain: {domain}')
     
     def get_phase(self, phase_key: str) -> Optional[PhaseDefinition]:
-        """
-        Get a phase definition by key.
+        """Get a phase definition by key.
         
         Args:
             phase_key: Phase key in format "domain.phase_name"
@@ -78,8 +66,7 @@ class PhaseRegistry:
         return self._phases.get(phase_key)
     
     def get_domain_phases(self, domain: str) -> Dict[str, PhaseDefinition]:
-        """
-        Get all phases for a domain.
+        """Get all phases for a domain.
         
         Args:
             domain: Domain name
@@ -88,7 +75,7 @@ class PhaseRegistry:
             Dictionary of phase definitions for the domain
         """
         result = {}
-        prefix = f"{domain}."
+        prefix = f'{domain}.'
         for key, phase_def in self._phases.items():
             if key.startswith(prefix):
                 phase_name = key[len(prefix):]
@@ -100,8 +87,7 @@ class PhaseRegistry:
         return sorted(self._domains)
     
     def list_phases(self, domain: Optional[str] = None) -> List[str]:
-        """
-        List all registered phase keys.
+        """List all registered phase keys.
         
         Args:
             domain: Optional domain filter
@@ -110,13 +96,12 @@ class PhaseRegistry:
             List of phase keys
         """
         if domain:
-            prefix = f"{domain}."
+            prefix = f'{domain}.'
             return sorted([k for k in self._phases.keys() if k.startswith(prefix)])
         return sorted(self._phases.keys())
     
     def validate_phase_sequence(self, domain: str, phases: List[str]) -> bool:
-        """
-        Validate that a phase sequence is valid.
+        """Validate that a phase sequence is valid.
         
         Args:
             domain: Domain name
@@ -126,18 +111,18 @@ class PhaseRegistry:
             True if valid, raises ValueError otherwise
         """
         for phase_name in phases:
-            phase_key = f"{domain}.{phase_name}"
+            phase_key = f'{domain}.{phase_name}'
             phase_def = self.get_phase(phase_key)
             
             if not phase_def:
-                raise ValueError(f"Unknown phase: {phase_key}")
+                raise ValueError(f'Unknown phase: {phase_key}')
             
             # Check dependencies are in sequence before this phase
             for dep in phase_def.dependencies:
                 if dep not in phases:
-                    raise ValueError(f"Phase {phase_name} depends on {dep} which is not in sequence")
+                    raise ValueError(f'Phase {phase_name} depends on {dep} which is not in sequence')
                 if phases.index(dep) >= phases.index(phase_name):
-                    raise ValueError(f"Phase {phase_name} depends on {dep} which comes after it")
+                    raise ValueError(f'Phase {phase_name} depends on {dep} which comes after it')
         
         return True
     
@@ -150,8 +135,7 @@ class PhaseRegistry:
         enable_refinement: bool = True,
         enable_parallel: bool = False
     ) -> WorkflowDefinition:
-        """
-        Create a workflow definition from registered phases.
+        """Create a workflow definition from registered phases.
         
         Args:
             domain: Domain name
@@ -170,7 +154,7 @@ class PhaseRegistry:
         # Collect phase definitions
         phase_defs = {}
         for phase_name in phases:
-            phase_key = f"{domain}.{phase_name}"
+            phase_key = f'{domain}.{phase_name}'
             phase_def = self.get_phase(phase_key)
             if phase_def:
                 phase_defs[phase_name] = phase_def
@@ -255,7 +239,7 @@ class PhaseRegistry:
         """Clear all registered phases (mainly for testing)."""
         self._phases.clear()
         self._domains.clear()
-        logger.info("Cleared phase registry")
+        logger.info('Cleared phase registry')
 
 
 # Global registry instance
@@ -265,3 +249,11 @@ PHASE_REGISTRY = PhaseRegistry()
 def get_registry() -> PhaseRegistry:
     """Get the global phase registry instance."""
     return PHASE_REGISTRY
+
+def register_phase(phase_key: str, phase_def: PhaseDefinition) -> None:
+    """Register a phase definition in the global registry."""
+    PHASE_REGISTRY.register_phase(phase_key, phase_def)
+
+def get_phase(phase_key: str) -> Optional[PhaseDefinition]:
+    """Get a phase definition from the global registry."""
+    return PHASE_REGISTRY.get_phase(phase_key)

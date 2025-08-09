@@ -525,7 +525,6 @@ def create_logging_agent():
         routing_config=logging_routing,
         tools=[logging_log, logging_configure, logging_get_logs, logging_clear_logs],
         output_type=LoggingOutput,
-        use_typed_output=True,  # Enable typed output for logging
         system_prompt="Handle structured logging with multiple output formats and log rotation.",
         description="Structured logging with multiple outputs, log rotation, and level filtering",
         version="1.0.0",

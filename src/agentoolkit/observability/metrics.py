@@ -1508,7 +1508,6 @@ def create_metrics_agent():
             metrics_create_from_schema
         ],
         output_type=MetricsOutput,
-        use_typed_output=True,  # Enable typed output for metrics (Tier 2 - depends on storage_kv)
         system_prompt="Track and analyze metrics for observability and monitoring.",
         description="Comprehensive metrics toolkit with automatic and manual tracking",
         version="1.0.0",

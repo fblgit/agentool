@@ -398,7 +398,6 @@ def create_workflow_specifier_agent():
         routing_config=routing,
         tools=[create_specifications],
         output_type=WorkflowSpecifierOutput,
-        use_typed_output=True,  # Enable typed output for workflow_specifier
         system_prompt="Create detailed specifications for AgenTools based on analysis.",
         description="Generates complete specifications for missing tools including schemas, operations, and examples",
         version="1.0.0",

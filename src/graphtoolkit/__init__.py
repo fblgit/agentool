@@ -1,35 +1,32 @@
-"""
-GraphToolkit - State-Driven Meta-Framework for AI Workflows.
+"""GraphToolkit - State-Driven Meta-Framework for AI Workflows.
 
 A powerful framework for building domain-agnostic, AI-powered workflows
 using atomic node decomposition and state-driven execution.
 """
 
-from typing import Dict, Any, Optional, List
-from datetime import datetime
-import logging
 import asyncio
+import logging
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 
+# Import nodes to trigger registration
+from . import nodes
+from .core.deps import ModelConfig, StorageConfig, WorkflowDeps
+from .core.registry import get_registry
 from .core.types import (
-    WorkflowState,
-    WorkflowDefinition,
-    PhaseDefinition,
     NodeConfig,
+    PhaseDefinition,
     StorageRef,
+    TokenUsage,
     ValidationResult,
-    TokenUsage
+    WorkflowDefinition,
+    WorkflowState,
 )
-from .core.deps import WorkflowDeps, ModelConfig, StorageConfig
-from .core.registry import get_phase, register_phase
-from .domains import (
-    AVAILABLE_DOMAINS,
-    DOMAIN_PHASES,
-    build_workflow_definition
-)
+from .domains import AVAILABLE_DOMAINS, DOMAIN_PHASES, build_workflow_definition
 
 logger = logging.getLogger(__name__)
 
-__version__ = "1.0.0"
+__version__ = '1.0.0'
 
 
 # Public API Types
@@ -52,8 +49,8 @@ class WorkflowResult:
     @property
     def generated_code(self) -> Optional[str]:
         """Get generated code for AgenTool domain."""
-        if self.domain == "agentool":
-            return self.outputs.get("crafter", {}).get("code")
+        if self.domain == 'agentool':
+            return self.outputs.get('crafter', {}).get('code')
         return None
     
     @property
@@ -93,8 +90,7 @@ def create_workflow(
     phases: Optional[List[str]] = None,
     config: Optional[Dict[str, Any]] = None
 ) -> Workflow:
-    """
-    Create a workflow instance for execution.
+    """Create a workflow instance for execution.
     
     Args:
         domain: Domain name (agentool, api, workflow, documentation, blockchain)
@@ -114,7 +110,7 @@ def create_workflow(
         >>> result = await workflow.run()
     """
     if domain not in AVAILABLE_DOMAINS:
-        raise ValueError(f"Unknown domain: {domain}. Available: {AVAILABLE_DOMAINS}")
+        raise ValueError(f'Unknown domain: {domain}. Available: {AVAILABLE_DOMAINS}')
     
     # Build workflow definition
     workflow_def = build_workflow_definition(domain)
@@ -130,15 +126,14 @@ def create_workflow(
         workflow_id=workflow_id,
         domain=domain,
         workflow_def=workflow_def,
-        current_phase=workflow_def.phase_sequence[0] if workflow_def.phase_sequence else "",
-        domain_data={"input": input_data}
+        current_phase=workflow_def.phase_sequence[0] if workflow_def.phase_sequence else '',
+        domain_data={'input': input_data}
     )
     
     # Create dependencies
     deps = WorkflowDeps.from_config(config) if config else WorkflowDeps.create_default()
     
     # Populate phase registry in deps
-    from .core.registry import get_registry
     deps = _update_deps_registry(deps, get_registry())
     
     return Workflow(workflow_def, state, deps)
@@ -148,8 +143,7 @@ async def execute_workflow(
     workflow: Workflow,
     timeout: Optional[int] = None
 ) -> WorkflowResult:
-    """
-    Execute a workflow instance.
+    """Execute a workflow instance.
     
     Args:
         workflow: Workflow instance to execute
@@ -176,8 +170,7 @@ async def run_domain_workflow(
     config: Optional[Dict[str, Any]] = None,
     timeout: Optional[int] = None
 ) -> WorkflowResult:
-    """
-    High-level API to create and run a domain workflow in one call.
+    """High-level API to create and run a domain workflow in one call.
     
     Args:
         domain: Domain name (agentool, api, workflow, documentation, blockchain)
@@ -238,8 +231,7 @@ def _update_deps_registry(
 
 
 def list_domains() -> List[str]:
-    """
-    List all available domains.
+    """List all available domains.
     
     Returns:
         List of domain names
@@ -253,8 +245,7 @@ def list_domains() -> List[str]:
 
 
 def list_domain_phases(domain: str) -> List[str]:
-    """
-    List all phases for a domain.
+    """List all phases for a domain.
     
     Args:
         domain: Domain name
@@ -268,13 +259,12 @@ def list_domain_phases(domain: str) -> List[str]:
         ['analyzer', 'specifier', 'crafter', 'evaluator']
     """
     if domain not in DOMAIN_PHASES:
-        raise ValueError(f"Unknown domain: {domain}")
+        raise ValueError(f'Unknown domain: {domain}')
     return DOMAIN_PHASES[domain]
 
 
 def get_workflow_status(workflow: Workflow) -> Dict[str, Any]:
-    """
-    Get current status of a workflow.
+    """Get current status of a workflow.
     
     Args:
         workflow: Workflow instance
@@ -288,13 +278,13 @@ def get_workflow_status(workflow: Workflow) -> Dict[str, Any]:
         {'analyzer', 'specifier'}
     """
     return {
-        "workflow_id": workflow.state.workflow_id,
-        "domain": workflow.state.domain,
-        "current_phase": workflow.state.current_phase,
-        "completed_phases": list(workflow.state.completed_phases),
-        "quality_scores": workflow.state.quality_scores,
-        "refinement_counts": workflow.state.refinement_count,
-        "has_errors": "error" in workflow.state.domain_data
+        'workflow_id': workflow.state.workflow_id,
+        'domain': workflow.state.domain,
+        'current_phase': workflow.state.current_phase,
+        'completed_phases': list(workflow.state.completed_phases),
+        'quality_scores': workflow.state.quality_scores,
+        'refinement_counts': workflow.state.refinement_count,
+        'has_errors': 'error' in workflow.state.domain_data
     }
 
 

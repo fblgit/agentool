@@ -1,5 +1,4 @@
-"""
-GraphToolkit Core Type Definitions.
+"""GraphToolkit Core Type Definitions.
 
 This module contains the canonical type definitions for the state-driven meta-framework.
 These types define the uniform plane where all workflow configuration lives.
@@ -7,34 +6,35 @@ These types define the uniform plane where all workflow configuration lives.
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Set, Type, Literal, Callable
 from enum import Enum
+from typing import Any, Dict, List, Literal, Optional, Set, Type
+
 from pydantic import BaseModel
 
 
 class RetryBackoff(str, Enum):
     """Retry backoff strategies."""
-    NONE = "none"
-    LINEAR = "linear"
-    EXPONENTIAL = "exponential"
+    NONE = 'none'
+    LINEAR = 'linear'
+    EXPONENTIAL = 'exponential'
 
 
 class ConditionOperator(str, Enum):
     """Condition comparison operators."""
-    EQUALS = "=="
-    NOT_EQUALS = "!="
-    GREATER_THAN = ">"
-    GREATER_EQUAL = ">="
-    LESS_THAN = "<"
-    LESS_EQUAL = "<="
-    IN = "in"
-    NOT_IN = "not_in"
+    EQUALS = '=='
+    NOT_EQUALS = '!='
+    GREATER_THAN = '>'
+    GREATER_EQUAL = '>='
+    LESS_THAN = '<'
+    LESS_EQUAL = '<='
+    IN = 'in'
+    NOT_IN = 'not_in'
 
 
 class StorageType(str, Enum):
     """Storage backend types."""
-    KV = "kv"
-    FS = "fs"
+    KV = 'kv'
+    FS = 'fs'
 
 
 @dataclass(frozen=True)
@@ -47,7 +47,7 @@ class StorageRef:
     size_bytes: Optional[int] = None
     
     def __str__(self) -> str:
-        return f"{self.storage_type.value}://{self.key}"
+        return f'{self.storage_type.value}://{self.key}'
 
 
 @dataclass(frozen=True)
@@ -95,7 +95,7 @@ class NodeConfig:
 @dataclass(frozen=True)
 class ConditionConfig:
     """Configuration for state-driven conditions."""
-    condition_type: Literal["quality_gate", "state_path", "threshold", "custom"]
+    condition_type: Literal['quality_gate', 'state_path', 'threshold', 'custom']
     
     # For quality_gate
     quality_field: Optional[str] = None
@@ -111,11 +111,11 @@ class ConditionConfig:
     
     def evaluate(self, state: 'WorkflowState') -> bool:
         """Evaluate condition against state."""
-        if self.condition_type == "quality_gate":
+        if self.condition_type == 'quality_gate':
             score = state.quality_scores.get(self.quality_field, 0.0)
             return score >= self.threshold
             
-        elif self.condition_type == "state_path":
+        elif self.condition_type == 'state_path':
             # Navigate state path (e.g., "domain_data.complexity")
             value = state
             for part in self.state_path.split('.'):
@@ -144,7 +144,7 @@ class ConditionConfig:
             elif self.operator == ConditionOperator.NOT_IN:
                 return value not in self.expected_value
                 
-        elif self.condition_type == "threshold":
+        elif self.condition_type == 'threshold':
             # Similar to state_path but specifically for numeric thresholds
             value = state
             for part in self.state_path.split('.'):
@@ -172,7 +172,7 @@ class PhaseDefinition:
     templates: Optional[TemplateConfig] = None
     
     # Storage
-    storage_pattern: str = "workflow/{workflow_id}/{phase}"
+    storage_pattern: str = 'workflow/{workflow_id}/{phase}'
     storage_type: StorageType = StorageType.KV
     
     # Quality control
@@ -204,7 +204,7 @@ class WorkflowDefinition:
     max_execution_time: int = 3600  # Seconds
     
     # Metadata
-    version: str = "1.0.0"
+    version: str = '1.0.0'
     created_at: datetime = field(default_factory=datetime.now)
     
     def get_phase(self, phase_name: str) -> Optional[PhaseDefinition]:
@@ -246,17 +246,23 @@ class RefinementRecord:
 
 @dataclass(frozen=True)
 class WorkflowState:
-    """Universal workflow state - drives all execution."""
+    """State-driven workflow execution.
+    
+    Per workflow-graph-system.md design:
+    - WorkflowDefinition is part of state (the uniform plane)
+    - Enables state-driven conditional logic and dynamic workflows
+    - Configuration access via ctx.state.workflow_def
+    """
+    # Workflow definition (the uniform plane)  
+    workflow_def: 'WorkflowDefinition'
+    
     # Core identity
     workflow_id: str
     domain: str
     
-    # The uniform plane - all configuration
-    workflow_def: WorkflowDefinition
-    
     # Execution position
     current_phase: str
-    current_node: str = ""
+    current_node: str = ''
     completed_phases: Set[str] = field(default_factory=set)
     
     # Storage references (not data itself)
@@ -279,6 +285,9 @@ class WorkflowState:
     # Retry tracking (per node instance)
     retry_counts: Dict[str, int] = field(default_factory=dict)
     
+    # Token usage tracking
+    total_token_usage: Dict[str, 'TokenUsage'] = field(default_factory=dict)
+    
     # Metadata
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
@@ -287,16 +296,12 @@ class WorkflowState:
         """Get configuration for current node."""
         return self.workflow_def.node_configs.get(self.current_node)
     
-    def get_current_phase_def(self) -> Optional[PhaseDefinition]:
-        """Get current phase definition."""
-        return self.workflow_def.phases.get(self.current_phase)
-    
     def get_next_atomic_node(self) -> Optional[str]:
         """Get next node in current phase."""
-        phase_def = self.get_current_phase_def()
+        phase_def = self.workflow_def.phases.get(self.current_phase)
         if not phase_def or not self.current_node:
             return None
-            
+        
         try:
             current_idx = phase_def.atomic_nodes.index(self.current_node)
             if current_idx + 1 < len(phase_def.atomic_nodes):
@@ -305,22 +310,16 @@ class WorkflowState:
             pass
         return None
     
+    def get_current_phase_def(self) -> Optional['PhaseDefinition']:
+        """Get current phase definition."""
+        return self.workflow_def.phases.get(self.current_phase)
+    
     def with_storage_ref(self, phase: str, ref: StorageRef) -> 'WorkflowState':
         """Helper to update storage reference."""
         from dataclasses import replace
         return replace(
             self,
             phase_outputs={**self.phase_outputs, phase: ref},
-            updated_at=datetime.now()
-        )
-    
-    def with_phase_complete(self, phase: str) -> 'WorkflowState':
-        """Helper to mark phase as complete."""
-        from dataclasses import replace
-        return replace(
-            self,
-            completed_phases=self.completed_phases | {phase},
-            current_phase=self.workflow_def.get_next_phase(phase) or phase,
             updated_at=datetime.now()
         )
 
@@ -336,7 +335,7 @@ class TokenUsage:
     def __add__(self, other: 'TokenUsage') -> 'TokenUsage':
         """Add token usage."""
         if self.model != other.model:
-            raise ValueError(f"Cannot add usage for different models: {self.model} vs {other.model}")
+            raise ValueError(f'Cannot add usage for different models: {self.model} vs {other.model}')
         return TokenUsage(
             prompt_tokens=self.prompt_tokens + other.prompt_tokens,
             completion_tokens=self.completion_tokens + other.completion_tokens,

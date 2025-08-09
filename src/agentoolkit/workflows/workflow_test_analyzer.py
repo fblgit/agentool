@@ -449,7 +449,6 @@ def create_workflow_test_analyzer_agent():
         routing_config=routing,
         tools=[analyze_test_requirements],
         output_type=WorkflowTestAnalyzerOutput,
-        use_typed_output=True,  # Enable typed output for workflow_test_analyzer
         system_prompt="Analyze generated AgenTool code to identify comprehensive test requirements.",
         description="Analyzes validated code to determine test cases, coverage needs, and real dependency requirements",
         version="1.0.0",

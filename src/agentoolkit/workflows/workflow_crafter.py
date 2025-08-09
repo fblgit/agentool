@@ -538,7 +538,6 @@ def create_workflow_crafter_agent():
         routing_config=routing,
         tools=[craft_implementation],
         output_type=WorkflowCrafterOutput,
-        use_typed_output=True,  # Enable typed output for workflow_crafter
         system_prompt="Generate production-ready AgenTool implementations from specifications.",
         description="Crafts complete AgenTool code following best practices and patterns",
         version="1.0.0",

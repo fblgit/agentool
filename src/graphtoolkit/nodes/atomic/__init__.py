@@ -1,42 +1,21 @@
-"""
-GraphToolkit Atomic Nodes.
+"""GraphToolkit Atomic Nodes.
 
 Collection of atomic nodes that chain together to form phases.
 """
 
 # Import all atomic nodes to trigger registration
-from . import storage
-from . import templates
-from . import llm
-from . import validation
-from . import control
+from . import aggregation, approval, control, generators, llm, storage, templates, transform, validation
+from .aggregation import AggregatorNode, ParallelAggregatorNode
+from .approval import ApprovalNode, QualityCheckNode, RefinementLoopNode
+from .control import ConditionalNode, NextPhaseNode, RefinementNode, StateUpdateNode
+from .generators import AdvancedGeneratorNode, GeneratorRoutingNode, SimpleGeneratorNode
+from .llm import LLMCallNode
 
 # Re-export key nodes
-from .storage import (
-    DependencyCheckNode,
-    LoadDependenciesNode,
-    SavePhaseOutputNode
-)
-
-from .templates import (
-    TemplateRenderNode
-)
-
-from .llm import (
-    LLMCallNode
-)
-
-from .validation import (
-    SchemaValidationNode,
-    QualityGateNode
-)
-
-from .control import (
-    StateUpdateNode,
-    NextPhaseNode,
-    RefinementNode,
-    ConditionalNode
-)
+from .storage import DependencyCheckNode, LoadDependenciesNode, SavePhaseOutputNode
+from .templates import TemplateRenderNode
+from .transform import CodeFormatNode, DataFilterNode, DataMergeNode, JSONParseNode, JSONSerializeNode
+from .validation import QualityGateNode, SchemaValidationNode
 
 __all__ = [
     # Storage
@@ -58,5 +37,26 @@ __all__ = [
     'StateUpdateNode',
     'NextPhaseNode',
     'RefinementNode',
-    'ConditionalNode'
+    'ConditionalNode',
+    
+    # Aggregation
+    'AggregatorNode',
+    'ParallelAggregatorNode',
+    
+    # Approval
+    'ApprovalNode',
+    'RefinementLoopNode',
+    'QualityCheckNode',
+    
+    # Generators
+    'SimpleGeneratorNode',
+    'AdvancedGeneratorNode',
+    'GeneratorRoutingNode',
+    
+    # Transform
+    'JSONParseNode',
+    'JSONSerializeNode',
+    'CodeFormatNode',
+    'DataMergeNode',
+    'DataFilterNode'
 ]

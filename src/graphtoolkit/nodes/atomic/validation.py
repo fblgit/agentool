@@ -1,36 +1,26 @@
-"""
-GraphToolkit Validation Atomic Nodes.
+"""GraphToolkit Validation Atomic Nodes.
 
 Validation nodes for schema checking and quality gates.
 """
 
-from typing import Any, Dict, Optional, List
-from dataclasses import dataclass, replace
-import logging
+import importlib
+import importlib.util
 import json
+import logging
+import sys
+from dataclasses import dataclass, replace
+from typing import Any, Dict, List, Optional
 
-from ..base import (
-    AtomicNode,
-    BaseNode,
-    ValidationError,
-    NonRetryableError,
-    GraphRunContext,
-    End
-)
-from ...core.types import (
-    WorkflowState,
-    ValidationResult
-)
-from ...core.factory import register_node_class, create_node_instance
-
+from ...core.factory import register_node_class
+from ...core.types import ValidationResult, WorkflowState
+from ..base import AtomicNode, BaseNode, GraphRunContext, NonRetryableError
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class SchemaValidationNode(AtomicNode[WorkflowState, Any, ValidationResult]):
-    """
-    Validate LLM output against output schema.
+    """Validate LLM output against output schema.
     Triggers refinement on failure, not retry.
     """
     
@@ -39,7 +29,7 @@ class SchemaValidationNode(AtomicNode[WorkflowState, Any, ValidationResult]):
         phase_name = ctx.state.current_phase
         phase_def = ctx.state.workflow_def.phases.get(phase_name)
         if not phase_def:
-            raise NonRetryableError(f"Phase {phase_name} not found")
+            raise NonRetryableError(f'Phase {phase_name} not found')
         
         # Get output data from state
         output_key = f'{phase_name}_llm_response'
@@ -48,7 +38,7 @@ class SchemaValidationNode(AtomicNode[WorkflowState, Any, ValidationResult]):
         if output_data is None:
             return ValidationResult(
                 valid=False,
-                errors=["No output data to validate"],
+                errors=['No output data to validate'],
                 warnings=[],
                 metadata={'phase': phase_name}
             )
@@ -86,7 +76,7 @@ class SchemaValidationNode(AtomicNode[WorkflowState, Any, ValidationResult]):
                 )
                 
             except Exception as e:
-                logger.error(f"Schema validation failed: {e}")
+                logger.error(f'Schema validation failed: {e}')
                 return ValidationResult(
                     valid=False,
                     errors=[str(e)],
@@ -101,7 +91,7 @@ class SchemaValidationNode(AtomicNode[WorkflowState, Any, ValidationResult]):
         return ValidationResult(
             valid=True,
             errors=[],
-            warnings=["No schema defined for validation"],
+            warnings=['No schema defined for validation'],
             metadata={'phase': phase_name}
         )
     
@@ -120,8 +110,7 @@ class SchemaValidationNode(AtomicNode[WorkflowState, Any, ValidationResult]):
 
 @dataclass
 class QualityGateNode(BaseNode[WorkflowState, Any, WorkflowState]):
-    """
-    Check quality score and determine next action.
+    """Check quality score and determine next action.
     Can trigger refinement or continue to next phase.
     """
     
@@ -130,7 +119,7 @@ class QualityGateNode(BaseNode[WorkflowState, Any, WorkflowState]):
         phase_name = ctx.state.current_phase
         phase_def = ctx.state.workflow_def.phases.get(phase_name)
         if not phase_def:
-            raise NonRetryableError(f"Phase {phase_name} not found")
+            raise NonRetryableError(f'Phase {phase_name} not found')
         
         # Get validation result
         validation = ctx.state.validation_results.get(phase_name)
@@ -151,7 +140,7 @@ class QualityGateNode(BaseNode[WorkflowState, Any, WorkflowState]):
         meets_threshold = quality_score >= phase_def.quality_threshold
         
         if meets_threshold:
-            logger.info(f"Quality gate passed for {phase_name}: {quality_score:.2f}")
+            logger.info(f'Quality gate passed for {phase_name}: {quality_score:.2f}')
             # Continue to next phase
             from .control import NextPhaseNode
             return NextPhaseNode()
@@ -164,7 +153,7 @@ class QualityGateNode(BaseNode[WorkflowState, Any, WorkflowState]):
         )
         
         if can_refine:
-            logger.info(f"Quality gate failed, triggering refinement for {phase_name}")
+            logger.info(f'Quality gate failed, triggering refinement for {phase_name}')
             # Trigger refinement
             from .control import RefinementNode
             return RefinementNode(
@@ -172,7 +161,7 @@ class QualityGateNode(BaseNode[WorkflowState, Any, WorkflowState]):
             )
         
         # Cannot refine further, accept current quality
-        logger.warning(f"Quality below threshold but max refinements reached for {phase_name}")
+        logger.warning(f'Quality below threshold but max refinements reached for {phase_name}')
         
         # Mark that we accepted below threshold
         new_state = replace(
@@ -213,8 +202,8 @@ class QualityGateNode(BaseNode[WorkflowState, Any, WorkflowState]):
     def _generate_feedback(self, validation: Optional[ValidationResult], quality_score: float) -> str:
         """Generate refinement feedback."""
         feedback_parts = [
-            f"Quality score: {quality_score:.2f}",
-            "Please refine the output to improve quality."
+            f'Quality score: {quality_score:.2f}',
+            'Please refine the output to improve quality.'
         ]
         
         if validation:
@@ -223,13 +212,12 @@ class QualityGateNode(BaseNode[WorkflowState, Any, WorkflowState]):
             if validation.warnings:
                 feedback_parts.append(f"Warnings: {', '.join(validation.warnings)}")
         
-        return "\n".join(feedback_parts)
+        return '\n'.join(feedback_parts)
 
 
 @dataclass
 class DependencyValidationNode(AtomicNode[WorkflowState, Any, bool]):
-    """
-    Validate that required dependencies are available.
+    """Validate that required dependencies are available.
     """
     required_tools: List[str]
     
@@ -244,7 +232,7 @@ class DependencyValidationNode(AtomicNode[WorkflowState, Any, bool]):
                 missing.append(tool)
         
         if missing:
-            logger.warning(f"Missing required tools: {missing}")
+            logger.warning(f'Missing required tools: {missing}')
             return False
         
         return True
@@ -252,8 +240,7 @@ class DependencyValidationNode(AtomicNode[WorkflowState, Any, bool]):
 
 @dataclass
 class DataValidationNode(AtomicNode[WorkflowState, Any, ValidationResult]):
-    """
-    Validate data structure and content.
+    """Validate data structure and content.
     """
     data_field: str
     validation_rules: Optional[Dict[str, Any]] = None
@@ -285,18 +272,18 @@ class DataValidationNode(AtomicNode[WorkflowState, Any, ValidationResult]):
                 elif rule_name == 'min_length':
                     # Check minimum length
                     if len(data) < rule_config:
-                        warnings.append(f"Data length {len(data)} below minimum {rule_config}")
+                        warnings.append(f'Data length {len(data)} below minimum {rule_config}')
                 
                 elif rule_name == 'max_length':
                     # Check maximum length
                     if len(data) > rule_config:
-                        errors.append(f"Data length {len(data)} exceeds maximum {rule_config}")
+                        errors.append(f'Data length {len(data)} exceeds maximum {rule_config}')
                 
                 elif rule_name == 'type':
                     # Check data type
                     expected_type = rule_config
                     if not isinstance(data, expected_type):
-                        errors.append(f"Expected type {expected_type.__name__}, got {type(data).__name__}")
+                        errors.append(f'Expected type {expected_type.__name__}, got {type(data).__name__}')
         
         return ValidationResult(
             valid=len(errors) == 0,
@@ -311,8 +298,7 @@ class DataValidationNode(AtomicNode[WorkflowState, Any, ValidationResult]):
 
 @dataclass
 class SyntaxValidationNode(AtomicNode[WorkflowState, Any, ValidationResult]):
-    """
-    Validate Python syntax for generated code.
+    """Validate Python syntax for generated code.
     """
     code_field: str = 'generated_code'
     
@@ -323,7 +309,7 @@ class SyntaxValidationNode(AtomicNode[WorkflowState, Any, ValidationResult]):
         if not code:
             return ValidationResult(
                 valid=False,
-                errors=["No code to validate"],
+                errors=['No code to validate'],
                 warnings=[],
                 metadata={'field': self.code_field}
             )
@@ -344,7 +330,7 @@ class SyntaxValidationNode(AtomicNode[WorkflowState, Any, ValidationResult]):
         except SyntaxError as e:
             return ValidationResult(
                 valid=False,
-                errors=[f"Syntax error at line {e.lineno}: {e.msg}"],
+                errors=[f'Syntax error at line {e.lineno}: {e.msg}'],
                 warnings=[],
                 metadata={
                     'field': self.code_field,
@@ -354,9 +340,112 @@ class SyntaxValidationNode(AtomicNode[WorkflowState, Any, ValidationResult]):
             )
 
 
+@dataclass
+class ImportValidationNode(AtomicNode[WorkflowState, Any, ValidationResult]):
+    """Validate that imports in generated code are available.
+    Integrates with agentoolkit's existing capabilities.
+    """
+    code_field: str = 'generated_code'
+    check_stdlib: bool = True
+    check_installed: bool = True
+    
+    async def perform_operation(self, ctx: GraphRunContext[WorkflowState, Any]) -> ValidationResult:
+        """Verify all imports in the code are available."""
+        code = ctx.state.domain_data.get(self.code_field)
+        
+        if not code:
+            return ValidationResult(
+                valid=False,
+                errors=['No code to validate'],
+                warnings=[],
+                metadata={'field': self.code_field}
+            )
+        
+        import ast
+        
+        errors = []
+        warnings = []
+        imports_found = []
+        
+        try:
+            # Parse the code to extract imports
+            tree = ast.parse(code)
+            
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        module_name = alias.name
+                        imports_found.append(module_name)
+                        if not self._check_import(module_name):
+                            errors.append(f"Module '{module_name}' not found")
+                            
+                elif isinstance(node, ast.ImportFrom):
+                    module_name = node.module
+                    if module_name:
+                        imports_found.append(module_name)
+                        if not self._check_import(module_name):
+                            errors.append(f"Module '{module_name}' not found")
+                        else:
+                            # Check specific imports from the module
+                            for alias in node.names:
+                                import_name = alias.name
+                                if import_name != '*' and not self._check_from_import(module_name, import_name):
+                                    warnings.append(f"Cannot verify '{import_name}' from '{module_name}'")
+            
+            # Check for common modules that might be needed
+            if 'pydantic' in code and 'pydantic' not in imports_found:
+                warnings.append("Code uses 'pydantic' but no import found")
+            
+            if 'typing' in code and 'typing' not in imports_found:
+                warnings.append("Code uses type hints but 'typing' not imported")
+                
+            return ValidationResult(
+                valid=len(errors) == 0,
+                errors=errors,
+                warnings=warnings,
+                metadata={
+                    'field': self.code_field,
+                    'imports_found': imports_found,
+                    'total_imports': len(imports_found)
+                }
+            )
+            
+        except SyntaxError as e:
+            return ValidationResult(
+                valid=False,
+                errors=[f'Cannot parse code for import validation: {e}'],
+                warnings=[],
+                metadata={'field': self.code_field}
+            )
+    
+    def _check_import(self, module_name: str) -> bool:
+        """Check if a module can be imported."""
+        import importlib.util
+        
+        # Check if it's a built-in module
+        if module_name in sys.builtin_module_names:
+            return True
+        
+        # Try to find the module spec
+        try:
+            spec = importlib.util.find_spec(module_name)
+            return spec is not None
+        except (ImportError, ModuleNotFoundError, ValueError):
+            return False
+    
+    def _check_from_import(self, module_name: str, import_name: str) -> bool:
+        """Check if a specific item can be imported from a module."""
+        try:
+            module = importlib.import_module(module_name)
+            return hasattr(module, import_name)
+        except (ImportError, ModuleNotFoundError):
+            return False
+
+
 # Register validation nodes
 register_node_class('schema_validation', SchemaValidationNode)
 register_node_class('quality_gate', QualityGateNode)
 register_node_class('dependency_validation', DependencyValidationNode)
 register_node_class('data_validation', DataValidationNode)
 register_node_class('syntax_validation', SyntaxValidationNode)
+register_node_class('import_validation', ImportValidationNode)

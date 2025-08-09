@@ -1,48 +1,27 @@
-"""
-GraphToolkit Base Node Patterns.
+"""GraphToolkit Base Node Patterns.
 
 Base classes and patterns for all nodes in the meta-framework.
 """
 
-from typing import TypeVar, Generic, Optional, Dict, Any, Union
-from dataclasses import dataclass, field, replace
-from datetime import datetime
 import asyncio
 import logging
+from dataclasses import dataclass, replace
+from datetime import datetime
+from typing import Any, Optional, TypeVar, Union
 
-try:
-    from pydantic_graph import BaseNode as PydanticBaseNode, GraphRunContext, End
-    HAS_PYDANTIC_GRAPH = True
-except ImportError:
-    # Development stubs
-    HAS_PYDANTIC_GRAPH = False
-    
-    class PydanticBaseNode:
-        pass
-    
-    class GraphRunContext:
-        def __init__(self, state: Any, deps: Any):
-            self.state = state
-            self.deps = deps
-    
-    class End:
-        def __init__(self, result: Any):
-            self.result = result
+# Real pydantic_graph imports - no more mocks
+from pydantic_graph import BaseNode as PydanticBaseNode, End, GraphRunContext
 
-from ..core.types import (
-    WorkflowState,
-    NodeConfig,
-    RetryBackoff
-)
-
+from ..core.metrics import MetricsMixin
+from ..core.types import NodeConfig, RetryBackoff
 
 logger = logging.getLogger(__name__)
 
 
-# Type variables
-StateT = TypeVar('StateT', bound='WorkflowState')
-DepsT = TypeVar('DepsT')
-OutputT = TypeVar('OutputT')
+# Type variables following pydantic_graph patterns
+StateT = TypeVar('StateT')  # State type for graph
+DepsT = TypeVar('DepsT')    # Dependencies type for graph  
+OutputT = TypeVar('OutputT')  # Final graph return type
 
 
 # Error hierarchy for state-driven retry
@@ -79,21 +58,28 @@ class ValidationError(NonRetryableError):
 
 
 @dataclass
-class BaseNode(PydanticBaseNode, Generic[StateT, DepsT, OutputT]):
-    """
-    Base node with state-driven retry and chaining support.
+class BaseNode(PydanticBaseNode[StateT, DepsT, OutputT], MetricsMixin):
+    """Base node with state-driven retry and chaining support.
+    Properly inherits from pydantic_graph.BaseNode.
     
     All nodes:
-    1. Read configuration from state
-    2. Perform their single operation
+    1. Read configuration from state (via deps)
+    2. Perform their single operation  
     3. Update state if needed
     4. Return the next node in chain
     """
     
-    async def run(self, ctx: GraphRunContext[StateT, DepsT]) -> Union[PydanticBaseNode, End[OutputT]]:
-        """Execute node with state-driven configuration."""
-        # Get our configuration from state
-        node_config = self._get_node_config(ctx.state)
+    async def run(self, ctx: GraphRunContext[StateT, DepsT]) -> Union['BaseNode', End[OutputT]]:
+        """Execute node with state-driven configuration and metrics tracking."""
+        # Get node info for metrics
+        node_name = self._get_node_name()
+        phase = getattr(ctx.state, 'current_phase', 'unknown')
+        
+        # Get our configuration from deps
+        node_config = self._get_node_config(ctx)
+        
+        # Track execution start
+        start_time = await self._track_execution_start(node_name, phase)
         
         # Check if we should retry
         if node_config and node_config.retryable:
@@ -101,34 +87,48 @@ class BaseNode(PydanticBaseNode, Generic[StateT, DepsT, OutputT]):
             retry_count = ctx.state.retry_counts.get(retry_key, 0)
             
             if retry_count > 0:
+                # Track retry attempt
+                if hasattr(self, '_last_error'):
+                    await self._track_retry_attempt(node_name, phase, retry_count, self._last_error)
+                
                 # Apply backoff before retry
                 await self._apply_backoff(retry_count, node_config)
         
         try:
             # Execute our specific operation
-            return await self.execute(ctx)
+            result = await self.execute(ctx)
+            
+            # Track success
+            await self._track_execution_success(node_name, phase, start_time, result)
+            
+            return result
             
         except RetryableError as e:
+            # Store error for retry tracking
+            self._last_error = e
+            await self._track_execution_failure(node_name, phase, start_time, e)
             return await self._handle_retryable_error(ctx, e, node_config)
             
         except NonRetryableError as e:
+            await self._track_execution_failure(node_name, phase, start_time, e)
             return await self._handle_non_retryable_error(ctx, e)
             
         except Exception as e:
             # Treat unknown errors as non-retryable
-            return await self._handle_non_retryable_error(ctx, NonRetryableError(str(e)))
+            non_retryable_error = NonRetryableError(str(e))
+            await self._track_execution_failure(node_name, phase, start_time, non_retryable_error)
+            return await self._handle_non_retryable_error(ctx, non_retryable_error)
     
-    async def execute(self, ctx: GraphRunContext[StateT, DepsT]) -> Union[PydanticBaseNode, End[OutputT]]:
-        """
-        Execute the node's specific operation.
+    async def execute(self, ctx: GraphRunContext[StateT, DepsT]) -> Union['BaseNode', End[OutputT]]:
+        """Execute the node's specific operation.
         Must be implemented by subclasses.
         """
         raise NotImplementedError
     
-    def _get_node_config(self, state: StateT) -> Optional[NodeConfig]:
+    def _get_node_config(self, ctx: GraphRunContext[StateT, DepsT]) -> Optional[NodeConfig]:
         """Get configuration for this node from state."""
-        if hasattr(state, 'workflow_def') and hasattr(state, 'current_node'):
-            return state.workflow_def.node_configs.get(state.current_node)
+        if hasattr(ctx.state, 'get_current_node_config'):
+            return ctx.state.get_current_node_config()
         return None
     
     def _get_retry_key(self, state: StateT) -> str:
@@ -136,7 +136,7 @@ class BaseNode(PydanticBaseNode, Generic[StateT, DepsT, OutputT]):
         phase = getattr(state, 'current_phase', 'unknown')
         node = getattr(state, 'current_node', 'unknown')
         workflow_id = getattr(state, 'workflow_id', 'unknown')
-        return f"{phase}_{node}_{workflow_id}"
+        return f'{phase}_{node}_{workflow_id}'
     
     async def _apply_backoff(self, retry_count: int, config: NodeConfig) -> None:
         """Apply backoff strategy before retry."""
@@ -149,7 +149,7 @@ class BaseNode(PydanticBaseNode, Generic[StateT, DepsT, OutputT]):
         else:
             delay = config.retry_delay
         
-        logger.debug(f"Applying {config.retry_backoff} backoff: {delay}s")
+        logger.debug(f'Applying {config.retry_backoff} backoff: {delay}s')
         await asyncio.sleep(delay)
     
     async def _handle_retryable_error(
@@ -157,7 +157,7 @@ class BaseNode(PydanticBaseNode, Generic[StateT, DepsT, OutputT]):
         ctx: GraphRunContext[StateT, DepsT],
         error: RetryableError,
         config: Optional[NodeConfig]
-    ) -> Union[PydanticBaseNode, End[OutputT]]:
+    ) -> Union['BaseNode', End[OutputT]]:
         """Handle retryable error with self-return pattern."""
         if not config or not config.retryable:
             # Not configured for retry, convert to non-retryable
@@ -168,7 +168,7 @@ class BaseNode(PydanticBaseNode, Generic[StateT, DepsT, OutputT]):
         
         if retry_count < config.max_retries:
             # Retry by returning ourselves with updated retry count
-            logger.info(f"Retrying {retry_key}: attempt {retry_count + 1}/{config.max_retries}")
+            logger.info(f'Retrying {retry_key}: attempt {retry_count + 1}/{config.max_retries}')
             
             # Update retry count in state
             # Note: In actual implementation, state update happens through context
@@ -182,32 +182,25 @@ class BaseNode(PydanticBaseNode, Generic[StateT, DepsT, OutputT]):
             return self.__class__()
         else:
             # Max retries exceeded
-            logger.error(f"Max retries exceeded for {retry_key}")
+            logger.error(f'Max retries exceeded for {retry_key}')
             return ErrorNode(error=str(error), node_id=ctx.state.current_node)
     
     async def _handle_non_retryable_error(
         self,
         ctx: GraphRunContext[StateT, DepsT],
         error: NonRetryableError
-    ) -> Union[PydanticBaseNode, End[OutputT]]:
+    ) -> Union['BaseNode', End[OutputT]]:
         """Handle non-retryable error."""
-        logger.error(f"Non-retryable error in {ctx.state.current_node}: {error}")
+        logger.error(f'Non-retryable error in {ctx.state.current_node}: {error}')
         return ErrorNode(error=str(error), node_id=ctx.state.current_node)
     
-    def get_next_node(self, state: StateT) -> Optional[str]:
+    def get_next_node(self, ctx: GraphRunContext[StateT, DepsT]) -> Optional[str]:
         """Get the next node in the current phase's sequence."""
-        if hasattr(state, 'workflow_def') and hasattr(state, 'current_phase'):
-            phase_def = state.workflow_def.phases.get(state.current_phase)
-            if phase_def and hasattr(state, 'current_node'):
-                try:
-                    current_idx = phase_def.atomic_nodes.index(state.current_node)
-                    if current_idx + 1 < len(phase_def.atomic_nodes):
-                        return phase_def.atomic_nodes[current_idx + 1]
-                except (ValueError, IndexError):
-                    pass
+        if hasattr(ctx.state, 'get_next_atomic_node'):
+            return ctx.state.get_next_atomic_node()
         return None
     
-    def create_next_node(self, node_id: str) -> PydanticBaseNode:
+    def create_next_node(self, node_id: str) -> 'BaseNode':
         """Create the next node instance."""
         from ..core.factory import create_node_instance
         return create_node_instance(node_id)
@@ -215,8 +208,7 @@ class BaseNode(PydanticBaseNode, Generic[StateT, DepsT, OutputT]):
 
 @dataclass
 class ErrorNode(BaseNode[StateT, DepsT, StateT]):
-    """
-    Terminal error node for handling failures.
+    """Terminal error node for handling failures.
     """
     error: str
     node_id: Optional[str] = None
@@ -242,8 +234,7 @@ class ErrorNode(BaseNode[StateT, DepsT, StateT]):
 
 @dataclass  
 class AtomicNode(BaseNode[StateT, DepsT, OutputT]):
-    """
-    Base class for atomic nodes that chain together.
+    """Base class for atomic nodes that chain together.
     
     Pattern:
     1. Execute single operation
@@ -251,7 +242,7 @@ class AtomicNode(BaseNode[StateT, DepsT, OutputT]):
     3. Return next node in chain
     """
     
-    async def execute(self, ctx: GraphRunContext[StateT, DepsT]) -> Union[PydanticBaseNode, End[OutputT]]:
+    async def execute(self, ctx: GraphRunContext[StateT, DepsT]) -> Union['BaseNode', End[OutputT]]:
         """Execute atomic operation and chain to next."""
         # Perform our atomic operation
         result = await self.perform_operation(ctx)
@@ -260,7 +251,9 @@ class AtomicNode(BaseNode[StateT, DepsT, OutputT]):
         new_state = await self.update_state(ctx.state, result)
         
         # Get next node in chain
-        next_node_id = self.get_next_node(new_state)
+        # Update context with new state for next node lookup
+        updated_ctx = GraphRunContext(new_state, ctx.deps)
+        next_node_id = self.get_next_node(updated_ctx)
         
         if next_node_id:
             # Update current_node in state for next execution
@@ -273,28 +266,25 @@ class AtomicNode(BaseNode[StateT, DepsT, OutputT]):
             return await self.complete_phase(ctx, new_state)
     
     async def perform_operation(self, ctx: GraphRunContext[StateT, DepsT]) -> Any:
-        """
-        Perform the atomic operation.
+        """Perform the atomic operation.
         Must be implemented by subclasses.
         """
         raise NotImplementedError
     
     async def update_state(self, state: StateT, result: Any) -> StateT:
-        """
-        Update state with operation result.
+        """Update state with operation result.
         Default implementation stores in domain_data.
         """
         if hasattr(state, 'domain_data'):
-            key = f"{state.current_node}_result"
+            key = f'{state.current_node}_result'
             return replace(
                 state,
                 domain_data={**state.domain_data, key: result}
             )
         return state
     
-    async def complete_phase(self, ctx: GraphRunContext[StateT, DepsT], state: StateT) -> Union[PydanticBaseNode, End[OutputT]]:
-        """
-        Handle phase completion.
+    async def complete_phase(self, ctx: GraphRunContext[StateT, DepsT], state: StateT) -> Union['BaseNode', End[OutputT]]:
+        """Handle phase completion.
         Default implementation moves to next phase.
         """
         # Mark phase as complete
@@ -305,8 +295,8 @@ class AtomicNode(BaseNode[StateT, DepsT, OutputT]):
             )
             
             # Get next phase
-            if hasattr(state, 'workflow_def'):
-                next_phase = state.workflow_def.get_next_phase(state.current_phase)
+            if hasattr(ctx.state, 'workflow_def'):
+                next_phase = ctx.state.workflow_def.get_next_phase(state.current_phase)
                 if next_phase:
                     # Move to next phase
                     from .control import NextPhaseNode
@@ -318,4 +308,5 @@ class AtomicNode(BaseNode[StateT, DepsT, OutputT]):
 
 # Register error node
 from ..core.factory import register_node_class
+
 register_node_class('error', ErrorNode)

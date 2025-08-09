@@ -1,22 +1,14 @@
-"""
-GraphToolkit State Mutation Patterns.
+"""GraphToolkit State Mutation Patterns.
 
 Immutable state mutation helpers and patterns.
 """
 
-from typing import Any, Dict, Optional, Set, List
+import logging
 from dataclasses import replace
 from datetime import datetime
-import logging
+from typing import Any, Dict, List, Optional
 
-from ..core.types import (
-    WorkflowState,
-    StorageRef,
-    RefinementRecord,
-    ValidationResult,
-    TokenUsage
-)
-
+from ..core.types import RefinementRecord, StorageRef, TokenUsage, ValidationResult, WorkflowState
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +18,7 @@ def update_phase_complete(
     phase_name: str,
     output_ref: Optional[StorageRef] = None
 ) -> WorkflowState:
-    """
-    Mark a phase as complete and optionally store its output reference.
+    """Mark a phase as complete and optionally store its output reference.
     
     Args:
         state: Current workflow state
@@ -66,8 +57,7 @@ def update_for_refinement(
     feedback: str,
     quality_score: float
 ) -> WorkflowState:
-    """
-    Update state for phase refinement.
+    """Update state for phase refinement.
     
     Args:
         state: Current workflow state
@@ -126,8 +116,7 @@ def update_quality_score(
     phase_name: str,
     score: float
 ) -> WorkflowState:
-    """
-    Update quality score for a phase.
+    """Update quality score for a phase.
     
     Args:
         state: Current workflow state
@@ -152,8 +141,7 @@ def update_validation_result(
     phase_name: str,
     result: ValidationResult
 ) -> WorkflowState:
-    """
-    Update validation result for a phase.
+    """Update validation result for a phase.
     
     Args:
         state: Current workflow state
@@ -178,8 +166,7 @@ def update_token_usage(
     phase_name: str,
     usage: TokenUsage
 ) -> WorkflowState:
-    """
-    Update or accumulate token usage for a phase.
+    """Update or accumulate token usage for a phase.
     
     Args:
         state: Current workflow state
@@ -212,8 +199,7 @@ def add_domain_data(
     key: str,
     value: Any
 ) -> WorkflowState:
-    """
-    Add or update domain-specific data.
+    """Add or update domain-specific data.
     
     Args:
         state: Current workflow state
@@ -237,8 +223,7 @@ def merge_domain_data(
     state: WorkflowState,
     data: Dict[str, Any]
 ) -> WorkflowState:
-    """
-    Merge multiple domain data entries.
+    """Merge multiple domain data entries.
     
     Args:
         state: Current workflow state
@@ -261,8 +246,7 @@ def increment_retry_count(
     state: WorkflowState,
     retry_key: str
 ) -> WorkflowState:
-    """
-    Increment retry count for a specific operation.
+    """Increment retry count for a specific operation.
     
     Args:
         state: Current workflow state
@@ -287,8 +271,7 @@ def reset_retry_count(
     state: WorkflowState,
     retry_key: str
 ) -> WorkflowState:
-    """
-    Reset retry count for a specific operation.
+    """Reset retry count for a specific operation.
     
     Args:
         state: Current workflow state
@@ -313,8 +296,7 @@ def update_iteration_state(
     results: Optional[List[Any]] = None,
     index: Optional[int] = None
 ) -> WorkflowState:
-    """
-    Update iteration state for processing items.
+    """Update iteration state for processing items.
     
     Args:
         state: Current workflow state
@@ -345,8 +327,7 @@ def validate_state_transition(
     old_state: WorkflowState,
     new_state: WorkflowState
 ) -> bool:
-    """
-    Validate that a state transition is valid.
+    """Validate that a state transition is valid.
     
     Args:
         old_state: Previous state
@@ -360,23 +341,23 @@ def validate_state_transition(
     """
     # Workflow ID must not change
     if old_state.workflow_id != new_state.workflow_id:
-        raise ValueError("Workflow ID cannot be changed")
+        raise ValueError('Workflow ID cannot be changed')
     
     # Domain must not change
     if old_state.domain != new_state.domain:
-        raise ValueError("Domain cannot be changed")
+        raise ValueError('Domain cannot be changed')
     
     # Workflow definition must not change
     if old_state.workflow_def != new_state.workflow_def:
-        raise ValueError("Workflow definition cannot be changed during execution")
+        raise ValueError('Workflow definition cannot be changed during execution')
     
     # Completed phases should only grow
     if not old_state.completed_phases.issubset(new_state.completed_phases):
-        raise ValueError("Completed phases cannot be removed")
+        raise ValueError('Completed phases cannot be removed')
     
     # Phase outputs should only grow
     if not set(old_state.phase_outputs.keys()).issubset(set(new_state.phase_outputs.keys())):
-        raise ValueError("Phase outputs cannot be removed")
+        raise ValueError('Phase outputs cannot be removed')
     
     return True
 
@@ -386,8 +367,7 @@ def create_recovery_state(
     error: str,
     node_id: Optional[str] = None
 ) -> WorkflowState:
-    """
-    Create a recovery state after an error.
+    """Create a recovery state after an error.
     
     Args:
         state: Current workflow state

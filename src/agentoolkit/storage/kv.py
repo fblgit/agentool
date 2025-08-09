@@ -605,7 +605,6 @@ def create_storage_kv_agent():
         routing_config=kv_routing,
         tools=[kv_get, kv_set, kv_delete, kv_exists, kv_keys, kv_clear, kv_expire, kv_ttl, kv_get_metric],
         output_type=StorageKvOutput,
-        use_typed_output=True,  # Enable typed output for storage_kv (Tier 2)
         system_prompt="Handle key-value storage operations with TTL support efficiently.",
         description="Key-value storage with TTL support, namespaces, and Redis-compatible interface",
         version="1.0.0",
