@@ -31,7 +31,10 @@ class ProcessToolsNode(IterableNode[Dict[str, Any], Dict[str, Any]]):
         logger.info(f'Processing tool: {tool_name}')
         
         # Use LLM to generate tool specification
+        from ...core.initialization import ensure_graphtoolkit_initialized
         from agentool.core.injector import get_injector
+        
+        ensure_graphtoolkit_initialized()
         injector = get_injector()
         
         # Prepare prompt for this specific tool

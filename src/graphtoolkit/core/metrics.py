@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 from agentool.core.injector import get_injector
+from .initialization import ensure_graphtoolkit_initialized
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,7 @@ class MetricsMixin:
         try:
             start_time = time.time()
             
+            ensure_graphtoolkit_initialized()
             injector = get_injector()
             
             # Track execution start
@@ -74,6 +76,7 @@ class MetricsMixin:
         try:
             duration = time.time() - start_time
             
+            ensure_graphtoolkit_initialized()
             injector = get_injector()
             
             base_labels = {
@@ -130,6 +133,7 @@ class MetricsMixin:
         try:
             duration = time.time() - start_time
             
+            ensure_graphtoolkit_initialized()
             injector = get_injector()
             
             base_labels = {
@@ -188,6 +192,7 @@ class MetricsMixin:
                                  error: Exception, labels: Optional[Dict[str, str]] = None):
         """Track retry attempts."""
         try:
+            ensure_graphtoolkit_initialized()
             injector = get_injector()
             
             base_labels = {
@@ -238,6 +243,7 @@ class MetricsMixin:
                                      success: bool, duration: float, size_bytes: Optional[int] = None):
         """Track storage operations."""
         try:
+            ensure_graphtoolkit_initialized()
             injector = get_injector()
             
             labels = {
@@ -281,6 +287,7 @@ class MetricsMixin:
                                  duration: float, success: bool, temperature: Optional[float] = None):
         """Track LLM operations."""
         try:
+            ensure_graphtoolkit_initialized()
             injector = get_injector()
             
             labels = {

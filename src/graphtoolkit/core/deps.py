@@ -139,8 +139,15 @@ class WorkflowDeps(GraphDeps):
         return True
     
     def get_storage_client(self):
-        """Get storage client for operations."""
+        """Get storage client for operations.
+        
+        Ensures agentoolkit components are initialized before returning injector.
+        """
+        from .initialization import ensure_graphtoolkit_initialized
         from agentool.core.injector import get_injector
+        
+        # Ensure initialization before returning injector
+        ensure_graphtoolkit_initialized()
         return get_injector()
     
     def get_llm_client(self):

@@ -16,6 +16,8 @@ Key Features:
 - Parallel execution with pydantic_graph
 """
 
+from typing import Optional
+
 # Core types and interfaces
 from .core.types import (
     WorkflowDefinition,
@@ -51,6 +53,17 @@ from .core.executor import (
 from .core.registry import (
     get_registry,
     register_phase
+)
+
+# Import initialization system
+from .core.initialization import (
+    initialize_graphtoolkit,
+    ensure_graphtoolkit_initialized,
+    InitializationConfig,
+    default_config,
+    test_config,
+    agentool_workflow_config,
+    graphtoolkit_context
 )
 
 # Import all domains to trigger registration
@@ -93,6 +106,15 @@ __all__ = [
     'get_registry',
     'register_phase',
     
+    # Initialization
+    'initialize_graphtoolkit',
+    'ensure_graphtoolkit_initialized',
+    'InitializationConfig',
+    'default_config',
+    'test_config',
+    'agentool_workflow_config',
+    'graphtoolkit_context',
+    
     # High-level API
     'GraphToolkit',
     'create_agentool_workflow',
@@ -105,8 +127,14 @@ __all__ = [
 class GraphToolkit:
     """High-level GraphToolkit API for easy workflow management."""
     
-    def __init__(self):
-        """Initialize GraphToolkit with registry access."""
+    def __init__(self, config: Optional[InitializationConfig] = None):
+        """Initialize GraphToolkit with registry access.
+        
+        Args:
+            config: Optional initialization configuration.
+        """
+        # Ensure initialization before accessing registry
+        ensure_graphtoolkit_initialized(config)
         self.registry = get_registry()
     
     def list_domains(self) -> list[str]:

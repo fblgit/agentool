@@ -472,6 +472,10 @@ async def execute_agentool_workflow(
     from agentool.core.injector import get_injector
     from ..core.deps import WorkflowDeps
     from ..core.factory import create_workflow_state, build_domain_workflow
+    from .initialization import ensure_graphtoolkit_initialized, agentool_workflow_config
+    
+    # Ensure initialization for AgenTool workflow
+    ensure_graphtoolkit_initialized(agentool_workflow_config())
     
     # Generate workflow ID if not provided
     if not workflow_id:
@@ -569,6 +573,10 @@ async def execute_testsuite_workflow(
     from agentool.core.injector import get_injector
     from ..core.deps import WorkflowDeps
     from ..core.factory import create_workflow_state, build_domain_workflow
+    from .initialization import ensure_graphtoolkit_initialized, default_config
+    
+    # Ensure initialization for TestSuite workflow  
+    ensure_graphtoolkit_initialized(default_config())
     
     # Generate workflow ID if not provided
     if not workflow_id:

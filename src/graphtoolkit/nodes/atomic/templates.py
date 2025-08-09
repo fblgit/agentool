@@ -36,7 +36,11 @@ class TemplateRenderNode(AtomicNode[WorkflowState, Any, Dict[str, str]]):
         variables = self._prepare_variables(ctx)
         
         # Use the existing template system through injector
+        from ...core.initialization import ensure_graphtoolkit_initialized
         from agentool.core.injector import get_injector
+        
+        # Ensure initialization before using injector
+        ensure_graphtoolkit_initialized()
         injector = get_injector()
         
         rendered = {}
@@ -128,7 +132,10 @@ class TemplateValidateNode(AtomicNode[WorkflowState, Any, bool]):
     
     async def perform_operation(self, ctx: GraphRunContext[WorkflowState, Any]) -> bool:
         """Validate template syntax."""
+        from ...core.initialization import ensure_graphtoolkit_initialized
         from agentool.core.injector import get_injector
+        
+        ensure_graphtoolkit_initialized()
         injector = get_injector()
         
         try:
@@ -156,7 +163,10 @@ class TemplateSaveNode(AtomicNode[WorkflowState, Any, bool]):
     
     async def perform_operation(self, ctx: GraphRunContext[WorkflowState, Any]) -> bool:
         """Save template to storage."""
+        from ...core.initialization import ensure_graphtoolkit_initialized
         from agentool.core.injector import get_injector
+        
+        ensure_graphtoolkit_initialized()
         injector = get_injector()
         
         try:
@@ -182,7 +192,10 @@ class TemplateExecNode(AtomicNode[WorkflowState, Any, str]):
     
     async def perform_operation(self, ctx: GraphRunContext[WorkflowState, Any]) -> str:
         """Execute template rendering."""
+        from ...core.initialization import ensure_graphtoolkit_initialized
         from agentool.core.injector import get_injector
+        
+        ensure_graphtoolkit_initialized()
         injector = get_injector()
         
         # Merge provided variables with state variables

@@ -39,9 +39,10 @@ class TestAgenToolWorkflowComplete:
     
     def setup_method(self):
         """Set up test environment before each test."""
-        # Clear registries to avoid interference
-        AgenToolRegistry.clear()
-        get_injector().clear()
+        from .test_helpers import setup_agentoolkit_components
+        
+        # Use centralized setup instead of manual clearing
+        setup_agentoolkit_components()
         
         # Set up test model for deterministic testing
         self.test_model = TestModel()
@@ -269,15 +270,9 @@ async def session_create(user_id: str, session_data: Dict[str, Any], ttl: int = 
         if not storage_available:
             pytest.skip("Storage agentoolkits not available")
         
-        # Create storage agents
-        kv_agent = create_storage_kv_agent()
-        fs_agent = create_storage_fs_agent()
-        
-        # Test KV storage operation
+        # Setup is now handled by test_helpers.setup_agentoolkit_components()
         from agentool.core.injector import get_injector
         injector = get_injector()
-        injector.register('storage_kv', kv_agent)
-        injector.register('storage_fs', fs_agent)
         
         # Test saving workflow outputs
         kv_result = await injector.run('storage_kv', {
@@ -286,9 +281,9 @@ async def session_create(user_id: str, session_data: Dict[str, Any], ttl: int = 
             'value': {'analyzer_results': 'test_data'},
             'namespace': 'workflow'
         })
-        # kv_result is an AgentRunResult, get the data
-        print(kv_result.output)
-        assert '"stored":true' in kv_result.output
+        # kv_result is the StorageKvOutput directly
+        assert kv_result.success == True
+        assert kv_result.data['stored'] == True
         
         # Create storage references
         storage_ref_kv = StorageRef(
@@ -534,8 +529,10 @@ class TestAgenToolWorkflowRealComponents:
     
     def setup_method(self):
         """Set up test environment."""
-        AgenToolRegistry.clear()
-        get_injector().clear()
+        from .test_helpers import setup_agentoolkit_components
+        
+        # Use centralized setup
+        setup_agentoolkit_components()
     
     def test_real_agentool_workflow_structure(self):
         """Test AgenTool workflow creation with real components."""
