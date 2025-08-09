@@ -27,6 +27,9 @@ class StateUpdateNode(AtomicNode[WorkflowState, Any, WorkflowState]):
         """Update state to mark phase complete."""
         phase_name = ctx.state.current_phase
         
+        logger.debug(f"[StateUpdateNode] Marking phase {phase_name} as complete")
+        logger.debug(f"[StateUpdateNode] Current completed phases: {ctx.state.completed_phases}")
+        
         # Mark phase as complete
         new_state = replace(
             ctx.state,
@@ -34,7 +37,8 @@ class StateUpdateNode(AtomicNode[WorkflowState, Any, WorkflowState]):
             updated_at=datetime.now()
         )
         
-        logger.info(f'Phase {phase_name} marked as complete')
+        logger.info(f'[StateUpdateNode] Phase {phase_name} marked as complete')
+        logger.debug(f"[StateUpdateNode] New completed phases: {new_state.completed_phases}")
         return new_state
     
     async def update_state(self, state: WorkflowState, result: WorkflowState) -> WorkflowState:
@@ -49,11 +53,16 @@ class NextPhaseNode(BaseNode[WorkflowState, Any, WorkflowState]):
     
     async def execute(self, ctx: GraphRunContext[WorkflowState, Any]) -> Union[BaseNode, End[WorkflowState]]:
         """Find next phase and transition to it."""
+        logger.debug(f"[NextPhaseNode] === ENTRY === Current phase: {ctx.state.current_phase}")
+        logger.debug(f"[NextPhaseNode] Completed phases: {ctx.state.completed_phases}")
+        logger.debug(f"[NextPhaseNode] Phase sequence: {ctx.state.workflow_def.phase_sequence}")
+        
         # Get next phase from workflow definition
         next_phase = ctx.state.workflow_def.get_next_phase(ctx.state.current_phase)
+        logger.debug(f"[NextPhaseNode] Next phase from workflow_def: {next_phase}")
         
         if next_phase:
-            logger.info(f'Transitioning from {ctx.state.current_phase} to {next_phase}')
+            logger.info(f'[NextPhaseNode] Transitioning from {ctx.state.current_phase} to {next_phase}')
             
             # Update state to new phase
             phase_def = ctx.state.workflow_def.phases.get(next_phase)
@@ -74,7 +83,9 @@ class NextPhaseNode(BaseNode[WorkflowState, Any, WorkflowState]):
             return GenericPhaseNode()
         
         # No more phases - workflow complete
-        logger.info(f'Workflow complete for {ctx.state.workflow_id}')
+        logger.info(f'[NextPhaseNode] Workflow complete for {ctx.state.workflow_id}')
+        logger.debug(f"[NextPhaseNode] Final completed phases: {ctx.state.completed_phases}")
+        logger.debug(f"[NextPhaseNode] === EXIT === Returning End")
         return End(ctx.state)
 
 
@@ -88,8 +99,12 @@ class RefinementNode(BaseNode[WorkflowState, Any, WorkflowState]):
         """Set up refinement and restart phase."""
         phase_name = ctx.state.current_phase
         
+        logger.debug(f"[RefinementNode] === ENTRY === Phase: {phase_name}, Feedback: {self.feedback[:50]}...")
+        logger.debug(f"[RefinementNode] Current refinement count: {ctx.state.refinement_count}")
+        
         # Increment refinement count
         refinement_count = ctx.state.refinement_count.get(phase_name, 0) + 1
+        logger.info(f"[RefinementNode] Starting refinement {refinement_count} for {phase_name}")
         
         # Get current quality score
         quality_score = ctx.state.quality_scores.get(phase_name, 0.0)

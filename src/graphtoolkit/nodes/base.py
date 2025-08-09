@@ -75,8 +75,12 @@ class BaseNode(PydanticBaseNode[StateT, DepsT, OutputT], MetricsMixin):
         node_name = self._get_node_name()
         phase = getattr(ctx.state, 'current_phase', 'unknown')
         
+        logger.debug(f"[{node_name}] === ENTRY === Phase: {phase}, Workflow: {getattr(ctx.state, 'workflow_id', 'unknown')}")
+        logger.debug(f"[{node_name}] State keys: {list(ctx.state.__dict__.keys()) if hasattr(ctx.state, '__dict__') else 'N/A'}")
+        
         # Get our configuration from deps
         node_config = self._get_node_config(ctx)
+        logger.debug(f"[{node_name}] Config: retryable={getattr(node_config, 'retryable', False)}, max_retries={getattr(node_config, 'max_retries', 0)}")
         
         # Track execution start
         start_time = await self._track_execution_start(node_name, phase)
@@ -96,11 +100,14 @@ class BaseNode(PydanticBaseNode[StateT, DepsT, OutputT], MetricsMixin):
         
         try:
             # Execute our specific operation
+            logger.debug(f"[{node_name}] Calling execute method")
             result = await self.execute(ctx)
+            logger.debug(f"[{node_name}] Execute returned: {type(result).__name__}")
             
             # Track success
             await self._track_execution_success(node_name, phase, start_time, result)
             
+            logger.debug(f"[{node_name}] === EXIT === Success, returning {type(result).__name__}")
             return result
             
         except RetryableError as e:
@@ -233,24 +240,34 @@ class AtomicNode(BaseNode[StateT, DepsT, OutputT]):
     
     async def execute(self, ctx: GraphRunContext[StateT, DepsT]) -> Union['BaseNode', End[OutputT]]:
         """Execute atomic operation and chain to next."""
+        node_name = self.__class__.__name__
+        logger.debug(f"[{node_name}] AtomicNode.execute starting")
+        
         # Perform our atomic operation
+        logger.debug(f"[{node_name}] Calling perform_operation")
         result = await self.perform_operation(ctx)
+        logger.debug(f"[{node_name}] perform_operation returned: {type(result).__name__ if result else 'None'}")
         
         # Update state with result - directly modify the mutable state
+        logger.debug(f"[{node_name}] Updating state in place")
         await self.update_state_in_place(ctx.state, result)
         
         # Get next node in chain based on current position
         next_node_id = self.get_next_node(ctx.state)
+        logger.debug(f"[{node_name}] Next node ID: {next_node_id}")
         
         if next_node_id:
             # Update current_node in state for next execution
             ctx.state.current_node = next_node_id
+            logger.info(f"[{node_name}] Chaining to {next_node_id}")
             
             # Chain to next node - it will receive the same context with updated state
             next_node = self.create_next_node(next_node_id)
+            logger.debug(f"[{node_name}] Created next node: {type(next_node).__name__}")
             return next_node
         else:
             # No more nodes in this phase
+            logger.info(f"[{node_name}] No more nodes in phase, completing phase")
             return await self.complete_phase(ctx, ctx.state)
     
     async def perform_operation(self, ctx: GraphRunContext[StateT, DepsT]) -> Any:

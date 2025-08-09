@@ -23,15 +23,19 @@ class LLMCallNode(AtomicNode[WorkflowState, Any, Any]):
     
     async def perform_operation(self, ctx: GraphRunContext[WorkflowState, Any]) -> Any:
         """Execute LLM call with prompts from state."""
+        logger.debug(f"[LLMCallNode] === ENTRY === Phase: {ctx.state.current_phase}")
+        logger.debug(f"[LLMCallNode] Workflow: {ctx.state.workflow_id}")
+        
         phase_def = ctx.state.workflow_def.phases.get(ctx.state.current_phase)
         if not phase_def:
+            logger.error(f"[LLMCallNode] Phase {ctx.state.current_phase} not found")
             raise NonRetryableError(f'Phase {ctx.state.current_phase} not found')
         
         # Get rendered prompts from state
-        logger.info(f"Looking for rendered_prompts in domain_data. Keys: {list(ctx.state.domain_data.keys())}")
+        logger.debug(f"[LLMCallNode] Looking for rendered_prompts in domain_data. Keys: {list(ctx.state.domain_data.keys())}")
         prompts = ctx.state.domain_data.get('rendered_prompts', {})
         if not prompts:
-            logger.error(f"No rendered_prompts found. domain_data: {ctx.state.domain_data}")
+            logger.error(f"[LLMCallNode] No rendered_prompts found. domain_data keys: {list(ctx.state.domain_data.keys())}")
             raise NonRetryableError('No rendered prompts available')
         
         system_prompt = prompts.get('system_prompt', '')
@@ -45,9 +49,15 @@ class LLMCallNode(AtomicNode[WorkflowState, Any, Any]):
         
         # Determine model to use
         model = self._get_model_for_phase(ctx)
+        logger.debug(f"[LLMCallNode] Using model: {model}")
+        logger.debug(f"[LLMCallNode] Output schema: {phase_def.output_schema.__name__ if phase_def.output_schema else 'None'}")
         
         try:
             # Make LLM call
+            logger.debug(f"[LLMCallNode] Making LLM call with prompts")
+            logger.debug(f"[LLMCallNode] System prompt: {system_prompt[:100]}..." if system_prompt else "[LLMCallNode] No system prompt")
+            logger.debug(f"[LLMCallNode] User prompt: {user_prompt[:100]}..." if user_prompt else "[LLMCallNode] No user prompt")
+            
             response = await self._call_llm(
                 ctx,
                 model=model,
@@ -57,11 +67,15 @@ class LLMCallNode(AtomicNode[WorkflowState, Any, Any]):
                 output_schema=phase_def.output_schema
             )
             
-            logger.info(f'LLM call successful for {ctx.state.current_phase}')
+            logger.info(f'[LLMCallNode] LLM call successful for {ctx.state.current_phase}')
+            logger.debug(f"[LLMCallNode] Response type: {type(response).__name__}")
+            logger.debug(f"[LLMCallNode] === EXIT === Success")
             return response
             
         except Exception as e:
             # LLM errors are now retryable via configuration
+            logger.error(f"[LLMCallNode] LLM call failed: {e}")
+            logger.debug(f"[LLMCallNode] === EXIT === Raising LLMError")
             raise LLMError(f'LLM call failed: {e}')
     
     def _get_model_for_phase(self, ctx: GraphRunContext[WorkflowState, Any]) -> str:
@@ -118,6 +132,7 @@ class LLMCallNode(AtomicNode[WorkflowState, Any, Any]):
         # No LLM client available, try to use pydantic-ai
         try:
             from pydantic_ai import Agent
+            from pydantic_ai.models import ALLOW_MODEL_REQUESTS
             
             logger.info(f"Creating pydantic-ai agent with model: {model}")
             logger.info(f"Output schema: {output_schema}")
@@ -127,6 +142,10 @@ class LLMCallNode(AtomicNode[WorkflowState, Any, Any]):
                 from pydantic_ai.models.test import TestModel
                 model_instance = TestModel()
             else:
+                # For real models, we need to allow model requests
+                # Set the flag to allow real API calls
+                import pydantic_ai.models
+                pydantic_ai.models.ALLOW_MODEL_REQUESTS = True
                 model_instance = model
             
             # Create agent with appropriate model

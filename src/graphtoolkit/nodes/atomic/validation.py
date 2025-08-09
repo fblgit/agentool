@@ -117,15 +117,26 @@ class QualityGateNode(BaseNode[WorkflowState, Any, WorkflowState]):
     async def execute(self, ctx: GraphRunContext[WorkflowState, Any]) -> BaseNode:
         """Check quality and route accordingly."""
         phase_name = ctx.state.current_phase
+        logger.debug(f"[QualityGateNode] === ENTRY === Phase: {phase_name}")
+        logger.debug(f"[QualityGateNode] Workflow: {ctx.state.workflow_id}")
+        logger.debug(f"[QualityGateNode] Quality scores: {ctx.state.quality_scores}")
+        logger.debug(f"[QualityGateNode] Validation results: {list(ctx.state.validation_results.keys())}")
+        
         phase_def = ctx.state.workflow_def.phases.get(phase_name)
         if not phase_def:
+            logger.error(f"[QualityGateNode] Phase {phase_name} not found")
             raise NonRetryableError(f'Phase {phase_name} not found')
+        
+        logger.debug(f"[QualityGateNode] Phase quality threshold: {phase_def.quality_threshold}")
         
         # Get validation result
         validation = ctx.state.validation_results.get(phase_name)
+        logger.debug(f"[QualityGateNode] Validation result for {phase_name}: {validation}")
         
         # Calculate quality score
+        logger.debug(f"[QualityGateNode] Calculating quality score for {phase_name}")
         quality_score = self._calculate_quality_score(ctx.state, validation)
+        logger.debug(f"[QualityGateNode] Calculated quality score: {quality_score}")
         
         # Update state with quality score
         new_state = replace(
@@ -138,30 +149,40 @@ class QualityGateNode(BaseNode[WorkflowState, Any, WorkflowState]):
         
         # Check if quality meets threshold
         meets_threshold = quality_score >= phase_def.quality_threshold
+        logger.debug(f"[QualityGateNode] Quality check: {quality_score} >= {phase_def.quality_threshold} = {meets_threshold}")
         
         if meets_threshold:
-            logger.info(f'Quality gate passed for {phase_name}: {quality_score:.2f}')
+            logger.info(f'[QualityGateNode] Quality gate PASSED for {phase_name}: {quality_score:.2f}')
+            logger.debug(f"[QualityGateNode] === EXIT === Returning NextPhaseNode")
             # Continue to next phase
             from .control import NextPhaseNode
             return NextPhaseNode()
         
         # Check if we can refine
         refinement_count = ctx.state.refinement_count.get(phase_name, 0)
+        logger.debug(f"[QualityGateNode] Current refinement count for {phase_name}: {refinement_count}")
+        logger.debug(f"[QualityGateNode] Allow refinement: {phase_def.allow_refinement}, Max refinements: {phase_def.max_refinements}")
+        
         can_refine = (
             phase_def.allow_refinement and
             refinement_count < phase_def.max_refinements
         )
+        logger.debug(f"[QualityGateNode] Can refine: {can_refine}")
         
         if can_refine:
-            logger.info(f'Quality gate failed, triggering refinement for {phase_name}')
+            logger.info(f'[QualityGateNode] Quality gate FAILED, triggering refinement for {phase_name}')
+            logger.debug(f'[QualityGateNode] Score {quality_score:.2f} < threshold {phase_def.quality_threshold}')
+            logger.debug(f'[QualityGateNode] Refinement {refinement_count + 1}/{phase_def.max_refinements}')
             # Trigger refinement
             from .control import RefinementNode
-            return RefinementNode(
-                feedback=self._generate_feedback(validation, quality_score)
-            )
+            feedback = self._generate_feedback(validation, quality_score)
+            logger.debug(f"[QualityGateNode] Feedback: {feedback[:100] if feedback else 'None'}...")
+            logger.debug(f"[QualityGateNode] === EXIT === Returning RefinementNode")
+            return RefinementNode(feedback=feedback)
         
         # Cannot refine further, accept current quality
-        logger.warning(f'Quality below threshold but max refinements reached for {phase_name}')
+        logger.warning(f'[QualityGateNode] Quality below threshold but max refinements reached for {phase_name}')
+        logger.debug(f"[QualityGateNode] Accepting quality {quality_score} < {phase_def.quality_threshold}")
         
         # Mark that we accepted below threshold
         new_state = replace(
@@ -173,6 +194,7 @@ class QualityGateNode(BaseNode[WorkflowState, Any, WorkflowState]):
         )
         
         # Continue to next phase
+        logger.debug(f"[QualityGateNode] === EXIT === Returning NextPhaseNode (below threshold but accepted)")
         from .control import NextPhaseNode
         return NextPhaseNode()
     

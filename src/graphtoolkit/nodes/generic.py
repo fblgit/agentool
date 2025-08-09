@@ -53,34 +53,47 @@ class GenericPhaseNode(PydanticBaseNode):
         LLMCall → SchemaValidation → SaveOutput → 
         StateUpdate → QualityGate
         """
+        logger.debug(f"[GenericPhaseNode] === ENTRY === Workflow: {ctx.state.workflow_id}")
+        logger.debug(f"[GenericPhaseNode] Current phase: {ctx.state.current_phase}")
+        logger.debug(f"[GenericPhaseNode] Current node: {ctx.state.current_node}")
+        logger.debug(f"[GenericPhaseNode] Completed phases: {ctx.state.completed_phases}")
+        logger.debug(f"[GenericPhaseNode] Domain data keys: {list(ctx.state.domain_data.keys())}")
+        
         # Get current phase from state
         if not ctx.state.current_phase:
+            logger.debug(f"[GenericPhaseNode] No current phase set, checking phase sequence")
             # If no current phase, start with first phase
             if ctx.state.workflow_def.phase_sequence:
                 first_phase = ctx.state.workflow_def.phase_sequence[0]
+                logger.info(f"[GenericPhaseNode] Setting first phase: {first_phase}")
                 new_state = replace(ctx.state, current_phase=first_phase)
                 ctx = GraphRunContext(state=new_state, deps=ctx.deps)
             else:
+                logger.error(f"[GenericPhaseNode] FATAL: No phases defined in workflow")
                 raise NonRetryableError('No phases defined in workflow')
         
         phase_name = ctx.state.current_phase
+        logger.debug(f"[GenericPhaseNode] Looking up phase definition for: {phase_name}")
         phase_def = ctx.state.workflow_def.phases.get(phase_name)
         
         if not phase_def:
+            logger.error(f"[GenericPhaseNode] FATAL: Phase {phase_name} not found")
+            logger.error(f"[GenericPhaseNode] Available phases: {list(ctx.state.workflow_def.phases.keys())}")
             raise NonRetryableError(f'Phase {phase_name} not found in workflow definition')
         
-        logger.info(f'Starting phase {phase_name} with {len(phase_def.atomic_nodes)} atomic nodes')
+        logger.info(f'[GenericPhaseNode] Starting phase {phase_name} with {len(phase_def.atomic_nodes)} atomic nodes')
+        logger.debug(f"[GenericPhaseNode] Atomic nodes: {phase_def.atomic_nodes}")
         
         # Check if phase already completed
         if phase_name in ctx.state.completed_phases:
-            logger.info(f'Phase {phase_name} already completed, moving to next')
+            logger.info(f'[GenericPhaseNode] Phase {phase_name} already completed, moving to next')
             # Move to next phase
             from .atomic.control import NextPhaseNode
             return NextPhaseNode()
         
         # Get first atomic node in the phase
         if not phase_def.atomic_nodes:
-            logger.warning(f'Phase {phase_name} has no atomic nodes defined')
+            logger.warning(f'[GenericPhaseNode] Phase {phase_name} has no atomic nodes defined')
             # Mark phase as complete and move on
             new_state = replace(
                 ctx.state,
@@ -97,7 +110,8 @@ class GenericPhaseNode(PydanticBaseNode):
             current_node=first_node_id
         )
         
-        logger.info(f'Phase {phase_name} starting with node {first_node_id}')
+        logger.info(f'[GenericPhaseNode] Phase {phase_name} starting with node {first_node_id}')
+        logger.debug(f"[GenericPhaseNode] === EXIT === Returning {first_node_id} node")
         
         # Return first atomic node - it will chain to the rest
         # Each atomic node knows how to find the next node in sequence

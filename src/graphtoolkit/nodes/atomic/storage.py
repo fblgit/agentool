@@ -24,25 +24,40 @@ class DependencyCheckNode(BaseNode[WorkflowState, Any, None]):
     
     async def execute(self, ctx: GraphRunContext[WorkflowState, Any]) -> BaseNode:
         """Check dependencies and chain to load node."""
+        logger.debug(f"[DependencyCheckNode] === ENTRY === Phase: {ctx.state.current_phase}")
+        logger.debug(f"[DependencyCheckNode] Workflow: {ctx.state.workflow_id}")
+        logger.debug(f"[DependencyCheckNode] Completed phases: {ctx.state.completed_phases}")
+        
         # Read dependencies from phase definition in state
         phase_def = ctx.state.get_current_phase_def()
         if not phase_def:
+            logger.error(f"[DependencyCheckNode] Phase {ctx.state.current_phase} not found")
             raise NonRetryableError(f'Phase {ctx.state.current_phase} not found')
+        
+        logger.debug(f"[DependencyCheckNode] Phase dependencies: {phase_def.dependencies}")
         
         # Check each dependency
         for dep in phase_def.dependencies:
             if dep not in ctx.state.completed_phases:
+                logger.error(f"[DependencyCheckNode] Missing dependency: {dep}")
+                logger.error(f"[DependencyCheckNode] Required: {phase_def.dependencies}, Available: {ctx.state.completed_phases}")
                 raise NonRetryableError(f'Missing dependency: {dep}')
+            else:
+                logger.debug(f"[DependencyCheckNode] Dependency {dep} satisfied")
         
-        logger.info(f'All dependencies satisfied for {ctx.state.current_phase}')
+        logger.info(f'[DependencyCheckNode] All dependencies satisfied for {ctx.state.current_phase}')
         
         # Chain to next node (LoadDependencies)
         next_node_id = self.get_next_node(ctx.state)
+        logger.debug(f"[DependencyCheckNode] Next node ID: {next_node_id}")
+        
         if next_node_id:
             ctx.state.current_node = next_node_id
+            logger.debug(f"[DependencyCheckNode] === EXIT === Chaining to {next_node_id}")
             return create_node_instance(next_node_id)
         
         # No dependencies to load, skip to next
+        logger.debug(f"[DependencyCheckNode] === EXIT === No dependencies to load, jumping to template_render")
         return create_node_instance('template_render')
 
 
@@ -54,23 +69,35 @@ class LoadDependenciesNode(AtomicNode[WorkflowState, Any, Dict[str, Any]]):
     
     async def perform_operation(self, ctx: GraphRunContext[WorkflowState, Any]) -> Dict[str, Any]:
         """Load all dependencies from agentoolkit storage."""
+        logger.debug(f"[LoadDependenciesNode] === ENTRY === Phase: {ctx.state.current_phase}")
+        logger.debug(f"[LoadDependenciesNode] Workflow: {ctx.state.workflow_id}")
+        
         phase_def = ctx.state.get_current_phase_def()
         if not phase_def:
+            logger.error(f"[LoadDependenciesNode] Phase {ctx.state.current_phase} not found")
             raise NonRetryableError(f'Phase {ctx.state.current_phase} not found')
+        
+        logger.debug(f"[LoadDependenciesNode] Dependencies to load: {phase_def.dependencies}")
+        logger.debug(f"[LoadDependenciesNode] Available phase outputs: {list(ctx.state.phase_outputs.keys())}")
         
         loaded_data = {}
         
         for dep in phase_def.dependencies:
+            logger.debug(f"[LoadDependenciesNode] Processing dependency: {dep}")
             # Check if we have a storage reference for this dependency
             if dep not in ctx.state.phase_outputs:
-                logger.warning(f'No storage reference for dependency {dep}')
+                logger.warning(f'[LoadDependenciesNode] No storage reference for dependency {dep}')
+                logger.debug(f"[LoadDependenciesNode] Available outputs: {list(ctx.state.phase_outputs.keys())}")
                 continue
             
             storage_ref = ctx.state.phase_outputs[dep]
+            logger.debug(f"[LoadDependenciesNode] Storage ref for {dep}: {storage_ref}")
             
             try:
                 # Load using agentoolkit storage system with metrics tracking
+                logger.debug(f"[LoadDependenciesNode] Getting storage client for {dep}")
                 storage_client = ctx.deps.get_storage_client()
+                logger.debug(f"[LoadDependenciesNode] Storage client obtained: {storage_client}")
                 start_time = time.time()
                 
                 if storage_ref.storage_type == StorageType.KV:
@@ -99,16 +126,21 @@ class LoadDependenciesNode(AtomicNode[WorkflowState, Any, Dict[str, Any]]):
                 )
                 
                 loaded_data[dep] = data
-                logger.info(f'Loaded dependency {dep} from {storage_ref}')
+                logger.info(f'[LoadDependenciesNode] Loaded dependency {dep} from {storage_ref}')
+                logger.debug(f"[LoadDependenciesNode] Data type for {dep}: {type(data).__name__ if data else 'None'}")
                 
             except Exception as e:
                 # Storage errors are retryable
+                logger.error(f"[LoadDependenciesNode] Failed to load {dep}: {e}")
                 raise StorageError(f'Failed to load {dep}: {e}')
         
+        logger.info(f'[LoadDependenciesNode] Loaded {len(loaded_data)} dependencies: {list(loaded_data.keys())}')
+        logger.debug(f"[LoadDependenciesNode] === EXIT === Success")
         return loaded_data
     
     async def update_state_in_place(self, state: WorkflowState, result: Dict[str, Any]) -> None:
         """Update state with loaded dependencies - modifies in place."""
+        logger.debug(f"[LoadDependenciesNode] Updating state with {len(result)} loaded dependencies")
         state.domain_data['loaded_dependencies'] = result
 
 
@@ -121,21 +153,32 @@ class SavePhaseOutputNode(AtomicNode[WorkflowState, Any, StorageRef]):
     async def perform_operation(self, ctx: GraphRunContext[WorkflowState, Any]) -> StorageRef:
         """Save phase output to agentoolkit storage."""
         phase_name = ctx.state.current_phase
+        logger.debug(f"[SavePhaseOutputNode] === ENTRY === Phase: {phase_name}")
+        logger.debug(f"[SavePhaseOutputNode] Workflow: {ctx.state.workflow_id}")
+        logger.debug(f"[SavePhaseOutputNode] Domain data keys: {list(ctx.state.domain_data.keys())}")
+        
         phase_def = ctx.state.get_current_phase_def()
         if not phase_def:
+            logger.error(f"[SavePhaseOutputNode] Phase {phase_name} not found")
             raise NonRetryableError(f'Phase {phase_name} not found')
         
         # Get output data from domain_data
         output_key = f'{phase_name}_output'
+        logger.debug(f"[SavePhaseOutputNode] Looking for output key: {output_key}")
         output_data = ctx.state.domain_data.get(output_key)
         
         if output_data is None:
             # Also check for LLM response
             output_key = f'{phase_name}_llm_response'
+            logger.debug(f"[SavePhaseOutputNode] Output data not found, trying LLM response key: {output_key}")
             output_data = ctx.state.domain_data.get(output_key)
         
         if output_data is None:
+            logger.error(f"[SavePhaseOutputNode] No output data for phase {phase_name}")
+            logger.error(f"[SavePhaseOutputNode] Available domain data keys: {list(ctx.state.domain_data.keys())}")
             raise NonRetryableError(f'No output data for phase {phase_name}')
+        
+        logger.debug(f"[SavePhaseOutputNode] Found output data, type: {type(output_data).__name__}")
         
         # Serialize output data if it's a Pydantic model
         if hasattr(output_data, 'model_dump'):
@@ -146,11 +189,13 @@ class SavePhaseOutputNode(AtomicNode[WorkflowState, Any, StorageRef]):
             output_data = output_data.dict()
         
         # Generate storage key
+        logger.debug(f"[SavePhaseOutputNode] Storage pattern: {phase_def.storage_pattern}")
         storage_key = phase_def.storage_pattern.format(
             domain=ctx.state.domain,
             workflow_id=ctx.state.workflow_id,
             phase=phase_name
         )
+        logger.debug(f"[SavePhaseOutputNode] Generated storage key: {storage_key}")
         
         # Add version if refinement occurred
         if phase_def.allow_refinement:
@@ -160,9 +205,9 @@ class SavePhaseOutputNode(AtomicNode[WorkflowState, Any, StorageRef]):
         
         try:
             # Save using agentoolkit storage system with metrics tracking
-            logger.info(f"Getting storage client for phase {phase_name}")
+            logger.debug(f"[SavePhaseOutputNode] Getting storage client for phase {phase_name}")
             storage_client = ctx.deps.get_storage_client()
-            logger.info(f"Got storage client: {storage_client}")
+            logger.debug(f"[SavePhaseOutputNode] Got storage client: {storage_client}")
             start_time = time.time()
             
             if phase_def.storage_type == StorageType.KV:
@@ -192,25 +237,32 @@ class SavePhaseOutputNode(AtomicNode[WorkflowState, Any, StorageRef]):
                 len(str(output_data)) if output_data else 0  # Rough size estimate
             )
             
-            logger.info(f'Saved {phase_name} output to {storage_key}')
+            logger.info(f'[SavePhaseOutputNode] Saved {phase_name} output to {storage_key}')
+            logger.debug(f"[SavePhaseOutputNode] Save operation success: {success}")
             
             # Create storage reference
-            return StorageRef(
+            storage_ref = StorageRef(
                 storage_type=phase_def.storage_type,
                 key=storage_key,
                 created_at=datetime.now(),
                 version=ctx.state.refinement_count.get(phase_name, 0) if phase_def.allow_refinement else None
             )
+            logger.debug(f"[SavePhaseOutputNode] Created storage ref: {storage_ref}")
+            logger.debug(f"[SavePhaseOutputNode] === EXIT === Success")
+            return storage_ref
             
         except Exception as e:
             # Storage errors are retryable
-            logger.error(f"SavePhaseOutputNode error: {e}", exc_info=True)
+            logger.error(f"[SavePhaseOutputNode] Storage error: {e}", exc_info=True)
+            logger.debug(f"[SavePhaseOutputNode] === EXIT === Raising StorageError")
             raise StorageError(f'Failed to save {phase_name} output: {e}')
     
     async def update_state_in_place(self, state: WorkflowState, result: StorageRef) -> None:
         """Update state with storage reference - modifies in place."""
         phase_name = state.current_phase
+        logger.debug(f"[SavePhaseOutputNode] Updating phase_outputs with ref for {phase_name}")
         state.phase_outputs[phase_name] = result
+        logger.debug(f"[SavePhaseOutputNode] Phase outputs now: {list(state.phase_outputs.keys())}")
 
 
 @dataclass
