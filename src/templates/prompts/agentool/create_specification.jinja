@@ -1,0 +1,146 @@
+## Task
+Create detailed technical specifications for the missing tools identified in the analysis.
+
+## Missing Tools to Specify
+{{ missing_tools }}
+
+## System Design Context
+{{ system_design }}
+
+## Specification Guidelines
+{% if guidelines %}
+{% for guideline in guidelines %}
+- {{ guideline }}
+{% endfor %}
+{% else %}
+- Follow AgenTool framework conventions
+- Use Pydantic models for input/output schemas
+- Define clear operation mappings
+- Include comprehensive examples
+{% endif %}
+
+## Specification Requirements
+
+1. **Input/Output Schemas**
+   - Define complete Pydantic models for inputs and outputs
+   - Use proper field types and validation
+   - Include field descriptions and examples
+   - Follow BaseOperationInput pattern for inputs
+
+2. **Operations Definition**
+   - List all operations the tool must support
+   - Define operation-specific parameters
+   - Specify expected behaviors and side effects
+   - Include error conditions and handling
+
+3. **Dependencies and Integration**
+   - Identify required agentoolkit dependencies
+   - Define integration points with other tools
+   - Specify data exchange formats
+   - Plan error propagation strategy
+
+4. **Implementation Details**
+   - Provide routing configuration structure
+   - Define tool function signatures
+   - Specify validation requirements
+   - Include performance considerations
+
+## Expected Output Format
+
+Provide specifications in the following JSON structure:
+
+```json
+{
+  "specifications": [
+    {
+      "name": "tool_name",
+      "description": "comprehensive description of what this tool does",
+      "version": "1.0.0",
+      "input_schema": {
+        "name": "ToolNameInput",
+        "base_class": "BaseOperationInput",
+        "fields": [
+          {
+            "name": "operation",
+            "type": "Literal['op1', 'op2']",
+            "description": "Operation to perform",
+            "required": true
+          },
+          {
+            "name": "param1",
+            "type": "str",
+            "description": "Description of parameter",
+            "required": true
+          }
+        ]
+      },
+      "output_schema": {
+        "name": "ToolNameOutput", 
+        "fields": [
+          {
+            "name": "success",
+            "type": "bool", 
+            "description": "Whether operation succeeded"
+          },
+          {
+            "name": "data",
+            "type": "Dict[str, Any]",
+            "description": "Operation result data"
+          }
+        ]
+      },
+      "operations": [
+        {
+          "name": "operation_name",
+          "description": "what this operation does",
+          "parameters": ["param1", "param2"],
+          "return_type": "description of what it returns",
+          "side_effects": ["what changes it makes"],
+          "error_conditions": ["when it can fail"]
+        }
+      ],
+      "dependencies": [
+        "agentoolkit_component1",
+        "agentoolkit_component2"
+      ],
+      "integration_points": [
+        {
+          "tool": "other_tool_name",
+          "interaction": "how they work together"
+        }
+      ],
+      "routing_config": {
+        "operation_field": "operation",
+        "operation_map": {
+          "operation_name": {
+            "function": "function_name",
+            "parameters": {
+              "param1": "input.field1",
+              "param2": "input.field2"
+            }
+          }
+        }
+      },
+      "examples": [
+        {
+          "operation": "operation_name",
+          "input": {"operation": "operation_name", "param1": "value1"},
+          "output": {"success": true, "data": {"result": "expected"}}
+        }
+      ],
+      "validation_rules": [
+        "validation rule description"
+      ],
+      "performance_requirements": {
+        "max_response_time": "1s",
+        "memory_usage": "low",
+        "concurrency": "thread-safe"
+      }
+    }
+  ],
+  "tool_count": 0,
+  "success": true
+}
+```
+
+Focus on creating detailed, implementable specifications that provide all the information needed to generate working AgenTool code that integrates seamlessly with the existing ecosystem.

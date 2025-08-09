@@ -1,0 +1,132 @@
+## Task
+Generate complete, executable test implementations based on the test designs.
+
+## Test Designs
+{{ test_designs }}
+
+## Fixture Designs
+{{ fixture_designs }}
+
+## Mock Requirements
+{{ mock_requirements }}
+
+## Test Data Requirements
+{{ test_data_requirements }}
+
+## Testing Configuration
+- **Framework**: {{ framework }}
+{% if code_context %}
+## Original Code Context
+{{ code_context }}
+{% endif %}
+
+## Implementation Requirements
+
+1. **Complete Test Files**
+   - Generate full test file implementations with all imports
+   - Implement all test functions with complete logic
+   - Include proper setup and teardown methods
+   - Add comprehensive assertions with clear error messages
+
+2. **Fixture Implementation**
+   - Create all required fixtures with proper scope
+   - Implement fixture parameterization where specified
+   - Add proper cleanup and resource management
+   - Include fixture documentation
+
+3. **Mock Implementation**
+   - Create comprehensive mocks for external dependencies
+   - Implement proper mock assertions and verifications
+   - Use appropriate mock types (Mock, MagicMock, AsyncMock)
+   - Handle async mocks where needed
+
+4. **Test Organization**
+   - Organize tests in logical classes and files
+   - Use clear naming conventions
+   - Add test markers for categorization
+   - Include proper documentation
+
+## Code Quality Standards
+
+- **100% Complete**: No TODOs, placeholders, or incomplete implementations
+- **Executable**: All tests must run without modification
+- **Comprehensive**: Cover all specified test scenarios
+- **Maintainable**: Clear, readable code with proper documentation
+- **Best Practices**: Follow pytest conventions and Python standards
+
+## Expected Output Format
+
+Provide complete test implementations in the following JSON structure:
+
+```json
+{
+  "test_files": {
+    "test_filename.py": "complete test file content with all imports, fixtures, and test functions"
+  },
+  "fixture_code": "# Optional: Separate conftest.py content if needed\nimport pytest\n\n@pytest.fixture\ndef sample_fixture():\n    return 'test_data'",
+  "requirements": [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-mock>=3.0.0"
+  ],
+  "execution_commands": [
+    "pytest test_filename.py -v",
+    "pytest test_filename.py --cov=module_under_test --cov-report=html",
+    "pytest test_filename.py::TestClassName::test_specific_function"
+  ],
+  "estimated_coverage": 0.85,
+  "success": true
+}
+```
+
+## Test File Template Structure
+
+Each test file should follow this structure:
+
+```python
+"""
+Test module for [module_name].
+
+This module contains comprehensive tests for [description].
+"""
+
+import pytest
+from unittest.mock import Mock, patch, MagicMock
+# Other imports as needed
+
+class TestClassName:
+    """Test class for [functionality]."""
+    
+    def test_function_success(self, fixture_name):
+        """Test successful execution of function."""
+        # Arrange
+        # Act  
+        # Assert
+        pass
+    
+    def test_function_error_condition(self):
+        """Test error handling."""
+        # Arrange
+        # Act & Assert
+        with pytest.raises(ExceptionType) as exc_info:
+            # Code that should raise exception
+            pass
+        assert "expected error message" in str(exc_info.value)
+    
+    @pytest.mark.parametrize("input,expected", [
+        ("input1", "output1"),
+        ("input2", "output2"),
+    ])
+    def test_function_parametrized(self, input, expected):
+        """Test function with multiple inputs."""
+        pass
+
+@pytest.fixture
+def fixture_name():
+    """Provide test data or setup."""
+    # Setup
+    yield data
+    # Cleanup if needed
+```
+
+Focus on creating production-ready test code that provides comprehensive coverage, catches real bugs, and is maintainable for long-term use.

@@ -132,6 +132,11 @@ def _try_import_node(node_id: str) -> None:
         'data_merge': 'graphtoolkit.nodes.atomic.transform',
         'data_filter': 'graphtoolkit.nodes.atomic.transform',
         
+        # Execution nodes
+        'test_execution': 'graphtoolkit.nodes.atomic.execution',
+        'coverage_analysis': 'graphtoolkit.nodes.atomic.execution',
+        'code_execution': 'graphtoolkit.nodes.atomic.execution',
+        
         # Generator nodes
         'simple_generator': 'graphtoolkit.nodes.atomic.generators',
         'advanced_generator': 'graphtoolkit.nodes.atomic.generators',

@@ -1,0 +1,48 @@
+Based on the API analysis, create a detailed OpenAPI specification:
+
+## Analysis Results
+{{ analysis | tojson(indent=2) }}
+
+## Data Models
+{{ data_models | tojson(indent=2) }}
+
+## Design Requirements
+
+Create a complete OpenAPI 3.0 specification including:
+
+### 1. OpenAPI Structure
+```yaml
+openapi: 3.0.0
+info:
+  title: API Title
+  version: 1.0.0
+  description: API Description
+servers:
+  - url: https://api.example.com/v1
+```
+
+### 2. Paths (Endpoints)
+Define all endpoints with:
+- Complete operation definitions
+- Request parameters (path, query, header)
+- Request body schemas
+- Response schemas for all status codes
+- Security requirements
+
+### 3. Component Schemas
+Create reusable schemas for:
+- Data models
+- Request/response bodies
+- Error responses
+- Common parameters
+
+### 4. Security Schemes
+Define authentication methods:
+- Bearer token
+- API key
+- OAuth2 flows
+
+### 5. Examples
+Provide request/response examples for each endpoint
+
+Generate a production-ready OpenAPI specification.

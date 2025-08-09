@@ -1,0 +1,98 @@
+## Task
+Analyze the provided code for comprehensive test generation requirements.
+
+## Code to Analyze
+{{ code_to_test }}
+
+{% if file_path %}
+## File Path
+{{ file_path }}
+{% endif %}
+
+{% if existing_tests %}
+## Existing Tests
+{% for test in existing_tests %}
+- {{ test }}
+{% endfor %}
+{% endif %}
+
+## Testing Requirements
+- **Coverage Target**: {{ coverage_target * 100 }}%
+- **Test Types**: {{ test_types | join(', ') }}
+- **Framework**: {{ framework }}
+
+## Analysis Instructions
+
+1. **Function/Method Identification**
+   - Identify all public functions, methods, and classes
+   - Analyze function signatures, parameters, and return types
+   - Determine function complexity and criticality
+   - Map dependencies and external calls
+
+2. **Test Requirements Analysis**
+   - Categorize functions by test complexity (simple, moderate, complex)
+   - Identify edge cases and boundary conditions
+   - Determine error handling and exception paths
+   - Assess integration points and dependencies
+
+3. **Coverage Gap Analysis**
+   - Compare with existing tests (if any)
+   - Identify untested or under-tested areas
+   - Prioritize testing based on risk and complexity
+   - Recommend additional test scenarios
+
+4. **Test Infrastructure Requirements**
+   - Identify required test fixtures and data
+   - Determine mocking/stubbing requirements
+   - Assess test environment setup needs
+   - Plan test data management strategy
+
+## Expected Output Format
+
+Provide your analysis in the following JSON structure:
+
+```json
+{
+  "functions_to_test": [
+    {
+      "name": "function_name",
+      "type": "function|method|class",
+      "signature": "complete function signature",
+      "complexity": "low|medium|high",
+      "priority": "low|medium|high|critical",
+      "test_scenarios": ["scenario1", "scenario2"],
+      "edge_cases": ["edge_case1", "edge_case2"],
+      "error_conditions": ["error1", "error2"],
+      "dependencies": ["dep1", "dep2"]
+    }
+  ],
+  "test_categories": {
+    "unit_tests": ["function1", "function2"],
+    "integration_tests": ["function3", "function4"],
+    "edge_case_tests": ["function5"],
+    "error_handling_tests": ["function6"]
+  },
+  "complexity_analysis": {
+    "total_functions": 0,
+    "simple_functions": 0,
+    "moderate_functions": 0,
+    "complex_functions": 0,
+    "cyclomatic_complexity": {},
+    "risk_assessment": "low|medium|high"
+  },
+  "coverage_gaps": [
+    "Description of areas needing test coverage"
+  ],
+  "recommended_fixtures": [
+    {
+      "name": "fixture_name",
+      "purpose": "what it provides",
+      "scope": "function|class|module|session",
+      "data_type": "mock|data|setup"
+    }
+  ],
+  "success": true
+}
+```
+
+Focus on practical, actionable analysis that will lead to comprehensive, maintainable tests.

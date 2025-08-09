@@ -1,0 +1,44 @@
+Validate the API implementation against specifications:
+
+## Implementation Code
+{{ implementation | tojson(indent=2) }}
+
+## OpenAPI Specification
+{{ openapi_spec | tojson(indent=2) }}
+
+## Validation Tasks
+
+Perform comprehensive validation:
+
+### 1. Specification Compliance
+- Verify all endpoints match specification
+- Check request/response schemas
+- Validate status codes
+- Confirm content types
+
+### 2. Security Validation
+- Authentication implementation
+- Authorization checks
+- Input sanitization
+- SQL injection prevention
+- XSS protection
+
+### 3. Quality Metrics
+- Code coverage percentage
+- Cyclomatic complexity
+- Documentation completeness
+- Error handling coverage
+
+### 4. Performance Tests
+- Response time benchmarks
+- Throughput testing
+- Memory usage
+- Database query optimization
+
+### 5. Integration Tests
+- End-to-end testing
+- External service mocking
+- Error scenario testing
+- Edge case handling
+
+Provide validation results with quality score and improvement recommendations.
