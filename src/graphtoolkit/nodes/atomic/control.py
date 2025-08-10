@@ -18,33 +18,28 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class StateUpdateNode(AtomicNode[WorkflowState, Any, WorkflowState]):
+class StateUpdateNode(AtomicNode[WorkflowState, Any, None]):
     """Update workflow state after phase operations.
     Marks phase complete and updates metadata.
     """
     
-    async def perform_operation(self, ctx: GraphRunContext[WorkflowState, Any]) -> WorkflowState:
+    async def perform_operation(self, ctx: GraphRunContext[WorkflowState, Any]) -> None:
         """Update state to mark phase complete."""
         phase_name = ctx.state.current_phase
         
         logger.debug(f"[StateUpdateNode] Marking phase {phase_name} as complete")
         logger.debug(f"[StateUpdateNode] Current completed phases: {ctx.state.completed_phases}")
         
-        # Mark phase as complete
-        new_state = replace(
-            ctx.state,
-            completed_phases=ctx.state.completed_phases | {phase_name},
-            updated_at=datetime.now()
-        )
+        # Mark phase as complete - directly modify the state
+        ctx.state.completed_phases.add(phase_name)
+        ctx.state.updated_at = datetime.now()
         
         logger.info(f'[StateUpdateNode] Phase {phase_name} marked as complete')
-        logger.debug(f"[StateUpdateNode] New completed phases: {new_state.completed_phases}")
-        return new_state
+        logger.debug(f"[StateUpdateNode] New completed phases: {ctx.state.completed_phases}")
+        return None
     
-    async def update_state_in_place(self, state: WorkflowState, result: WorkflowState) -> None:
-        """Don't store WorkflowState in domain_data to avoid recursion."""
-        # We already updated the state in perform_operation
-        # Don't store the entire WorkflowState in domain_data
+    async def update_state_in_place(self, state: WorkflowState, result: Any) -> None:
+        """Nothing to do - state was already updated in perform_operation."""
         pass
 
 
