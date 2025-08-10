@@ -307,7 +307,7 @@ class TestSmokeWorkflowIntegration:
         )
         
         executor = WorkflowExecutor(deps)
-        result = await executor.execute(workflow_def, initial_state)
+        result = await executor.run(initial_state)
         
         assert result.success == True
         # Metrics should have been tracked (actual verification depends on metrics implementation)

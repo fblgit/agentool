@@ -255,7 +255,40 @@ def create_smoke_workflow(
     from dataclasses import replace
     workflow_def = replace(workflow_def, enable_refinement=enable_refinement)
     
-    # Create initial state
+    # Validate input and create initial state
+    try:
+        validated_input = SmokeWorkflowInput(
+            ingredients=ingredients,
+            dietary_restrictions=dietary_restrictions or [],
+            cuisine_preference=cuisine_preference,
+            max_cook_time=max_cook_time
+        )
+        input_dict = validated_input.model_dump()
+    except Exception as e:
+        # If validation fails, create state with error
+        initial_state = WorkflowState(
+            workflow_def=workflow_def,
+            workflow_id=workflow_id,
+            domain='smoke',
+            current_phase='ingredient_analyzer',
+            current_node='error',
+            completed_phases=set(),
+            phase_outputs={},
+            domain_data={
+                'ingredients': ingredients,
+                'dietary_restrictions': dietary_restrictions or [],
+                'cuisine_preference': cuisine_preference,
+                'max_cook_time': max_cook_time,
+                'error': f'Input validation failed: {str(e)}',
+                'error_node': 'input_validation',
+                'error_time': datetime.now().isoformat()
+            },
+            created_at=datetime.now(),
+            updated_at=datetime.now()
+        )
+        return workflow_def, initial_state
+    
+    # Create initial state with validated input
     initial_state = WorkflowState(
         workflow_def=workflow_def,
         workflow_id=workflow_id,
@@ -269,12 +302,7 @@ def create_smoke_workflow(
             'dietary_restrictions': dietary_restrictions or [],
             'cuisine_preference': cuisine_preference,
             'max_cook_time': max_cook_time,
-            'input': SmokeWorkflowInput(
-                ingredients=ingredients,
-                dietary_restrictions=dietary_restrictions or [],
-                cuisine_preference=cuisine_preference,
-                max_cook_time=max_cook_time
-            ).model_dump()
+            'input': input_dict
         },
         created_at=datetime.now(),
         updated_at=datetime.now()
