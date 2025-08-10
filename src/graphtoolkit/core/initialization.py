@@ -421,21 +421,37 @@ class GraphToolkitInitializer:
             
             # Create all metrics
             import asyncio
-            loop = asyncio.get_event_loop()
             
             for metric_name, config in _GRAPHTOOLKIT_METRICS.items():
                 try:
-                    # Run the async operation synchronously
-                    loop.run_until_complete(
-                        injector.run('metrics', {
-                            'operation': 'create',
-                            'name': metric_name,
-                            'metric_type': config['type'],
-                            'unit': config['unit'],
-                            'description': f'GraphToolkit metric: {metric_name}'
-                        })
-                    )
-                    logger.debug(f"Created metric: {metric_name}")
+                    # Check if we're already in an event loop
+                    try:
+                        loop = asyncio.get_running_loop()
+                        # Already in a loop, create task instead
+                        task = loop.create_task(
+                            injector.run('metrics', {
+                                'operation': 'create',
+                                'name': metric_name,
+                                'metric_type': config['type'],
+                                'unit': config['unit'],
+                                'description': f'GraphToolkit metric: {metric_name}'
+                            })
+                        )
+                        # Don't wait for it to avoid blocking
+                        logger.debug(f"Scheduled metric creation: {metric_name}")
+                    except RuntimeError:
+                        # No loop running, use run_until_complete
+                        loop = asyncio.get_event_loop()
+                        loop.run_until_complete(
+                            injector.run('metrics', {
+                                'operation': 'create',
+                                'name': metric_name,
+                                'metric_type': config['type'],
+                                'unit': config['unit'],
+                                'description': f'GraphToolkit metric: {metric_name}'
+                            })
+                        )
+                        logger.debug(f"Created metric: {metric_name}")
                 except Exception as e:
                     # Metric might already exist, that's ok
                     logger.debug(f"Metric {metric_name} initialization: {e}")

@@ -58,6 +58,8 @@ class GenericPhaseNode(PydanticBaseNode):
         logger.debug(f"[GenericPhaseNode] Current node: {ctx.state.current_node}")
         logger.debug(f"[GenericPhaseNode] Completed phases: {ctx.state.completed_phases}")
         logger.debug(f"[GenericPhaseNode] Domain data keys: {list(ctx.state.domain_data.keys())}")
+        logger.debug(f"[GenericPhaseNode] Retry counts: {ctx.state.retry_counts}")
+        logger.debug(f"[GenericPhaseNode] Phase outputs: {list(ctx.state.phase_outputs.keys())}")
         
         # Get current phase from state
         if not ctx.state.current_phase:

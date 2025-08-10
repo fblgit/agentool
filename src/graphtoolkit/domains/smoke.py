@@ -38,11 +38,17 @@ class RecipeDesign(BaseModel):
     equipment_needed: List[str] = Field(description="Kitchen equipment required")
 
 
+class IngredientAmount(BaseModel):
+    """An ingredient with its amount."""
+    ingredient: str = Field(description="Name of the ingredient")
+    amount: str = Field(description="Amount of the ingredient (e.g., '2 cups', '1 tbsp')")
+
+
 class DetailedRecipe(BaseModel):
     """Output from recipe crafter phase."""
     name: str = Field(description="Recipe name")
-    ingredients_with_amounts: List[Dict[str, str]] = Field(
-        description="Ingredients with specific amounts"
+    ingredients_with_amounts: List[IngredientAmount] = Field(
+        description="List of ingredients with their amounts"
     )
     instructions: List[str] = Field(
         min_length=3, description="Step-by-step cooking instructions"
@@ -194,7 +200,7 @@ evaluator_phase = PhaseDefinition(
     ],
     input_schema=None,  # Uses output from crafter
     output_schema=RecipeEvaluation,
-    dependencies=['recipe_crafter'],
+    dependencies=['recipe_designer', 'recipe_crafter'],
     templates=TemplateConfig(
         system_template='smoke/system/evaluator.jinja',
         user_template='smoke/prompts/evaluate_recipe.jinja'

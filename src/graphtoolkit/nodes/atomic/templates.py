@@ -56,12 +56,32 @@ class TemplateRenderNode(AtomicNode[WorkflowState, Any, Dict[str, str]]):
                     'variables': variables
                 })
                 
-                if result.success and result.data:
-                    rendered['system_prompt'] = result.data.get('rendered', '')
-                    logger.info(f'Rendered system template for {ctx.state.current_phase}')
+                # The injector might return AgentRunResult or TemplatesOutput
+                logger.debug(f"[TemplateRenderNode] System template result type: {type(result).__name__}")
+                
+                # Handle both AgentRunResult and TemplatesOutput
+                if hasattr(result, 'output'):
+                    # It's an AgentRunResult - parse the output
+                    import json
+                    try:
+                        output_data = json.loads(result.output)
+                        if output_data.get('success'):
+                            rendered['system_prompt'] = output_data.get('data', {}).get('rendered', '')
+                            logger.info(f'Rendered system template for {ctx.state.current_phase}')
+                        else:
+                            logger.warning(f'Template render failed: {output_data.get("message", "unknown error")}')
+                    except json.JSONDecodeError:
+                        logger.error(f'Failed to parse template result output: {result.output}')
+                elif hasattr(result, 'success') and result.success:
+                    # TemplatesOutput has 'data' field with rendered content
+                    if result.data and isinstance(result.data, dict):
+                        rendered['system_prompt'] = result.data.get('rendered', '')
+                        logger.info(f'Rendered system template for {ctx.state.current_phase}')
+                        logger.debug(f"[TemplateRenderNode] System prompt content (first 100 chars): {rendered['system_prompt'][:100] if rendered['system_prompt'] else 'EMPTY'}")
+                    else:
+                        logger.warning(f'No rendered content in template result')
                 else:
-                    logger.warning(f'Failed to render system template: {result.message}')
-                    
+                    logger.warning(f'Failed to render system template: {result.message if hasattr(result, "message") else "unknown error"}')
             except Exception as e:
                 logger.error(f'Error rendering system template: {e}')
         
@@ -76,12 +96,32 @@ class TemplateRenderNode(AtomicNode[WorkflowState, Any, Dict[str, str]]):
                     'variables': variables
                 })
                 
-                if result.success and result.data:
-                    rendered['user_prompt'] = result.data.get('rendered', '')
-                    logger.info(f'Rendered user template for {ctx.state.current_phase}')
+                # The injector might return AgentRunResult or TemplatesOutput
+                logger.debug(f"[TemplateRenderNode] User template result type: {type(result).__name__}")
+                
+                # Handle both AgentRunResult and TemplatesOutput
+                if hasattr(result, 'output'):
+                    # It's an AgentRunResult - parse the output
+                    import json
+                    try:
+                        output_data = json.loads(result.output)
+                        if output_data.get('success'):
+                            rendered['user_prompt'] = output_data.get('data', {}).get('rendered', '')
+                            logger.info(f'Rendered user template for {ctx.state.current_phase}')
+                        else:
+                            logger.warning(f'Template render failed: {output_data.get("message", "unknown error")}')
+                    except json.JSONDecodeError:
+                        logger.error(f'Failed to parse template result output: {result.output}')
+                elif hasattr(result, 'success') and result.success:
+                    # TemplatesOutput has 'data' field with rendered content
+                    if result.data and isinstance(result.data, dict):
+                        rendered['user_prompt'] = result.data.get('rendered', '')
+                        logger.info(f'Rendered user template for {ctx.state.current_phase}')
+                        logger.debug(f"[TemplateRenderNode] User prompt content (first 100 chars): {rendered['user_prompt'][:100] if rendered['user_prompt'] else 'EMPTY'}")
+                    else:
+                        logger.warning(f'No rendered content in template result')
                 else:
-                    logger.warning(f'Failed to render user template: {result.message}')
-                    
+                    logger.warning(f'Failed to render user template: {result.message if hasattr(result, "message") else "unknown error"}')
             except Exception as e:
                 logger.error(f'Error rendering user template: {e}')
         
@@ -147,23 +187,24 @@ class TemplateRenderNode(AtomicNode[WorkflowState, Any, Dict[str, str]]):
             'phase': state.current_phase,
         }
         
-        # Add loaded dependencies
-        if 'loaded_dependencies' in state.domain_data:
-            logger.debug(f"[TemplateRenderNode] Processing loaded_dependencies")
-            dependencies = state.domain_data['loaded_dependencies']
-            for dep_name, dep_data in dependencies.items():
-                logger.debug(f"[TemplateRenderNode] Serializing dependency {dep_name}: {type(dep_data).__name__}")
-                variables[f'dep_{dep_name}'] = make_serializable(dep_data)
+        # Dependencies are already stored as {phase_name}_output in domain_data
+        # So they'll be picked up in the loop below
         
         # Add any domain-specific data with detailed logging
         logger.debug(f"[TemplateRenderNode] Processing domain_data items:")
         for key, value in state.domain_data.items():
-            if key not in ['loaded_dependencies', 'rendered_prompts']:
+            # Skip internal keys but keep input
+            if key not in ['rendered_prompts', 'error', 'error_node', 'error_time']:
                 logger.debug(f"[TemplateRenderNode] Processing domain_data[{key}]: {type(value).__name__}")
                 try:
                     serialized = make_serializable(value)
                     variables[key] = serialized
                     logger.debug(f"[TemplateRenderNode] Successfully serialized domain_data[{key}]")
+                    # Extra debug for key outputs
+                    if key in ['recipe_designer_output', 'recipe_crafter_output']:
+                        logger.info(f"[TemplateRenderNode] {key} type after serialization: {type(serialized).__name__}")
+                        if isinstance(serialized, dict):
+                            logger.info(f"[TemplateRenderNode] {key} keys: {list(serialized.keys())[:5]}")
                 except Exception as e:
                     logger.error(f"[TemplateRenderNode] Failed to serialize domain_data[{key}]: {e}")
                     variables[key] = str(value)

@@ -54,17 +54,24 @@ class WorkflowExecutor:
             WorkflowResult with final state and outputs
         """
         logger.info(f'Starting workflow execution: {initial_state.workflow_id}')
+        logger.debug(f'[WorkflowExecutor] Initial state - phase: {initial_state.current_phase}, node: {initial_state.current_node}')
+        logger.debug(f'[WorkflowExecutor] Initial state - completed phases: {initial_state.completed_phases}')
+        logger.debug(f'[WorkflowExecutor] Initial state - domain data keys: {list(initial_state.domain_data.keys())}')
         
         try:
             # Create graph from workflow definition
+            logger.debug(f'[WorkflowExecutor] Building graph from workflow definition')
             graph = self._build_graph(initial_state)
+            logger.debug(f'[WorkflowExecutor] Graph built successfully')
             
             # Execute using pydantic_graph
+            logger.debug(f'[WorkflowExecutor] Starting graph.run() with GenericPhaseNode')
             result = await graph.run(
                 GenericPhaseNode(),
                 state=initial_state,
                 deps=self.deps
             )
+            logger.debug(f'[WorkflowExecutor] graph.run() completed, result type: {type(result).__name__}')
             
             # The result is a GraphRunResult with output and state
             final_state = result.state if hasattr(result, 'state') else result

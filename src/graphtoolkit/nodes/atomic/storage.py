@@ -106,8 +106,15 @@ class LoadDependenciesNode(AtomicNode[WorkflowState, Any, Dict[str, Any]]):
                         'key': storage_ref.key,
                         'namespace': 'workflow'
                     })
-                    # The result is already the output object (StorageKvOutput)
-                    data = result.data if result.success else None
+                    # Extract the actual value from the storage response
+                    if result.success and result.data:
+                        # The storage returns a wrapper with 'value' field
+                        if isinstance(result.data, dict) and 'value' in result.data:
+                            data = result.data['value']
+                        else:
+                            data = result.data
+                    else:
+                        data = None
                 else:
                     result = await storage_client.run('storage_fs', {
                         'operation': 'read',
@@ -141,7 +148,16 @@ class LoadDependenciesNode(AtomicNode[WorkflowState, Any, Dict[str, Any]]):
     async def update_state_in_place(self, state: WorkflowState, result: Dict[str, Any]) -> None:
         """Update state with loaded dependencies - modifies in place."""
         logger.debug(f"[LoadDependenciesNode] Updating state with {len(result)} loaded dependencies")
-        state.domain_data['loaded_dependencies'] = result
+        # Store each dependency as {phase_name}_output for consistent template access
+        for dep_name, dep_data in result.items():
+            output_key = f'{dep_name}_output'
+            # Log what we're replacing
+            if output_key in state.domain_data:
+                old_type = type(state.domain_data[output_key]).__name__
+                logger.info(f"[LoadDependenciesNode] Replacing {output_key} (was {old_type}) with loaded dict")
+            state.domain_data[output_key] = dep_data
+            logger.debug(f"[LoadDependenciesNode] Stored {dep_name} as {output_key}")
+            logger.info(f"[LoadDependenciesNode] {output_key} is now type: {type(state.domain_data[output_key]).__name__}")
 
 
 @dataclass

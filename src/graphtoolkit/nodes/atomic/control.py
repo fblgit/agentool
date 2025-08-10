@@ -41,9 +41,11 @@ class StateUpdateNode(AtomicNode[WorkflowState, Any, WorkflowState]):
         logger.debug(f"[StateUpdateNode] New completed phases: {new_state.completed_phases}")
         return new_state
     
-    async def update_state(self, state: WorkflowState, result: WorkflowState) -> WorkflowState:
-        """State is already updated in perform_operation."""
-        return result
+    async def update_state_in_place(self, state: WorkflowState, result: WorkflowState) -> None:
+        """Don't store WorkflowState in domain_data to avoid recursion."""
+        # We already updated the state in perform_operation
+        # Don't store the entire WorkflowState in domain_data
+        pass
 
 
 @dataclass
@@ -54,8 +56,10 @@ class NextPhaseNode(BaseNode[WorkflowState, Any, WorkflowState]):
     async def execute(self, ctx: GraphRunContext[WorkflowState, Any]) -> Union[BaseNode, End[WorkflowState]]:
         """Find next phase and transition to it."""
         logger.debug(f"[NextPhaseNode] === ENTRY === Current phase: {ctx.state.current_phase}")
+        logger.debug(f"[NextPhaseNode] Current node: {ctx.state.current_node}")
         logger.debug(f"[NextPhaseNode] Completed phases: {ctx.state.completed_phases}")
         logger.debug(f"[NextPhaseNode] Phase sequence: {ctx.state.workflow_def.phase_sequence}")
+        logger.debug(f"[NextPhaseNode] Domain data keys: {list(ctx.state.domain_data.keys())}")
         
         # Get next phase from workflow definition
         next_phase = ctx.state.workflow_def.get_next_phase(ctx.state.current_phase)
@@ -72,13 +76,21 @@ class NextPhaseNode(BaseNode[WorkflowState, Any, WorkflowState]):
             # Set current node to first atomic node of new phase
             first_node = phase_def.atomic_nodes[0] if phase_def.atomic_nodes else None
             
+            # Update state and directly run the first node of the new phase
             new_state = replace(
                 ctx.state,
                 current_phase=next_phase,
                 current_node=first_node
             )
             
-            # Return GenericPhaseNode to start the new phase
+            # UPDATE STATE IN PLACE - pydantic_graph state is mutable during execution
+            ctx.state.current_phase = next_phase
+            ctx.state.current_node = first_node
+            
+            logger.debug(f"[NextPhaseNode] State updated in place to phase: {next_phase}")
+            logger.debug(f"[NextPhaseNode] Returning GenericPhaseNode")
+            
+            # Return GenericPhaseNode which will now see the updated state
             from ..generic import GenericPhaseNode
             return GenericPhaseNode()
         

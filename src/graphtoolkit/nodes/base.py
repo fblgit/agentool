@@ -76,10 +76,14 @@ class BaseNode(PydanticBaseNode[StateT, DepsT, OutputT], MetricsMixin):
         phase = getattr(ctx.state, 'current_phase', 'unknown')
         
         logger.debug(f"[{node_name}] === ENTRY === Phase: {phase}, Workflow: {getattr(ctx.state, 'workflow_id', 'unknown')}")
+        logger.debug(f"[{node_name}] Current node in state: {getattr(ctx.state, 'current_node', 'unknown')}")
         logger.debug(f"[{node_name}] State keys: {list(ctx.state.__dict__.keys()) if hasattr(ctx.state, '__dict__') else 'N/A'}")
+        logger.debug(f"[{node_name}] Domain data keys: {list(ctx.state.domain_data.keys()) if hasattr(ctx.state, 'domain_data') else 'N/A'}")
+        logger.debug(f"[{node_name}] Retry counts: {ctx.state.retry_counts if hasattr(ctx.state, 'retry_counts') else 'N/A'}")
         
         # Get our configuration from deps
         node_config = self._get_node_config(ctx)
+        logger.debug(f"[{node_name}] Retrieved node config: {node_config}")
         logger.debug(f"[{node_name}] Config: retryable={getattr(node_config, 'retryable', False)}, max_retries={getattr(node_config, 'max_retries', 0)}")
         
         # Track execution start
@@ -88,14 +92,19 @@ class BaseNode(PydanticBaseNode[StateT, DepsT, OutputT], MetricsMixin):
         # Check if we should retry
         if node_config and node_config.retryable:
             retry_key = self._get_retry_key(ctx.state)
+            logger.debug(f"[{node_name}] Retry key: {retry_key}")
             retry_count = ctx.state.retry_counts.get(retry_key, 0)
+            logger.debug(f"[{node_name}] Current retry count: {retry_count}")
             
             if retry_count > 0:
+                logger.info(f"[{node_name}] This is retry attempt {retry_count} for {retry_key}")
                 # Track retry attempt
                 if hasattr(self, '_last_error'):
+                    logger.debug(f"[{node_name}] Last error: {self._last_error}")
                     await self._track_retry_attempt(node_name, phase, retry_count, self._last_error)
                 
                 # Apply backoff before retry
+                logger.debug(f"[{node_name}] Applying backoff strategy: {node_config.retry_backoff}")
                 await self._apply_backoff(retry_count, node_config)
         
         try:
@@ -111,16 +120,20 @@ class BaseNode(PydanticBaseNode[StateT, DepsT, OutputT], MetricsMixin):
             return result
             
         except RetryableError as e:
+            logger.warning(f"[{node_name}] Retryable error caught: {e}")
             # Store error for retry tracking
             self._last_error = e
             await self._track_execution_failure(node_name, phase, start_time, e)
+            logger.debug(f"[{node_name}] Handling retryable error with config: {node_config}")
             return await self._handle_retryable_error(ctx, e, node_config)
             
         except NonRetryableError as e:
+            logger.error(f"[{node_name}] Non-retryable error caught: {e}")
             await self._track_execution_failure(node_name, phase, start_time, e)
             return await self._handle_non_retryable_error(ctx, e)
             
         except Exception as e:
+            logger.error(f"[{node_name}] Unexpected error caught: {e}", exc_info=True)
             # Treat unknown errors as non-retryable
             non_retryable_error = NonRetryableError(str(e))
             await self._track_execution_failure(node_name, phase, start_time, non_retryable_error)
@@ -166,27 +179,33 @@ class BaseNode(PydanticBaseNode[StateT, DepsT, OutputT], MetricsMixin):
         config: Optional[NodeConfig]
     ) -> Union['BaseNode', End[OutputT]]:
         """Handle retryable error with self-return pattern."""
+        logger.debug(f"[_handle_retryable_error] Config: {config}, retryable: {config.retryable if config else None}")
+        
         if not config or not config.retryable:
             # Not configured for retry, convert to non-retryable
+            logger.info(f"[_handle_retryable_error] Node not configured for retry, treating as non-retryable")
             return await self._handle_non_retryable_error(ctx, NonRetryableError(str(error)))
         
         retry_key = self._get_retry_key(ctx.state)
         retry_count = ctx.state.retry_counts.get(retry_key, 0)
+        logger.debug(f"[_handle_retryable_error] Retry key: {retry_key}, count: {retry_count}, max: {config.max_retries}")
         
         if retry_count < config.max_retries:
             # Retry by returning ourselves with updated retry count
-            logger.info(f'Retrying {retry_key}: attempt {retry_count + 1}/{config.max_retries}')
+            logger.info(f'[_handle_retryable_error] Retrying {retry_key}: attempt {retry_count + 1}/{config.max_retries}')
             
             # Update retry count in state
             # Note: In actual implementation, state update happens through context
             # Increment retry count - modify in place
             ctx.state.retry_counts[retry_key] = retry_count + 1
+            logger.debug(f"[_handle_retryable_error] Updated retry count to {retry_count + 1}")
             
             # Return self to retry
+            logger.debug(f"[_handle_retryable_error] Returning new instance of {self.__class__.__name__} for retry")
             return self.__class__()
         else:
             # Max retries exceeded
-            logger.error(f'Max retries exceeded for {retry_key}')
+            logger.error(f'[_handle_retryable_error] Max retries exceeded for {retry_key} ({retry_count}/{config.max_retries})')
             return ErrorNode(error=str(error), node_id=ctx.state.current_node)
     
     async def _handle_non_retryable_error(
@@ -242,15 +261,22 @@ class AtomicNode(BaseNode[StateT, DepsT, OutputT]):
         """Execute atomic operation and chain to next."""
         node_name = self.__class__.__name__
         logger.debug(f"[{node_name}] AtomicNode.execute starting")
+        logger.debug(f"[{node_name}] Current state.current_node: {ctx.state.current_node if hasattr(ctx.state, 'current_node') else 'N/A'}")
+        logger.debug(f"[{node_name}] Current state.current_phase: {ctx.state.current_phase if hasattr(ctx.state, 'current_phase') else 'N/A'}")
         
         # Perform our atomic operation
         logger.debug(f"[{node_name}] Calling perform_operation")
-        result = await self.perform_operation(ctx)
-        logger.debug(f"[{node_name}] perform_operation returned: {type(result).__name__ if result else 'None'}")
+        try:
+            result = await self.perform_operation(ctx)
+            logger.debug(f"[{node_name}] perform_operation returned: {type(result).__name__ if result else 'None'}")
+        except Exception as e:
+            logger.error(f"[{node_name}] perform_operation raised exception: {e}", exc_info=True)
+            raise
         
         # Update state with result - directly modify the mutable state
         logger.debug(f"[{node_name}] Updating state in place")
         await self.update_state_in_place(ctx.state, result)
+        logger.debug(f"[{node_name}] State updated, domain_data keys: {list(ctx.state.domain_data.keys()) if hasattr(ctx.state, 'domain_data') else 'N/A'}")
         
         # Get next node in chain based on current position
         next_node_id = self.get_next_node(ctx.state)
@@ -258,8 +284,9 @@ class AtomicNode(BaseNode[StateT, DepsT, OutputT]):
         
         if next_node_id:
             # Update current_node in state for next execution
+            old_node = ctx.state.current_node if hasattr(ctx.state, 'current_node') else 'unknown'
             ctx.state.current_node = next_node_id
-            logger.info(f"[{node_name}] Chaining to {next_node_id}")
+            logger.info(f"[{node_name}] Chaining from {old_node} to {next_node_id}")
             
             # Chain to next node - it will receive the same context with updated state
             next_node = self.create_next_node(next_node_id)
@@ -267,7 +294,7 @@ class AtomicNode(BaseNode[StateT, DepsT, OutputT]):
             return next_node
         else:
             # No more nodes in this phase
-            logger.info(f"[{node_name}] No more nodes in phase, completing phase")
+            logger.info(f"[{node_name}] No more nodes in phase {ctx.state.current_phase if hasattr(ctx.state, 'current_phase') else 'unknown'}, completing phase")
             return await self.complete_phase(ctx, ctx.state)
     
     async def perform_operation(self, ctx: GraphRunContext[StateT, DepsT]) -> Any:
