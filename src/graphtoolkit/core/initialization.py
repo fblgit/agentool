@@ -59,6 +59,33 @@ _GRAPHTOOLKIT_METRICS = {
     'graphtoolkit.error.executions.failure': {'type': 'counter', 'unit': 'count'},
     'graphtoolkit.error.duration.seconds': {'type': 'timer', 'unit': 'seconds'},
     
+    # Missing node metrics from warnings
+    'graphtoolkit.stateupdate.executions.total': {'type': 'counter', 'unit': 'count'},
+    'graphtoolkit.stateupdate.executions.success': {'type': 'counter', 'unit': 'count'},
+    'graphtoolkit.stateupdate.executions.failure': {'type': 'counter', 'unit': 'count'},
+    'graphtoolkit.stateupdate.duration.seconds': {'type': 'timer', 'unit': 'seconds'},
+    
+    'graphtoolkit.qualitygate.executions.total': {'type': 'counter', 'unit': 'count'},
+    'graphtoolkit.qualitygate.executions.success': {'type': 'counter', 'unit': 'count'},
+    'graphtoolkit.qualitygate.executions.failure': {'type': 'counter', 'unit': 'count'},
+    'graphtoolkit.qualitygate.duration.seconds': {'type': 'timer', 'unit': 'seconds'},
+    
+    'graphtoolkit.refinement.executions.total': {'type': 'counter', 'unit': 'count'},
+    'graphtoolkit.refinement.executions.success': {'type': 'counter', 'unit': 'count'},
+    'graphtoolkit.refinement.executions.failure': {'type': 'counter', 'unit': 'count'},
+    'graphtoolkit.refinement.duration.seconds': {'type': 'timer', 'unit': 'seconds'},
+    
+    'graphtoolkit.nextphase.executions.total': {'type': 'counter', 'unit': 'count'},
+    'graphtoolkit.nextphase.executions.success': {'type': 'counter', 'unit': 'count'},
+    'graphtoolkit.nextphase.executions.failure': {'type': 'counter', 'unit': 'count'},
+    'graphtoolkit.nextphase.duration.seconds': {'type': 'timer', 'unit': 'seconds'},
+    
+    # Storage operation metrics
+    'graphtoolkit.storage.operations.total': {'type': 'counter', 'unit': 'count'},
+    'graphtoolkit.storage.operations.success': {'type': 'counter', 'unit': 'count'},
+    'graphtoolkit.storage.operations.failure': {'type': 'counter', 'unit': 'count'},
+    'graphtoolkit.storage.duration.seconds': {'type': 'timer', 'unit': 'seconds'},
+    
     # Workflow-level metrics
     'graphtoolkit.workflow.executions.total': {'type': 'counter', 'unit': 'count'},
     'graphtoolkit.workflow.executions.success': {'type': 'counter', 'unit': 'count'},
