@@ -120,8 +120,8 @@ class InitializationConfig:
     enable_session: bool = False
     enable_http: bool = False
     
-    # Management (optional)
-    enable_agentool_management: bool = False
+    # Management (required for agentool domain)
+    enable_agentool_management: bool = True
     
     # Workflow agents (only for AgenTool domain)
     enable_workflow_agents: bool = False
@@ -194,12 +194,19 @@ class GraphToolkitInitializer:
                     self._clear_registries()
                 
                 # Initialize components in dependency order
+                logger.info("Initializing storage components...")
                 self._initialize_storage_components()
+                logger.info("Initializing system components...")
                 self._initialize_system_components()  
+                logger.info("Initializing observability components...")
                 self._initialize_observability_components()
+                logger.info("Initializing security components...")
                 self._initialize_security_components()
+                logger.info("Initializing network components...")
                 self._initialize_network_components()
+                logger.info("Initializing management components...")
                 self._initialize_management_components()
+                logger.info("Initializing workflow components...")
                 self._initialize_workflow_components()
                 
                 self._is_initialized = True
@@ -318,8 +325,12 @@ class GraphToolkitInitializer:
     
     def _initialize_management_components(self) -> None:
         """Initialize management components."""
+        logger.info(f"Initializing management components, enable_agentool_management={self.config.enable_agentool_management}")
         if self.config.enable_agentool_management:
-            self._initialize_component('agentool_management', self._create_agentool_management_agent)
+            logger.info("Initializing agentool_mgmt component...")
+            self._initialize_component('agentool_mgmt', self._create_agentool_management_agent)
+        else:
+            logger.info("Skipping agentool_mgmt - not enabled in config")
     
     def _initialize_workflow_components(self) -> None:
         """Initialize workflow components."""

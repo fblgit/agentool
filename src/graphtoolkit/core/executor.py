@@ -11,7 +11,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 # Real pydantic_graph imports - no more mocks
-from pydantic_graph import BaseNode, SimpleStatePersistence, Graph, GraphRunContext
+from pydantic_graph import BaseNode, Graph, GraphRunContext
+from pydantic_graph.persistence.file import FileStatePersistence
 
 from ..core.deps import WorkflowDeps
 from ..core.factory import create_node_instance
@@ -308,7 +309,7 @@ class WorkflowExecutor:
             graph = self._build_graph(initial_state)
             
             # Set up file persistence
-            persistence = SimpleStatePersistence(Path(persistence_path))
+            persistence = FileStatePersistence(Path(persistence_path))
             
             # Execute using pydantic_graph with persistence
             final_state = await graph.run(
@@ -382,7 +383,7 @@ class WorkflowExecutor:
             # Set up persistence if requested
             persistence = None
             if persistence_path:
-                persistence = SimpleStatePersistence(Path(persistence_path))
+                persistence = FileStatePersistence(Path(persistence_path))
             
             # Execute with parallel control using Graph.iter()
             final_state = initial_state
