@@ -122,6 +122,35 @@ def build_workflow_definition(domain: str):
             node_type='quality_gate',
             retryable=False,
             max_retries=0
+        ),
+        
+        # Specifier-specific nodes
+        'prepare_specifier_iteration': NodeConfig(
+            node_type='prepare_specifier_iteration',
+            retryable=True,  # Can retry on storage/agentool_mgmt failures
+            max_retries=2,
+            retry_backoff=RetryBackoff.LINEAR
+        ),
+        'specifier_tool_iterator': NodeConfig(
+            node_type='specifier_tool_iterator',
+            retryable=True,  # Can retry individual tools, but handles failures gracefully
+            max_retries=1,   # Limited retries since it handles failures per-tool
+            retry_backoff=RetryBackoff.LINEAR,
+            iter_enabled=True  # This is an iteration node
+        ),
+        
+        # Generic aliases
+        'save_output': NodeConfig(
+            node_type='storage_save',
+            retryable=True,
+            max_retries=2,
+            retry_backoff=RetryBackoff.LINEAR
+        ),
+        'process_tools': NodeConfig(  # Legacy compatibility
+            node_type='process_tools',
+            retryable=True,
+            max_retries=2,
+            iter_enabled=True
         )
     }
     

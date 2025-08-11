@@ -88,13 +88,22 @@ class IterableNode(BaseNode[WorkflowState, Any, WorkflowState], Generic[ItemT, R
             return await self.on_iteration_complete(ctx)
         
         results = []
-        for item in items:
+        errors = []
+        for i, item in enumerate(items):
             try:
                 result = await self.process_item(item, ctx)
                 results.append(result)
             except Exception as e:
-                logger.error(f'Error processing item {item}: {e}')
-                results.append(None)
+                logger.error(f'Error processing item {i}: {e}')
+                errors.append((i, item, e))
+        
+        # Check if any errors occurred
+        if errors:
+            from ..exceptions import BatchProcessingError
+            raise BatchProcessingError(
+                f"Failed to process {len(errors)} out of {len(items)} items",
+                errors=errors
+            )
         
         # Update state with all results
         new_state = replace(

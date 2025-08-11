@@ -1,0 +1,70 @@
+## Implementation to Evaluate
+{{ implementation }}
+
+## Original Specification
+{{ specification }}
+
+## Analysis Context
+{{ analysis_output }}
+
+## Evaluation Criteria
+
+Evaluate the provided implementation against its specification and provide a comprehensive assessment:
+
+1. **Correctness Validation**
+   - Does the implementation match the specification exactly?
+   - Are all required operations implemented?
+   - Do the input/output schemas match the specification?
+   - Are all dependencies properly integrated?
+
+2. **Code Quality Assessment**
+   - Is the code well-structured and readable?
+   - Are there proper docstrings and type hints?
+   - Does it follow Python best practices?
+   - Is error handling comprehensive?
+
+3. **Integration Verification**
+   - Are existing tools properly integrated via injector?
+   - Are the operation calls to dependencies correct?
+   - Is the response handling appropriate?
+
+4. **Completeness Check**
+   - Are all operations fully implemented (not stubbed)?
+   - Are all error cases handled?
+   - Is logging implemented appropriately?
+   - Are all required imports present?
+
+5. **Security and Performance**
+   - Are there any security vulnerabilities?
+   - Is input validation adequate?
+   - Are there performance concerns?
+   - Is resource usage appropriate?
+
+## Output Format
+
+Provide your evaluation in the following JSON structure:
+
+```json
+{
+  "validation_results": {
+    "tool_name": {
+      "specification_match": true/false,
+      "operations_complete": true/false,
+      "schemas_correct": true/false,
+      "dependencies_integrated": true/false,
+      "error_handling": true/false,
+      "issues": ["list of specific issues found"],
+      "suggestions": ["list of improvement suggestions"]
+    }
+  },
+  "quality_scores": {
+    "tool_name": 0.0-1.0
+  },
+  "final_code": {
+    "tool_name": "corrected code if needed, otherwise original"
+  },
+  "success": true/false
+}
+```
+
+Evaluate the implementation now:

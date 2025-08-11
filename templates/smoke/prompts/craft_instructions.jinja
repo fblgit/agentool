@@ -1,0 +1,32 @@
+Create detailed cooking instructions for this recipe:
+
+**Recipe Design:**
+- Name: {{ recipe_designer_output['recipe_name'] }}
+- Cuisine: {{ recipe_designer_output['cuisine_type'] }}
+- Difficulty: {{ recipe_designer_output['difficulty'] }}
+- Prep Time: {{ recipe_designer_output['prep_time_minutes'] }} minutes
+- Cook Time: {{ recipe_designer_output['cook_time_minutes'] }} minutes
+- Servings: {{ recipe_designer_output['servings'] }}
+
+**Required Techniques:**
+{% for technique in recipe_designer_output['techniques'] %}
+- {{ technique }}
+{% endfor %}
+
+**Equipment Needed:**
+{% for equipment in recipe_designer_output['equipment_needed'] %}
+- {{ equipment }}
+{% endfor %}
+
+**Available Ingredients:**
+{% for ingredient in ingredients %}
+- {{ ingredient }}
+{% endfor %}
+
+Create a complete recipe with:
+1. Ingredients list with specific measurements (appropriate for {{ recipe_designer_output['servings'] }} servings)
+2. Step-by-step instructions (minimum 3 steps)
+3. Helpful tips for success
+4. Possible variations
+
+Ensure instructions are clear, complete, and follow a logical sequence. Output in the required JSON format.

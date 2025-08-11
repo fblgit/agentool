@@ -69,9 +69,13 @@ class TemplateRenderNode(AtomicNode[WorkflowState, Any, Dict[str, str]]):
                             rendered['system_prompt'] = output_data.get('data', {}).get('rendered', '')
                             logger.info(f'Rendered system template for {ctx.state.current_phase}')
                         else:
-                            logger.warning(f'Template render failed: {output_data.get("message", "unknown error")}')
-                    except json.JSONDecodeError:
+                            logger.error(f'Template render failed: {output_data.get("message", "unknown error")}')
+                            from ...exceptions import TemplateError
+                            raise TemplateError(f'System template render failed: {output_data.get("message", "unknown error")}')
+                    except json.JSONDecodeError as e:
                         logger.error(f'Failed to parse template result output: {result.output}')
+                        from ...exceptions import TemplateError
+                        raise TemplateError(f'Failed to parse system template result: {e}') from e
                 elif hasattr(result, 'success') and result.success:
                     # TemplatesOutput has 'data' field with rendered content
                     if result.data and isinstance(result.data, dict):
@@ -79,11 +83,17 @@ class TemplateRenderNode(AtomicNode[WorkflowState, Any, Dict[str, str]]):
                         logger.info(f'Rendered system template for {ctx.state.current_phase}')
                         logger.debug(f"[TemplateRenderNode] System prompt content (first 100 chars): {rendered['system_prompt'][:100] if rendered['system_prompt'] else 'EMPTY'}")
                     else:
-                        logger.warning(f'No rendered content in template result')
+                        logger.error(f'No rendered content in system template result')
+                        from ...exceptions import TemplateError
+                        raise TemplateError('System template render produced no content')
                 else:
-                    logger.warning(f'Failed to render system template: {result.message if hasattr(result, "message") else "unknown error"}')
+                    logger.error(f'Failed to render system template: {result.message if hasattr(result, "message") else "unknown error"}')
+                    from ...exceptions import TemplateError
+                    raise TemplateError(f'System template render failed: {result.message if hasattr(result, "message") else "unknown error"}')
             except Exception as e:
                 logger.error(f'Error rendering system template: {e}')
+                from ...exceptions import TemplateError
+                raise TemplateError(f'Error rendering system template: {e}') from e
         
         # Render user template
         if phase_def.templates.user_template:
@@ -109,9 +119,13 @@ class TemplateRenderNode(AtomicNode[WorkflowState, Any, Dict[str, str]]):
                             rendered['user_prompt'] = output_data.get('data', {}).get('rendered', '')
                             logger.info(f'Rendered user template for {ctx.state.current_phase}')
                         else:
-                            logger.warning(f'Template render failed: {output_data.get("message", "unknown error")}')
-                    except json.JSONDecodeError:
-                        logger.error(f'Failed to parse template result output: {result.output}')
+                            logger.error(f'User template render failed: {output_data.get("message", "unknown error")}')
+                            from ...exceptions import TemplateError
+                            raise TemplateError(f'User template render failed: {output_data.get("message", "unknown error")}')
+                    except json.JSONDecodeError as e:
+                        logger.error(f'Failed to parse user template result output: {result.output}')
+                        from ...exceptions import TemplateError
+                        raise TemplateError(f'Failed to parse user template result: {e}') from e
                 elif hasattr(result, 'success') and result.success:
                     # TemplatesOutput has 'data' field with rendered content
                     if result.data and isinstance(result.data, dict):
@@ -119,11 +133,17 @@ class TemplateRenderNode(AtomicNode[WorkflowState, Any, Dict[str, str]]):
                         logger.info(f'Rendered user template for {ctx.state.current_phase}')
                         logger.debug(f"[TemplateRenderNode] User prompt content (first 100 chars): {rendered['user_prompt'][:100] if rendered['user_prompt'] else 'EMPTY'}")
                     else:
-                        logger.warning(f'No rendered content in template result')
+                        logger.error(f'No rendered content in user template result')
+                        from ...exceptions import TemplateError
+                        raise TemplateError('User template render produced no content')
                 else:
-                    logger.warning(f'Failed to render user template: {result.message if hasattr(result, "message") else "unknown error"}')
+                    logger.error(f'Failed to render user template: {result.message if hasattr(result, "message") else "unknown error"}')
+                    from ...exceptions import TemplateError
+                    raise TemplateError(f'User template render failed: {result.message if hasattr(result, "message") else "unknown error"}')
             except Exception as e:
                 logger.error(f'Error rendering user template: {e}')
+                from ...exceptions import TemplateError
+                raise TemplateError(f'Error rendering user template: {e}') from e
         
         if not rendered:
             raise NonRetryableError(f'No templates rendered for {ctx.state.current_phase}')
@@ -289,11 +309,13 @@ class TemplateValidateNode(AtomicNode[WorkflowState, Any, bool]):
             if result.success and result.data:
                 return result.data.get('valid', False)
             
-            return False
+            from ...exceptions import TemplateError
+            raise TemplateError(f'Template validation failed: {result.message if hasattr(result, "message") else "validation failed"}')
             
         except Exception as e:
             logger.error(f'Template validation error: {e}')
-            return False
+            from ...exceptions import TemplateError
+            raise TemplateError(f'Template validation error: {e}') from e
 
 
 @dataclass
@@ -318,11 +340,15 @@ class TemplateSaveNode(AtomicNode[WorkflowState, Any, bool]):
                 'template_content': self.template_content
             })
             
+            if not result.success:
+                from ...exceptions import TemplateError
+                raise TemplateError(f'Template save failed: {result.message if hasattr(result, "message") else "save failed"}')
             return result.success
             
         except Exception as e:
             logger.error(f'Template save error: {e}')
-            return False
+            from ...exceptions import TemplateError
+            raise TemplateError(f'Template save error: {e}') from e
 
 
 @dataclass

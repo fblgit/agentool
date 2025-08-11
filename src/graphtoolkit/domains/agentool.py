@@ -69,31 +69,79 @@ class SpecifierOutput(BaseModel):
 # If V1 models available, we'll use ToolSpecification for actual specification
 
 
+# Import V1 models for exact crafter compatibility  
+try:
+    from agents.models import CodeOutput, SpecificationOutput, ValidationOutput
+    from agentoolkit.workflows.workflow_crafter import WorkflowCrafterInput, WorkflowCrafterOutput
+    from agentoolkit.workflows.workflow_evaluator import WorkflowEvaluatorOutput
+except ImportError:
+    # Fallback definitions if V1 models not available
+    class CodeOutput(BaseModel):
+        code: str = Field(description='Generated implementation code')
+        file_path: str = Field(description='File path for the implementation')
+        
+    class WorkflowCrafterInput(BaseModel):
+        workflow_id: str = Field(description='Workflow identifier')
+        model: str = Field(default='openai:gpt-4o', description='LLM model to use')
+        
+    class WorkflowCrafterOutput(BaseModel):
+        success: bool = Field(description='Whether code generation succeeded')
+        message: str = Field(description='Status message')
+        data: Dict[str, Any] = Field(description='Generated code and metadata')
+        state_ref: str = Field(description='Reference to stored state')
+    
+    class ValidationOutput(BaseModel):
+        syntax_valid: bool = Field(description='Whether Python syntax is valid')
+        imports_valid: bool = Field(description='Whether all imports are available')
+        tests_passed: bool = Field(description='Whether tests passed')
+        issues: List[str] = Field(description='Issues found during validation')
+        fixes_applied: List[str] = Field(description='Fixes applied')
+        improvements: List[str] = Field(description='Improvements made')
+        final_code: str = Field(description='Final validated code')
+        ready_for_deployment: bool = Field(description='Ready for deployment')
+        
+    class WorkflowEvaluatorOutput(BaseModel):
+        success: bool = Field(description='Whether evaluation succeeded')
+        operation: str = Field(description='Operation performed')
+        message: str = Field(description='Status message')
+        data: Dict[str, Any] = Field(description='Validation results and final code')
+        state_ref: str = Field(description='Reference to stored state')
+
+
 class CrafterInput(BaseModel):
-    """Input schema for crafter phase."""
-    specifications: List[Dict[str, Any]] = Field(description='Tool specifications to implement')
-    existing_code: Optional[Dict[str, str]] = Field(default=None, description='Existing code base')
+    """Input schema for crafter phase - V1 compatible."""
+    workflow_id: str = Field(description='Workflow identifier')
+    model: str = Field(default='openai:gpt-4o', description='LLM model to use')
 
 
 class CrafterOutput(BaseModel):
-    """Output schema for crafter phase."""
-    implementations: Dict[str, str] = Field(description='Tool implementations (name -> code)')
-    imports: List[str] = Field(description='Required imports')
-    success: bool = Field(default=True, description='Whether crafting succeeded')
+    """Output schema for crafter phase - V1 compatible."""
+    success: bool = Field(description='Whether code generation succeeded')
+    message: str = Field(description='Status message')
+    data: Dict[str, Any] = Field(description='Generated code and metadata')
+    total_tools: int = Field(description='Number of tools implemented')
+    implementations: List[Dict[str, Any]] = Field(description='List of implementations with metadata')
 
 
+# Use V1 evaluator models for exact compatibility
 class EvaluatorInput(BaseModel):
-    """Input schema for evaluator phase."""
-    implementations: Dict[str, str] = Field(description='Tool implementations to evaluate')
-    specifications: List[Dict[str, Any]] = Field(description='Original specifications')
+    """Input schema for evaluator phase - V1 compatible."""
+    workflow_id: str = Field(description='Workflow identifier to retrieve code from')
+    model: str = Field(default='openai:gpt-4o', description='LLM model to use for evaluation')
+    auto_fix: bool = Field(default=True, description='Whether to automatically fix issues found')
 
 
-class EvaluatorOutput(BaseModel):
-    """Output schema for evaluator phase."""
-    validation_results: Dict[str, Dict[str, Any]] = Field(description='Validation results per tool')
-    quality_scores: Dict[str, float] = Field(description='Quality scores per tool')
-    final_code: Dict[str, str] = Field(description='Final validated code')
-    success: bool = Field(default=True, description='Whether evaluation succeeded')
+# Use V1 WorkflowEvaluatorOutput if available, otherwise use fallback
+if 'WorkflowEvaluatorOutput' in globals():
+    EvaluatorOutput = WorkflowEvaluatorOutput
+else:
+    class EvaluatorOutput(BaseModel):
+        """Output schema for evaluator phase - V1 compatible fallback."""
+        success: bool = Field(description='Whether evaluation succeeded')
+        operation: str = Field(description='Operation performed')
+        message: str = Field(description='Status message')
+        data: Dict[str, Any] = Field(description='Validation results and final code')
+        state_ref: str = Field(description='Reference to stored state')
 
 
 # Phase Definitions
@@ -102,11 +150,13 @@ ANALYZER_PHASE = PhaseDefinition(
     phase_name='analyzer',
     atomic_nodes=[
         'dependency_check',
-        'load_dependencies',
+        'load_dependencies',  # Loads catalog from agentool_mgmt
+        'save_catalog',       # V1: Store catalog at workflow/{workflow_id}/catalog  
         'template_render',
         'llm_call',
         'schema_validation',
-        'save_output',
+        'save_analysis',      # V1: Store analysis at workflow/{workflow_id}/analysis
+        'save_missing_tools', # V1: Store each missing tool individually
         'state_update',
         'quality_gate'
     ],
@@ -117,44 +167,56 @@ ANALYZER_PHASE = PhaseDefinition(
         system_template='agentool/system/analyzer.jinja',
         user_template='agentool/prompts/analyze_catalog.jinja'
     ),
-    storage_pattern='workflow/{workflow_id}/analyzer',
+    storage_pattern='workflow/{workflow_id}/analysis',  # V1 main storage pattern
     storage_type=StorageType.KV,
     quality_threshold=0.8,
     allow_refinement=True,
     max_refinements=3,
     model_config=ModelParameters(
-        temperature=0.7,
+        temperature=0.7,  # V1 uses 0.7
         max_tokens=2000
     ),
     domain='agentool'
 )
 
+# Use V1 models for exact compatibility if available
+if V1AnalyzerOutput:
+    SpecifierInputSchema = V1AnalyzerOutput  # Specifier uses analyzer output as input
+    try:
+        from agents.models import SpecificationOutput
+        SpecifierOutputSchema = SpecificationOutput
+    except ImportError:
+        SpecifierOutputSchema = SpecifierOutput
+else:
+    SpecifierInputSchema = SpecifierInput
+    SpecifierOutputSchema = SpecifierOutput
+
 SPECIFIER_PHASE = PhaseDefinition(
     phase_name='specifier',
     atomic_nodes=[
-        'dependency_check',
-        'load_dependencies',
-        'prepare_specifier_iteration',  # Prepare missing tools for iteration
-        'process_tools',  # Iterate over missing tools
-        'save_output',
-        'state_update',
-        'quality_gate'
+        'dependency_check',           # Check analyzer dependency is satisfied
+        'load_dependencies',          # Load analyzer output from storage 
+        'prepare_specifier_iteration', # V1-compatible: Load missing tools, collect existing tools
+        'specifier_tool_iterator',    # V1-compatible: Iterate over missing tools with LLM
+        'save_output',               # Store final SpecificationOutput
+        'state_update',              # Update workflow state
+        'quality_gate'               # Check specification quality
     ],
-    input_schema=SpecifierInput,
-    output_schema=SpecifierOutput,
-    dependencies=['analyzer'],
+    input_schema=SpecifierInputSchema,  # V1: Uses analyzer output directly
+    output_schema=SpecifierOutputSchema,  # V1: SpecificationOutput with tool list
+    dependencies=['analyzer'],  # Requires analyzer phase to complete first
     templates=TemplateConfig(
-        system_template='agentool/system/specifier.jinja',
-        user_template='agentool/prompts/create_specification.jinja'
+        system_template='system/specification.jinja',  # V1 EXACT path - no agentool prefix
+        user_template='prompts/create_specification.jinja'  # V1 EXACT path - no agentool prefix
     ),
-    storage_pattern='workflow/{workflow_id}/specifier',
+    storage_pattern='workflow/{workflow_id}/specs',  # V1 storage pattern
     storage_type=StorageType.KV,
     quality_threshold=0.85,
     allow_refinement=True,
     max_refinements=3,
     model_config=ModelParameters(
-        temperature=0.5,
-        max_tokens=3000
+        temperature=0.5,  # V1 uses 0.5 for consistent output
+        max_tokens=3000   # V1 needs more tokens for detailed specifications  
     ),
     domain='agentool'
 )
@@ -162,63 +224,79 @@ SPECIFIER_PHASE = PhaseDefinition(
 CRAFTER_PHASE = PhaseDefinition(
     phase_name='crafter',
     atomic_nodes=[
-        'dependency_check',
-        'load_dependencies',
-        'template_render',
-        'llm_call',
-        'schema_validation',
-        'save_output',
-        'state_update',
-        'quality_gate'
+        'dependency_check',           # Check specifier dependency
+        'load_dependencies',          # Load analysis and specifications from storage
+        'save_catalog',               # Store catalog if needed for templates
+        'prepare_crafter_iteration',  # V1-compatible: Set up iteration over specs
+        'crafter_tool_iterator',      # V1-compatible: Generate code for each tool (CORE ITERATION)
+        'save_implementation_summary', # V1: Store summary with all implementations
+        'state_update',              # Update workflow state
+        'quality_gate'               # Check implementation quality
     ],
-    input_schema=CrafterInput,
-    output_schema=CrafterOutput,
-    dependencies=['specifier'],
+    input_schema=CrafterInput,       # V1 compatible with workflow_id and model
+    output_schema=CrafterOutput,     # V1 compatible output structure
+    dependencies=['specifier'],     # Requires specifications from specifier phase
     templates=TemplateConfig(
-        system_template='agentool/system/crafter.jinja',
-        user_template='agentool/prompts/craft_implementation.jinja'
+        system_template='system/crafter.jinja',  # V1 EXACT path
+        user_template='prompts/craft_implementation.jinja'  # V1 EXACT path
     ),
-    storage_pattern='workflow/{workflow_id}/crafter',
+    storage_pattern='workflow/{workflow_id}/implementations',  # V1 storage pattern
     storage_type=StorageType.KV,
     quality_threshold=0.9,
     allow_refinement=True,
     max_refinements=5,
     model_config=ModelParameters(
-        temperature=0.3,
-        max_tokens=4000
+        temperature=0.3,  # V1 uses 0.3 for code generation
+        max_tokens=4000  # V1 uses 4000 tokens for code
     ),
-    domain='agentool'
+    domain='agentool',
+    # V1 Additional Storage Patterns
+    additional_storage_patterns={
+        'implementations_summary': 'workflow/{workflow_id}/implementations_summary',
+        'individual_implementation': 'workflow/{workflow_id}/implementations/{tool_name}', 
+        'file_system': 'generated/{workflow_id}/src/{file_path}',
+        'skeleton': 'workflow/{workflow_id}/skeleton/{tool_name}',
+        'current_missing_tool': 'workflow/{workflow_id}/current_missing_tool_for_craft/{tool_name}'
+    }
 )
 
 EVALUATOR_PHASE = PhaseDefinition(
     phase_name='evaluator',
     atomic_nodes=[
-        'dependency_check',
-        'load_dependencies',
-        'template_render',
-        'llm_call',
-        'schema_validation',
-        'save_output',
-        'state_update',
-        'quality_gate'
+        'dependency_check',                # Check crafter dependency
+        'load_dependencies',              # Load specifications from crafter phase
+        'prepare_evaluator_iteration',    # V1-compatible: Load specifications and prepare iteration
+        'evaluator_tool_iterator',        # V1-compatible: Iterate over each implementation (CORE ITERATION)
+        'save_validation_summary',        # V1: Store validation summary with all tools
+        'save_summary_markdown',          # V1: Create SUMMARY.md file
+        'state_update',                  # Update workflow state
+        'quality_gate'                   # Check overall evaluation quality
     ],
-    input_schema=EvaluatorInput,
-    output_schema=EvaluatorOutput,
-    dependencies=['crafter'],
+    input_schema=EvaluatorInput,         # V1 compatible with workflow_id, model, auto_fix
+    output_schema=EvaluatorOutput,       # V1 compatible WorkflowEvaluatorOutput
+    dependencies=['crafter'],            # Requires implementations from crafter phase
     templates=TemplateConfig(
-        system_template='agentool/system/evaluator.jinja',
-        user_template='agentool/prompts/evaluate_code.jinja'
+        system_template='system/evaluator.jinja',  # V1 EXACT path - no agentool prefix
+        user_template='prompts/evaluate_code.jinja'  # V1 EXACT path - no agentool prefix
     ),
-    storage_pattern='workflow/{workflow_id}/evaluator',
+    storage_pattern='workflow/{workflow_id}/validations_summary',  # V1 main storage pattern
     storage_type=StorageType.KV,
-    quality_threshold=0.95,
+    quality_threshold=0.9,
     allow_refinement=True,
     max_refinements=3,
     model_config=ModelParameters(
-        temperature=0.2,
-        max_tokens=2000
+        temperature=0.2,  # V1 uses 0.2 for evaluation
+        max_tokens=4000   # V1 uses 4000 tokens for validation
     ),
-    domain='agentool'
+    domain='agentool',
+    # V1 Additional Storage Patterns for evaluator
+    additional_storage_patterns={
+        'individual_validation': 'workflow/{workflow_id}/validations/{tool_name}',
+        'final_code_fs': 'generated/{workflow_id}/final/{file_name}', 
+        'summary_markdown': 'generated/{workflow_id}/SUMMARY.md',
+        'current_implementation_code': 'workflow/{workflow_id}/current_implementation_code',
+        'reference_implementation': 'workflow/{workflow_id}/reference_implementation'
+    }
 )
 
 
@@ -280,16 +358,15 @@ async def create_agentool_workflow(
         
         # Try to get catalog
         import asyncio
-        try:
-            catalog_result = await injector.run('agentool_mgmt', {
-                'operation': 'export_catalog',
-                'format': 'json'
-            })
-            if catalog_result.success:
-                catalog = catalog_result.data.get('catalog', {})
-        except:
-            # If agentool_mgmt not available, continue without catalog
-            pass
+        catalog_result = await injector.run('agentool_mgmt', {
+            'operation': 'export_catalog',
+            'format': 'json'
+        })
+        if catalog_result.success:
+            catalog = catalog_result.data.get('catalog', {})
+        else:
+            from ..exceptions import CatalogError
+            raise CatalogError(f"Failed to export catalog: {catalog_result.message}")
     except ImportError:
         # agentool not available, continue
         pass

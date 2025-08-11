@@ -174,6 +174,7 @@ class PhaseDefinition:
     # Storage
     storage_pattern: str = 'workflow/{workflow_id}/{phase}'
     storage_type: StorageType = StorageType.KV
+    additional_storage_patterns: Optional[Dict[str, str]] = None  # Additional storage patterns
     
     # Quality control
     quality_threshold: float = 0.8

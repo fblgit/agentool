@@ -1,0 +1,33 @@
+Based on the ingredient analysis, design a recipe structure:
+
+**Ingredient Analysis Results:**
+- Ingredients: {{ ingredient_analyzer_output['ingredients'] | join(', ') }}
+- Suggested Cuisine: {{ ingredient_analyzer_output['suggested_cuisine'] }}
+- Cooking Methods: {{ ingredient_analyzer_output['cooking_methods'] | join(', ') }}
+- Compatibility Score: {{ ingredient_analyzer_output['compatibility_score'] }}
+
+{% if ingredient_analyzer_output['warnings'] %}
+**Considerations:**
+{% for warning in ingredient_analyzer_output['warnings'] %}
+- {{ warning }}
+{% endfor %}
+{% endif %}
+
+{% if dietary_restrictions %}
+**Must Accommodate:**
+{% for restriction in dietary_restrictions %}
+- {{ restriction }}
+{% endfor %}
+{% endif %}
+
+{% if max_cook_time %}
+**Time Constraint:** Maximum {{ max_cook_time }} minutes total
+{% endif %}
+
+Design a recipe that:
+1. Uses these ingredients effectively
+2. Fits the {{ ingredient_analyzer_output['suggested_cuisine'] }} cuisine style
+3. Can be completed within time constraints
+4. Includes all necessary planning details
+
+Provide the recipe design in the required JSON format with name, timing, difficulty, techniques, and equipment needed.

@@ -4,7 +4,7 @@ Collection of atomic nodes that chain together to form phases.
 """
 
 # Import all atomic nodes to trigger registration
-from . import aggregation, approval, control, generators, llm, storage, templates, transform, validation
+from . import aggregation, approval, control, crafter_ops, execution, generators, iteration_ops, llm, storage, templates, transform, validation
 from .aggregation import AggregatorNode, ParallelAggregatorNode
 from .approval import ApprovalNode, QualityCheckNode, RefinementLoopNode
 from .control import ConditionalNode, NextPhaseNode, RefinementNode, StateUpdateNode
@@ -12,16 +12,18 @@ from .generators import AdvancedGeneratorNode, GeneratorRoutingNode, SimpleGener
 from .llm import LLMCallNode
 
 # Re-export key nodes
-from .storage import DependencyCheckNode, LoadDependenciesNode, SavePhaseOutputNode
+from .storage import DependencyCheckNode, LoadDependenciesNode, SavePhaseOutputNode, PrepareSpecifierIterationNode
 from .templates import TemplateRenderNode
 from .transform import CodeFormatNode, DataFilterNode, DataMergeNode, JSONParseNode, JSONSerializeNode
 from .validation import QualityGateNode, SchemaValidationNode
+from .iteration_ops import SpecifierToolIteratorNode
 
 __all__ = [
     # Storage
     'DependencyCheckNode',
     'LoadDependenciesNode',
     'SavePhaseOutputNode',
+    'PrepareSpecifierIterationNode',
     
     # Templates
     'TemplateRenderNode',
@@ -58,5 +60,8 @@ __all__ = [
     'JSONSerializeNode',
     'CodeFormatNode',
     'DataMergeNode',
-    'DataFilterNode'
+    'DataFilterNode',
+    
+    # Iteration Operations
+    'SpecifierToolIteratorNode'
 ]

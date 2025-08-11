@@ -153,6 +153,10 @@ def _try_import_node(node_id: str) -> None:
         'process_steps': 'graphtoolkit.nodes.atomic.iteration_ops',
         'process_contracts': 'graphtoolkit.nodes.atomic.iteration_ops',
         'batch_validate': 'graphtoolkit.nodes.atomic.iteration_ops',
+        'specifier_tool_iterator': 'graphtoolkit.nodes.atomic.iteration_ops',  # V1-compatible specifier
+        'prepare_specifier_iteration': 'graphtoolkit.nodes.atomic.storage',  # V1-compatible prep
+        'prepare_crafter_iteration': 'graphtoolkit.nodes.atomic.crafter_ops',  # V1-compatible crafter prep
+        'crafter_tool_iterator': 'graphtoolkit.nodes.atomic.crafter_ops',  # V1-compatible crafter
         
         # Iteration nodes
         'iterate': 'graphtoolkit.nodes.iteration',
@@ -176,7 +180,9 @@ def _try_import_node(node_id: str) -> None:
             importlib.import_module(module_path)
             logger.debug(f'Imported module for node: {node_id}')
         except ImportError as e:
-            logger.debug(f'Could not import module for node {node_id}: {e}')
+            logger.error(f'Could not import module for node {node_id}: {e}')
+            from ..exceptions import NodeExecutionError
+            raise NodeExecutionError(f'Failed to import required module for node {node_id}: {e}') from e
 
 
 def create_workflow_state(
@@ -256,8 +262,9 @@ def create_workflow_graph(
         Configured graph ready for execution
     """
     if not HAS_PYDANTIC_GRAPH:
-        logger.warning('pydantic_graph not available, returning stub graph')
-        return Graph(nodes=[])
+        logger.error('pydantic_graph not available - this is a required dependency')
+        from ..exceptions import DependencyError
+        raise DependencyError('pydantic_graph is required but not available. Install with: pip install pydantic-graph')
     
     # Import GenericPhaseNode if not provided
     if start_node_class is None:
@@ -278,8 +285,10 @@ def create_workflow_graph(
                 create_node_instance(node_id)
                 if node_id in NODE_CLASSES:
                     node_classes.add(NODE_CLASSES[node_id])
-            except ValueError:
-                logger.warning(f'Could not load node class for: {node_id}')
+            except ValueError as e:
+                logger.error(f'Could not load node class for: {node_id}')
+                from ..exceptions import NodeExecutionError
+                raise NodeExecutionError(f'Failed to load required node class for: {node_id}') from e
     
     # Create graph with all node classes
     return Graph(nodes=list(node_classes))

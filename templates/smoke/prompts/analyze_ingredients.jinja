@@ -1,0 +1,30 @@
+Analyze the following ingredients for recipe creation:
+
+**Available Ingredients:**
+{% for ingredient in ingredients %}
+- {{ ingredient }}
+{% endfor %}
+
+{% if dietary_restrictions %}
+**Dietary Restrictions:**
+{% for restriction in dietary_restrictions %}
+- {{ restriction }}
+{% endfor %}
+{% endif %}
+
+{% if cuisine_preference %}
+**Cuisine Preference:** {{ cuisine_preference }}
+{% endif %}
+
+{% if max_cook_time %}
+**Maximum Cooking Time:** {{ max_cook_time }} minutes
+{% endif %}
+
+Please analyze these ingredients and provide:
+1. A compatibility score (0-1) for how well they work together
+2. The most suitable cuisine type
+3. Recommended cooking methods
+4. Nutritional highlights
+5. Any warnings or considerations
+
+Output your analysis in the required JSON format.

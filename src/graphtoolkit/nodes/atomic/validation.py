@@ -77,15 +77,8 @@ class SchemaValidationNode(AtomicNode[WorkflowState, Any, ValidationResult]):
                 
             except Exception as e:
                 logger.error(f'Schema validation failed: {e}')
-                return ValidationResult(
-                    valid=False,
-                    errors=[str(e)],
-                    warnings=[],
-                    metadata={
-                        'phase': phase_name,
-                        'schema': phase_def.output_schema.__name__
-                    }
-                )
+                from ...exceptions import SchemaValidationError
+                raise SchemaValidationError(f'Schema validation failed for {phase_name}: {e}') from e
         
         # No schema to validate against
         return ValidationResult(
@@ -180,9 +173,11 @@ class QualityGateNode(BaseNode[WorkflowState, Any, WorkflowState]):
             logger.debug(f"[QualityGateNode] === EXIT === Returning RefinementNode")
             return RefinementNode(feedback=feedback)
         
-        # Cannot refine further, accept current quality
-        logger.warning(f'[QualityGateNode] Quality below threshold but max refinements reached for {phase_name}')
-        logger.debug(f"[QualityGateNode] Accepting quality {quality_score} < {phase_def.quality_threshold}")
+        # Cannot refine further, fail the workflow
+        logger.error(f'[QualityGateNode] Quality below threshold and max refinements reached for {phase_name}')
+        logger.error(f"[QualityGateNode] Quality {quality_score} < {phase_def.quality_threshold} is unacceptable")
+        from ...exceptions import WorkflowError
+        raise WorkflowError(f"Quality threshold not met for {phase_name}: {quality_score} < {phase_def.quality_threshold} after max refinements")
         
         # Mark that we accepted below threshold
         new_state = replace(
@@ -254,8 +249,9 @@ class DependencyValidationNode(AtomicNode[WorkflowState, Any, bool]):
                 missing.append(tool)
         
         if missing:
-            logger.warning(f'Missing required tools: {missing}')
-            return False
+            logger.error(f'Missing required tools: {missing}')
+            from ...exceptions import DependencyError
+            raise DependencyError(f'Missing required tools: {missing}')
         
         return True
 

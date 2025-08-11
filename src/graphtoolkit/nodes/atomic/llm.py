@@ -293,7 +293,8 @@ class BatchLLMNode(AtomicNode[WorkflowState, Any, List[Any]]):
                 
             except Exception as e:
                 logger.error(f'Batch LLM call failed: {e}')
-                return None
+                from ...exceptions import NodeExecutionError
+                raise NodeExecutionError(f'Batch LLM call failed: {e}') from e
         
         # Execute all calls in parallel
         tasks = [call_single(prompt) for prompt in self.prompts]

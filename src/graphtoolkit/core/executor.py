@@ -89,12 +89,8 @@ class WorkflowExecutor:
             
         except Exception as e:
             logger.error(f'Workflow execution failed: {e}')
-            return WorkflowResult(
-                state=initial_state,
-                outputs={},
-                success=False,
-                error=str(e)
-            )
+            from ..exceptions import WorkflowError
+            raise WorkflowError(f'Workflow execution failed: {e}') from e
         finally:
             # Clean up resources
             if self.deps:
@@ -111,12 +107,25 @@ class WorkflowExecutor:
         """
         # Import all node modules to ensure registration
         from ..nodes import generic, atomic
+        from ..core.factory import get_node_registry, create_node_instance
         
         # Get all unique node types from workflow definition
         all_node_types = set()
         
         for phase_def in initial_state.workflow_def.phases.values():
             all_node_types.update(phase_def.atomic_nodes)
+        
+        logger.debug(f"[WorkflowExecutor] Required node types from workflow: {all_node_types}")
+        
+        # Ensure all required nodes are available by trying to import them
+        for node_type in all_node_types:
+            try:
+                # This will trigger import if needed
+                create_node_instance(node_type)
+            except Exception as e:
+                logger.error(f"[WorkflowExecutor] Failed to load required node {node_type}: {e}")
+                from ..exceptions import NodeExecutionError
+                raise NodeExecutionError(f"Failed to load required node {node_type}: {e}") from e
         
         # Collect node CLASSES (not instances)
         node_classes = set()
@@ -130,12 +139,20 @@ class WorkflowExecutor:
         # Import all atomic node classes that are needed
         # This approach loads all classes to ensure they're available in the graph
         from ..nodes.atomic.storage import (
-            DependencyCheckNode, LoadDependenciesNode, SavePhaseOutputNode
+            DependencyCheckNode, LoadDependenciesNode, SavePhaseOutputNode,
+            PrepareSpecifierIterationNode  # V1-compatible specifier preparation
         )
         from ..nodes.atomic.templates import TemplateRenderNode
         from ..nodes.atomic.llm import LLMCallNode
         from ..nodes.atomic.validation import SchemaValidationNode, QualityGateNode
         from ..nodes.atomic.control import StateUpdateNode, NextPhaseNode, RefinementNode
+        from ..nodes.atomic.iteration_ops import (
+            SpecifierToolIteratorNode  # V1-compatible specifier iteration
+        )
+        from ..nodes.atomic.crafter_ops import (
+            PrepareCrafterIterationNode,  # V1-compatible crafter preparation
+            CrafterToolIteratorNode  # V1-compatible crafter iteration
+        )
         from ..nodes.generic import WorkflowEndNode
         
         # Add base classes to satisfy pydantic_graph's type checking
@@ -148,6 +165,10 @@ class WorkflowExecutor:
         node_classes.add(DependencyCheckNode)
         node_classes.add(LoadDependenciesNode)
         node_classes.add(SavePhaseOutputNode)
+        node_classes.add(PrepareSpecifierIterationNode)  # V1-compatible specifier prep
+        node_classes.add(SpecifierToolIteratorNode)  # V1-compatible specifier iteration
+        node_classes.add(PrepareCrafterIterationNode)  # V1-compatible crafter prep
+        node_classes.add(CrafterToolIteratorNode)  # V1-compatible crafter iteration
         node_classes.add(TemplateRenderNode)
         node_classes.add(LLMCallNode)
         node_classes.add(SchemaValidationNode)
@@ -157,6 +178,18 @@ class WorkflowExecutor:
         node_classes.add(RefinementNode)
         node_classes.add(WorkflowEndNode)
         node_classes.add(ErrorNode)
+        
+        # Get all registered node classes dynamically
+        registry = get_node_registry()
+        logger.debug(f"[WorkflowExecutor] Node registry has {len(registry)} registered nodes")
+        
+        # Add any additional registered node classes that are in the workflow
+        for node_type in all_node_types:
+            if node_type in registry:
+                node_classes.add(registry[node_type])
+                logger.debug(f"[WorkflowExecutor] Added registered node class for: {node_type}")
+        
+        logger.debug(f"[WorkflowExecutor] Total node classes in graph: {len(node_classes)}")
         
         # Create and return graph with node CLASSES
         return Graph(nodes=list(node_classes))
@@ -298,12 +331,8 @@ class WorkflowExecutor:
             
         except Exception as e:
             logger.error(f'Workflow execution with persistence failed: {e}')
-            return WorkflowResult(
-                state=initial_state,
-                outputs={},
-                success=False,
-                error=str(e)
-            )
+            from ..exceptions import WorkflowError
+            raise WorkflowError(f'Workflow execution with persistence failed: {e}') from e
         finally:
             # Clean up resources
             if self.deps:
@@ -416,12 +445,8 @@ class WorkflowExecutor:
             
         except Exception as e:
             logger.error(f'Parallel-controlled workflow failed: {e}')
-            return WorkflowResult(
-                state=initial_state,
-                outputs={},
-                success=False,
-                error=str(e)
-            )
+            from ..exceptions import WorkflowError
+            raise WorkflowError(f'Parallel-controlled workflow failed: {e}') from e
         finally:
             # Clean up resources
             if self.deps:
@@ -460,7 +485,8 @@ class WorkflowExecutor:
             
         except Exception as e:
             logger.error(f'Parallel item processing failed: {e}')
-            return e
+            from ..exceptions import NodeExecutionError
+            raise NodeExecutionError(f'Parallel item processing failed: {e}') from e
 
 
 @dataclass
@@ -578,16 +604,8 @@ async def execute_agentool_workflow(
         
     except Exception as e:
         logger.error(f'AgenTool workflow execution failed: {e}')
-        return {
-            'workflow_id': workflow_id,
-            'success': False,
-            'error': str(e),
-            'execution_time': 0,
-            'completed_phases': [],
-            'quality_scores': {},
-            'outputs': {},
-            'domain_data': {}
-        }
+        from ..exceptions import WorkflowError
+        raise WorkflowError(f'AgenTool workflow execution failed: {e}') from e
 
 
 async def execute_smoke_workflow(
@@ -747,16 +765,5 @@ async def execute_testsuite_workflow(
         
     except Exception as e:
         logger.error(f'TestSuite workflow execution failed: {e}')
-        return {
-            'workflow_id': workflow_id,
-            'success': False,
-            'error': str(e),
-            'execution_time': 0,
-            'completed_phases': [],
-            'quality_scores': {},
-            'outputs': {},
-            'domain_data': {},
-            'test_files': {},
-            'coverage_report': {},
-            'test_results': {}
-        }
+        from ..exceptions import WorkflowError
+        raise WorkflowError(f'TestSuite workflow execution failed: {e}') from e
