@@ -560,12 +560,32 @@ async def graphtoolkit_context(config: Optional[InitializationConfig] = None):
 def default_config() -> InitializationConfig:
     """Default configuration with essential components."""
     return InitializationConfig(
+        # Storage components
         enable_storage_kv=True,
         enable_storage_fs=True,
+        enable_vector=True,
+        
+        # System components
         enable_templates=True,
         enable_logging=True,
+        enable_config=True,
+        enable_scheduler=True,
+        enable_queue=True,
+        
+        # Observability
         enable_metrics=True,
-        # All other components disabled by default
+        
+        # Security and network
+        enable_crypto=True,
+        enable_auth=True,
+        enable_session=True,
+        enable_http=True,
+        
+        # Management
+        enable_agentool_management=True,
+        
+        # Workflow agents
+        enable_workflow_agents=True,
     )
 
 

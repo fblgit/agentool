@@ -228,6 +228,15 @@ class TemplateRenderNode(AtomicNode[WorkflowState, Any, Dict[str, str]]):
                 logger.debug(f"[TemplateRenderNode] Serializing template variable {k}: {type(v).__name__}")
                 variables[k] = make_serializable(v)
         
+        # Add output schema for phases that need it (like analyzer)
+        if phase_def and phase_def.output_schema:
+            try:
+                schema_json = json.dumps(phase_def.output_schema.model_json_schema(), indent=2)
+                variables['schema_json'] = schema_json
+                logger.debug(f"[TemplateRenderNode] Added schema_json for {phase_def.output_schema.__name__}")
+            except Exception as e:
+                logger.error(f"[TemplateRenderNode] Failed to generate schema_json: {e}")
+        
         # Verify all variables are JSON-serializable with detailed debugging
         logger.debug(f"[TemplateRenderNode] Final variable count: {len(variables)}")
         logger.debug(f"[TemplateRenderNode] Final variable keys: {list(variables.keys())}")

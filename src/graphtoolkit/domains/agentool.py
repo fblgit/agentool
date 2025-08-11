@@ -4,11 +4,29 @@ Complete phase definitions for the AgenTool workflow domain.
 """
 
 from typing import Any, Dict, List, Optional
+from datetime import datetime
 
 from pydantic import BaseModel, Field
 
 from ..core.registry import get_registry
-from ..core.types import ModelParameters, PhaseDefinition, StorageType, TemplateConfig
+from ..core.types import ModelParameters, PhaseDefinition, StorageType, TemplateConfig, WorkflowState
+
+# Import V1 models for compatibility
+try:
+    from agents.models import (
+        AnalyzerOutput as V1AnalyzerOutput,
+        MissingToolSpec,
+        ToolSpecification,
+        ToolSpecificationLLM,
+        ExistingToolInfo
+    )
+except ImportError:
+    # Fallback if V1 models not available
+    V1AnalyzerOutput = None
+    MissingToolSpec = None
+    ToolSpecification = None
+    ToolSpecificationLLM = None
+    ExistingToolInfo = None
 
 # Input/Output Schemas for AgenTool phases
 
@@ -20,13 +38,19 @@ class AnalyzerInput(BaseModel):
     guidelines: Optional[List[str]] = Field(default=None, description='Development guidelines')
 
 
-class AnalyzerOutput(BaseModel):
-    """Output schema for analyzer phase."""
-    missing_tools: List[str] = Field(description='Tools that need to be created')
-    existing_tools: List[str] = Field(description='Tools that already exist')
-    system_design: Dict[str, Any] = Field(description='High-level system design')
-    development_plan: List[str] = Field(description='Step-by-step development plan')
-    success: bool = Field(default=True, description='Whether analysis succeeded')
+# Use V1 AnalyzerOutput if available, otherwise use simplified version
+if V1AnalyzerOutput:
+    AnalyzerOutput = V1AnalyzerOutput
+else:
+    class AnalyzerOutput(BaseModel):
+        """Output schema for analyzer phase."""
+        name: str = Field(description='Descriptive name for the solution')
+        description: str = Field(description='2-3 sentence explanation of the system')
+        system_design: str = Field(description='Detailed architecture explanation')
+        guidelines: List[str] = Field(description='Patterns and practices to follow')
+        existing_tools: List[str] = Field(description='Exact names of existing tools to reuse')
+        missing_tools: List[Dict[str, Any]] = Field(description='Specifications for new tools')
+        success: bool = Field(default=True, description='Whether analysis succeeded')
 
 
 class SpecifierInput(BaseModel):
@@ -41,6 +65,8 @@ class SpecifierOutput(BaseModel):
     specifications: List[Dict[str, Any]] = Field(description='Tool specifications')
     tool_count: int = Field(description='Number of tools specified')
     success: bool = Field(default=True, description='Whether specification succeeded')
+
+# If V1 models available, we'll use ToolSpecification for actual specification
 
 
 class CrafterInput(BaseModel):
@@ -88,12 +114,8 @@ ANALYZER_PHASE = PhaseDefinition(
     output_schema=AnalyzerOutput,
     dependencies=[],  # No dependencies for first phase
     templates=TemplateConfig(
-        system_template='system/analyzer',
-        user_template='prompts/agentool/analyze_catalog',
-        variables={
-            'framework': 'AgenTool',
-            'purpose': 'Analyze requirements and existing tools'
-        }
+        system_template='agentool/system/analyzer.jinja',
+        user_template='agentool/prompts/analyze_catalog.jinja'
     ),
     storage_pattern='workflow/{workflow_id}/analyzer',
     storage_type=StorageType.KV,
@@ -112,9 +134,8 @@ SPECIFIER_PHASE = PhaseDefinition(
     atomic_nodes=[
         'dependency_check',
         'load_dependencies',
-        'template_render',
-        'llm_call',
-        'schema_validation',
+        'prepare_specifier_iteration',  # Prepare missing tools for iteration
+        'process_tools',  # Iterate over missing tools
         'save_output',
         'state_update',
         'quality_gate'
@@ -123,12 +144,8 @@ SPECIFIER_PHASE = PhaseDefinition(
     output_schema=SpecifierOutput,
     dependencies=['analyzer'],
     templates=TemplateConfig(
-        system_template='system/specification',
-        user_template='prompts/agentool/create_specification',
-        variables={
-            'framework': 'AgenTool',
-            'purpose': 'Create detailed tool specifications'
-        }
+        system_template='agentool/system/specifier.jinja',
+        user_template='agentool/prompts/create_specification.jinja'
     ),
     storage_pattern='workflow/{workflow_id}/specifier',
     storage_type=StorageType.KV,
@@ -158,12 +175,8 @@ CRAFTER_PHASE = PhaseDefinition(
     output_schema=CrafterOutput,
     dependencies=['specifier'],
     templates=TemplateConfig(
-        system_template='system/crafter',
-        user_template='prompts/agentool/craft_implementation',
-        variables={
-            'framework': 'AgenTool',
-            'purpose': 'Generate tool implementations'
-        }
+        system_template='agentool/system/crafter.jinja',
+        user_template='agentool/prompts/craft_implementation.jinja'
     ),
     storage_pattern='workflow/{workflow_id}/crafter',
     storage_type=StorageType.KV,
@@ -193,12 +206,8 @@ EVALUATOR_PHASE = PhaseDefinition(
     output_schema=EvaluatorOutput,
     dependencies=['crafter'],
     templates=TemplateConfig(
-        system_template='system/evaluator',
-        user_template='prompts/agentool/evaluate_code',
-        variables={
-            'framework': 'AgenTool',
-            'purpose': 'Validate and refine implementations'
-        }
+        system_template='agentool/system/evaluator.jinja',
+        user_template='agentool/prompts/evaluate_code.jinja'
     ),
     storage_pattern='workflow/{workflow_id}/evaluator',
     storage_type=StorageType.KV,
@@ -231,3 +240,82 @@ def register_agentool_domain():
 
 # Auto-register on import
 register_agentool_domain()
+
+
+async def create_agentool_workflow(
+    task_description: str,
+    workflow_id: Optional[str] = None,
+    enable_refinement: bool = True,
+    guidelines: Optional[List[str]] = None
+):
+    """Create an AgenTool workflow with proper initialization.
+    
+    Args:
+        task_description: Description of the AgenTool to create
+        workflow_id: Optional workflow identifier
+        enable_refinement: Whether to enable quality-based refinement
+        guidelines: Optional development guidelines
+        
+    Returns:
+        Tuple of (WorkflowDefinition, WorkflowState)
+    """
+    from ..core.types import WorkflowDefinition, WorkflowState
+    from ..domains import build_workflow_definition
+    import uuid
+    
+    # Generate workflow ID if not provided
+    if not workflow_id:
+        workflow_id = f"agentool-{uuid.uuid4().hex[:8]}"
+    
+    # Build workflow definition
+    workflow_def = build_workflow_definition('agentool')
+    from dataclasses import replace
+    workflow_def = replace(workflow_def, enable_refinement=enable_refinement)
+    
+    # Fetch catalog from agentool_mgmt if available
+    catalog = {}
+    try:
+        from agentool.core.injector import get_injector
+        injector = get_injector()
+        
+        # Try to get catalog
+        import asyncio
+        try:
+            catalog_result = await injector.run('agentool_mgmt', {
+                'operation': 'export_catalog',
+                'format': 'json'
+            })
+            if catalog_result.success:
+                catalog = catalog_result.data.get('catalog', {})
+        except:
+            # If agentool_mgmt not available, continue without catalog
+            pass
+    except ImportError:
+        # agentool not available, continue
+        pass
+    
+    # Create initial state with V1-compatible data
+    initial_state = WorkflowState(
+        workflow_def=workflow_def,
+        workflow_id=workflow_id,
+        domain='agentool',
+        current_phase='analyzer',
+        current_node='dependency_check',
+        completed_phases=set(),
+        phase_outputs={},
+        domain_data={
+            'task_description': task_description,
+            'catalog': catalog,
+            'guidelines': guidelines or [],
+            'input': AnalyzerInput(
+                task_description=task_description,
+                domain='agentool',
+                catalog=catalog,
+                guidelines=guidelines
+            ).model_dump()
+        },
+        created_at=datetime.now(),
+        updated_at=datetime.now()
+    )
+    
+    return workflow_def, initial_state
