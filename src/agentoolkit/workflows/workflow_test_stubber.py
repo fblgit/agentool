@@ -423,7 +423,6 @@ def create_workflow_test_stubber_agent():
         routing_config=routing,
         tools=[create_test_stub],
         output_type=WorkflowTestStubberOutput,
-        use_typed_output=True,  # Enable typed output for workflow_test_stubber
         system_prompt="Create well-structured test skeletons with proper setup and placeholders.",
         description="Generates structured test files with imports, fixtures, setup, and test method placeholders",
         version="1.0.0",

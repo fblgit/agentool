@@ -1,0 +1,45 @@
+Analyze the following API requirements and provide a structured analysis:
+
+## Requirements
+{{ requirements }}
+
+## Existing APIs (if any)
+{% if existing_apis %}
+{{ existing_apis | tojson(indent=2) }}
+{% else %}
+No existing APIs to consider.
+{% endif %}
+
+## Analysis Required
+
+Please analyze and identify:
+
+### 1. API Endpoints
+List all required endpoints with:
+- HTTP method (GET, POST, PUT, DELETE, PATCH)
+- Resource path (e.g., /api/v1/users/{id})
+- Purpose and description
+- Request/response format
+
+### 2. Data Models
+Define the data structures needed:
+- Entity schemas
+- Relationships between entities
+- Validation rules
+- Required vs optional fields
+
+### 3. Authentication & Security
+Specify security requirements:
+- Authentication method (OAuth2, JWT, API Key, etc.)
+- Authorization levels/roles
+- Rate limiting needs
+- CORS configuration
+
+### 4. Integration Requirements
+Identify external dependencies:
+- Third-party APIs to integrate
+- Webhooks needed
+- Event streaming requirements
+- Database connections
+
+Provide a comprehensive analysis following the schema requirements.

@@ -1,0 +1,154 @@
+## Task
+Evaluate and validate the generated AgenTool implementations for quality, correctness, and deployment readiness.
+
+## Generated Implementations
+{{ implementations }}
+
+## Original Specifications
+{{ specifications }}
+
+## Evaluation Criteria
+
+1. **Code Quality**
+   - Syntax correctness and Python best practices
+   - Proper type hints and documentation
+   - Error handling and edge case coverage
+   - Code organization and readability
+
+2. **AgenTool Framework Compliance**
+   - Correct use of BaseOperationInput pattern
+   - Proper routing configuration implementation
+   - Complete operation coverage as specified
+   - Integration with agentoolkit dependencies
+
+3. **Functional Correctness**
+   - Operations behave as specified
+   - Input/output schemas match specifications
+   - Error conditions handled appropriately
+   - Examples work as documented
+
+4. **Production Readiness**
+   - No TODOs, placeholders, or incomplete code
+   - Comprehensive error handling and logging
+   - Performance considerations addressed
+   - Security best practices followed
+
+## Evaluation Process
+
+1. **Syntax and Import Validation**
+   - Check Python syntax correctness
+   - Validate all imports are available
+   - Verify no circular dependencies
+   - Test code can be executed without errors
+
+2. **Specification Compliance**
+   - Compare implementation against original specifications
+   - Verify all operations are implemented
+   - Check input/output schemas match exactly
+   - Validate routing configuration completeness
+
+3. **Integration Testing**
+   - Test integration with agentoolkit components
+   - Verify dependency injection works correctly
+   - Check error propagation and handling
+   - Validate logging and metrics integration
+
+4. **Quality Assessment**
+   - Evaluate code maintainability and readability
+   - Check for security vulnerabilities
+   - Assess performance characteristics
+   - Review documentation completeness
+
+## Expected Output Format
+
+Provide evaluation results in the following JSON structure:
+
+```json
+{
+  "validation_results": {
+    "tool_name": {
+      "syntax_valid": true,
+      "imports_valid": true,
+      "specification_compliant": true,
+      "integration_ready": true,
+      "quality_score": 0.95,
+      "issues": [
+        {
+          "type": "warning|error|info",
+          "category": "syntax|logic|style|security|performance",
+          "description": "detailed description of the issue",
+          "location": "file:line or function name",
+          "severity": "high|medium|low",
+          "suggestion": "how to fix the issue"
+        }
+      ],
+      "strengths": [
+        "what was done well"
+      ],
+      "test_results": {
+        "operations_tested": ["op1", "op2"],
+        "test_coverage": 0.85,
+        "edge_cases_covered": true,
+        "error_handling_tested": true
+      }
+    }
+  },
+  "quality_scores": {
+    "tool_name": 0.95
+  },
+  "final_code": {
+    "tool_name": "# Final validated and potentially improved code\n# All issues resolved\n# Ready for deployment"
+  },
+  "overall_assessment": {
+    "total_tools": 0,
+    "tools_ready": 0,
+    "tools_need_fixes": 0,
+    "average_quality": 0.0,
+    "deployment_ready": false
+  },
+  "recommendations": [
+    "specific actionable recommendation"
+  ],
+  "fixes_applied": [
+    {
+      "tool": "tool_name",
+      "fix": "what was fixed",
+      "before": "code before fix",
+      "after": "code after fix"
+    }
+  ],
+  "improvements": [
+    {
+      "tool": "tool_name", 
+      "improvement": "what was improved",
+      "impact": "how it helps"
+    }
+  ],
+  "deployment_checklist": [
+    {
+      "item": "checklist item",
+      "status": "completed|needs_attention",
+      "details": "additional information"
+    }
+  ],
+  "success": true
+}
+```
+
+## Auto-Fix Capabilities
+
+If auto_fix is enabled, automatically resolve:
+- Syntax errors and typos
+- Import statement corrections
+- Minor specification compliance issues
+- Code formatting and style improvements
+- Missing error handling where patterns are clear
+- Documentation gaps where obvious
+
+## Quality Thresholds
+
+- **Deployment Ready**: Quality score >= 0.9, all critical issues resolved
+- **Needs Minor Fixes**: Quality score >= 0.7, only minor issues present
+- **Needs Major Rework**: Quality score < 0.7, significant issues present
+
+Focus on providing actionable feedback that helps improve code quality and ensures the generated tools are production-ready and maintainable.

@@ -27,17 +27,22 @@ Your implementation approach:
    - Use field_validators for all multi-value operations
 
 3. **Tool Functions**
-   - Async functions with RunContext[Any] first parameter
-   - Proper error handling with exceptions (not return dicts)
-   - Use get_injector() for dependency calls
-   - Clear docstrings with Args/Returns/Raises
+   - Async functions with RunContext[Any] as first parameter
+   - Every parameter must be explicitly named and typed in the function signature
+   - Parameters must match exactly what the routing lambda provides
+   - Proper docstrings with complete Args/Returns/Raises sections
+   - Each parameter in Args section must describe its purpose and type
+   - Use get_injector() for all dependency calls
+   - Clear error handling with specific exceptions (not generic)
    - Use logging for important operations and exceptions
-   - Use monitoring for business metrics (not technical) and not infrastructure (latency, error_counts, hits, etc.)
+   - Use monitoring for business metrics only (not infrastructure)
 
 4. **Routing Configuration**
-   - RoutingConfig with operation_field
-   - Operation_map with lambda transformers
-   - Complete coverage of all operations fully implemented as per the provided specifications.
+   - RoutingConfig with operation_field='operation'
+   - Operation_map lambdas map input fields to function parameter names
+   - Example: lambda x: {'param_name': x.field_name} where param_name matches function signature
+   - List each parameter explicitly in the mapping
+   - Complete coverage of all operations fully implemented as per specifications
 
 5. **Integration**
    - Proper dependency usage via injector.run()

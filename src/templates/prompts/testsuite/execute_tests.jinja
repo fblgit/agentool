@@ -1,0 +1,163 @@
+## Task
+Execute the generated test suite and provide comprehensive analysis of results.
+
+## Test Files to Execute
+{% for filename, content in test_files.items() %}
+### {{ filename }}
+```python
+{{ content }}
+```
+{% endfor %}
+
+{% if code_under_test %}
+## Code Under Test
+{{ code_under_test }}
+{% endif %}
+
+## Execution Configuration
+- **Framework**: {{ framework }}
+- **Run Integration Tests**: {{ run_integration }}
+- **Collect Coverage**: {{ collect_coverage }}
+
+## Execution Instructions
+
+1. **Test Suite Execution**
+   - Run all test files with appropriate framework commands
+   - Capture test results, timing, and any failures
+   - Execute tests in isolation to prevent side effects
+   - Monitor resource usage during execution
+
+2. **Coverage Analysis**
+   - Collect line, branch, and function coverage metrics
+   - Identify uncovered code paths and critical gaps
+   - Analyze coverage quality vs quantity
+   - Generate detailed coverage reports
+
+3. **Result Analysis**
+   - Categorize all test results (pass/fail/skip/error)
+   - Analyze failure patterns and root causes  
+   - Detect any flaky or unreliable tests
+   - Measure test execution performance
+   - Identify potential test improvements
+
+4. **Quality Assessment**
+   - Evaluate test effectiveness and reliability
+   - Assess test maintainability and clarity
+   - Check for test code quality issues
+   - Recommend optimization strategies
+
+## Expected Output Format
+
+Provide comprehensive execution results in the following JSON structure:
+
+```json
+{
+  "test_results": {
+    "summary": {
+      "total_tests": 0,
+      "passed": 0,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "success_rate": 0.0
+    },
+    "detailed_results": [
+      {
+        "test_file": "test_filename.py",
+        "test_class": "TestClassName", 
+        "test_function": "test_function_name",
+        "status": "PASSED|FAILED|SKIPPED|ERROR",
+        "execution_time": 0.001,
+        "error_message": "error details if failed",
+        "assertions": 3
+      }
+    ],
+    "failed_tests": [
+      {
+        "test_name": "test_that_failed",
+        "error_type": "AssertionError",
+        "error_message": "detailed error message",
+        "file_location": "test_file.py:line_number",
+        "root_cause": "analysis of why it failed",
+        "suggested_fix": "how to fix the issue"
+      }
+    ]
+  },
+  "coverage_report": {
+    "overall_coverage": 0.85,
+    "line_coverage": 0.87,
+    "branch_coverage": 0.83,
+    "function_coverage": 0.90,
+    "by_file": {
+      "module.py": {
+        "line_coverage": 0.85,
+        "branch_coverage": 0.80,
+        "uncovered_lines": [45, 67, 89],
+        "uncovered_branches": ["45->47", "67->69"]
+      }
+    },
+    "missing_coverage": [
+      {
+        "file": "module.py",
+        "function": "uncovered_function",
+        "lines": [45, 46, 47],
+        "reason": "No test calls this function",
+        "priority": "high|medium|low"
+      }
+    ]
+  },
+  "passed_tests": 25,
+  "failed_tests": 2,
+  "execution_time": 1.23,
+  "issues_found": [
+    {
+      "type": "test_failure",
+      "description": "Test failed due to incorrect assertion",
+      "severity": "high|medium|low",
+      "file": "test_file.py",
+      "line": 42,
+      "recommendation": "Update assertion to match expected behavior"
+    },
+    {
+      "type": "coverage_gap",
+      "description": "Critical function not covered by tests",
+      "severity": "high",
+      "file": "module.py",
+      "function": "critical_function",
+      "recommendation": "Add test cases for this function"
+    },
+    {
+      "type": "flaky_test",
+      "description": "Test shows inconsistent results",
+      "severity": "medium",
+      "test_name": "test_with_timing_issues",
+      "recommendation": "Add proper synchronization or mocking"
+    }
+  ],
+  "recommendations": [
+    "Add tests for uncovered critical paths",
+    "Fix flaky tests by improving test isolation",
+    "Consider breaking down complex test functions",
+    "Add performance benchmarks for critical functions"
+  ],
+  "performance_metrics": {
+    "fastest_test": "test_simple_function (0.001s)",
+    "slowest_test": "test_integration_heavy (2.1s)",
+    "average_test_time": 0.05,
+    "tests_over_threshold": ["test_slow_integration"]
+  },
+  "success": true
+}
+```
+
+## Analysis Focus
+
+Focus your analysis on:
+
+1. **Test Reliability**: Are tests consistent and reliable?
+2. **Coverage Quality**: Is coverage meaningful or just high percentage?
+3. **Performance**: Are there slow or resource-intensive tests?
+4. **Maintainability**: Are tests clear and easy to maintain?
+5. **Bug Detection**: Do tests effectively catch real issues?
+
+Provide actionable recommendations that will improve code quality, test effectiveness, and development workflow efficiency.

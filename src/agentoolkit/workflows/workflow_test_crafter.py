@@ -520,7 +520,6 @@ def create_workflow_test_crafter_agent():
         routing_config=routing,
         tools=[craft_test_implementation],
         output_type=WorkflowTestCrafterOutput,
-        use_typed_output=True,  # Enable typed output for workflow_test_crafter
         system_prompt="Implement complete test logic with assertions, real dependencies, and test data following No-Mocks policy.",
         description="Completes test implementation by filling in stub placeholders with actual test logic",
         version="1.0.0",

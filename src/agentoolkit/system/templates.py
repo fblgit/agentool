@@ -665,7 +665,6 @@ def create_templates_agent(templates_dir: str = "templates"):
         routing_config=templates_routing,
         tools=[templates_render, templates_save, templates_list, templates_validate, templates_exec],
         output_type=TemplatesOutput,
-        use_typed_output=True,  # Enable typed output for templates
         system_prompt="Handle Jinja2 template operations with storage integration.",
         description="Template rendering with Jinja2, supporting storage_kv and storage_fs variable references",
         version="1.0.0",

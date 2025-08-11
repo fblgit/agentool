@@ -1,5 +1,7 @@
 # Pydantic-Graph with Pydantic-AI: Complete Workflow Guide
 
+📚 **See [Workflow Graph System](workflow-graph-system.md) for the current meta-framework architecture** 📚
+
 ## Table of Contents
 1. [Introduction](#introduction)
 2. [Core Concepts](#core-concepts)

@@ -1131,7 +1131,6 @@ def create_auth_agent():
             auth_revoke_role, auth_get_user, auth_update_user, auth_delete_user
         ],
         output_type=AuthOutput,
-        use_typed_output=True,  # Enable typed output for auth (Tier 3 - depends on crypto, storage_kv, session)
         system_prompt="Handle authentication and authorization operations securely.",
         description="Comprehensive authentication and authorization toolkit",
         version="1.0.0",

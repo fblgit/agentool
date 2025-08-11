@@ -1011,7 +1011,6 @@ def create_agentool_management_agent():
         name='agentool_mgmt',
         input_schema=AgenToolManagementInput,
         output_type=ManagementOutput,
-        use_typed_output=True,  # Enable typed output for management (Tier 4 - no dependencies)
         routing_config=routing_config,
         tools=[manage_agentool],
         system_prompt="Manage and introspect AgenTool registry operations with comprehensive capabilities.",

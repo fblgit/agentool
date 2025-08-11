@@ -36,22 +36,76 @@ from agentool.core.injector import get_injector  # DO NOT REMOVE
 
 
 class {{ tool_name|capitalize }}Input(BaseOperationInput):
-    """Input schema for {{ tool_name }} operations."""
+    """Input schema for {{ tool_name }} operations.
+    
+    IMPORTANT: Every field here must map to function parameters via routing.
+    Field names should be descriptive and match their usage in functions.
+    """
     operation: Literal['operation1', 'operation2', 'operation3'] = Field(
         description="The operation to perform"
     )
     
-    # Add operation-specific fields here
-    # Example:
-    # key: Optional[str] = Field(None, description="Unique identifier")
-    # value: Optional[Any] = Field(None, description="Value to store")
+    # Fields for operation1 (match function parameters exactly)
+    param1: Optional[str] = Field(
+        None,
+        description="Required for operation1: describe what param1 does"
+    )
+    param2: Optional[Any] = Field(
+        None,
+        description="Optional for operation1: describe what param2 does"
+    )
     
-    # Add validators if needed
-    # @field_validator('field_name')
-    # def validate_field(cls, v, info):
-    #     # Validation logic
-    #     # operation = info.data.get('operation')
-    #     return v
+    # Fields for operation2
+    key: Optional[str] = Field(
+        None,
+        description="Required for operation2: unique identifier key"
+    )
+    value: Optional[Any] = Field(
+        None,
+        description="Required for operation2: value to process"
+    )
+    ttl: Optional[int] = Field(
+        None,
+        description="Optional for operation2: time-to-live in seconds"
+    )
+    
+    # Fields for operation3
+    items: Optional[List[str]] = Field(
+        None,
+        description="Required for operation3: list of items to process"
+    )
+    batch_size: Optional[int] = Field(
+        10,
+        description="Optional for operation3: processing batch size"
+    )
+    
+    @field_validator('param1')
+    @classmethod
+    def validate_param1(cls, v, info):
+        """Validate param1 is provided for operation1."""
+        operation = info.data.get('operation')
+        if operation == 'operation1' and not v:
+            raise ValueError("param1 is required for operation1")
+        return v
+    
+    @field_validator('key', 'value')
+    @classmethod
+    def validate_operation2_fields(cls, v, info):
+        """Validate required fields for operation2."""
+        operation = info.data.get('operation')
+        field_name = info.field_name
+        if operation == 'operation2' and v is None:
+            raise ValueError(f"{field_name} is required for operation2")
+        return v
+    
+    @field_validator('items')
+    @classmethod
+    def validate_items(cls, v, info):
+        """Validate items for operation3."""
+        operation = info.data.get('operation')
+        if operation == 'operation3' and not v:
+            raise ValueError("items list is required for operation3")
+        return v
 
 
 class {{ tool_name|capitalize }}Output(BaseModel):
@@ -66,22 +120,33 @@ class {{ tool_name|capitalize }}Output(BaseModel):
 # _state: Dict[str, Any] = {}
 
 
-async def {{ tool_name }}_operation1(ctx: RunContext[Any], **kwargs) -> {{ tool_name|capitalize }}Output:
+async def {{ tool_name }}_operation1(
+    ctx: RunContext[Any],
+    param1: str,
+    param2: Optional[Any] = None
+) -> {{ tool_name|capitalize }}Output:
     """
     Perform operation1.
     
     This function [detailed explanation of what operation1 does].
     
+    IMPORTANT: All parameters must be explicitly defined in the function signature.
+    Never use **kwargs as Pydantic needs to discover the exact parameters.
+    
     Args:
-        ctx: Runtime context
-        **kwargs: Operation-specific parameters
+        ctx: Runtime context provided by the framework
+        param1: Description of what param1 does (required parameter)
+        param2: Description of what param2 does (optional parameter with default)
         
     Returns:
-        {{ tool_name|capitalize }}Output with operation results
+        {{ tool_name|capitalize }}Output with operation results containing:
+        - success: Whether the operation succeeded
+        - message: Human-readable result message
+        - data: Operation-specific return data
         
     Raises:
-        ValueError: If [condition]
-        RuntimeError: If [condition]
+        ValueError: If param1 is invalid or doesn't meet requirements
+        RuntimeError: If operation fails due to system issues
     """
     injector = get_injector()
     
@@ -139,13 +204,22 @@ async def {{ tool_name }}_operation1(ctx: RunContext[Any], **kwargs) -> {{ tool_
         raise
 
 
-async def {{ tool_name }}_operation2(ctx: RunContext[Any], **kwargs) -> {{ tool_name|capitalize }}Output:
+async def {{ tool_name }}_operation2(
+    ctx: RunContext[Any],
+    key: str,
+    value: Any,
+    ttl: Optional[int] = None
+) -> {{ tool_name|capitalize }}Output:
     """
     Perform operation2.
     
+    Example of a function with multiple parameters. All must be explicit.
+    
     Args:
-        ctx: Runtime context
-        **kwargs: Operation-specific parameters
+        ctx: Runtime context provided by the framework
+        key: The key identifier for this operation
+        value: The value to process
+        ttl: Optional time-to-live in seconds (defaults to None for no expiry)
         
     Returns:
         {{ tool_name|capitalize }}Output with operation results
@@ -155,44 +229,60 @@ async def {{ tool_name }}_operation2(ctx: RunContext[Any], **kwargs) -> {{ tool_
         operation="operation2",
         success=True,
         message="Operation2 completed",
-        data={}
+        data={"key": key, "processed": True}
     )
 
 
-async def {{ tool_name }}_operation3(ctx: RunContext[Any], **kwargs) -> {{ tool_name|capitalize }}Output:
+async def {{ tool_name }}_operation3(
+    ctx: RunContext[Any],
+    items: List[str],
+    batch_size: int = 10
+) -> {{ tool_name|capitalize }}Output:
     """
-    Perform operation3.
+    Perform operation3 - example of batch processing.
+    
+    Shows how to handle list parameters with explicit typing.
     
     Args:
-        ctx: Runtime context
-        **kwargs: Operation-specific parameters
+        ctx: Runtime context provided by the framework
+        items: List of items to process in this operation
+        batch_size: Number of items to process at once (default: 10)
         
     Returns:
         {{ tool_name|capitalize }}Output with operation results
+        
+    Note:
+        Always define explicit parameters. The routing lambda will map
+        from the input schema fields to these exact parameter names.
     """
     # Implementation for operation3
     return {{ tool_name|capitalize }}Output(
         operation="operation3",
         success=True,
-        message="Operation3 completed",
-        data={}
+        message=f"Processed {len(items)} items in batches of {batch_size}",
+        data={"processed_count": len(items)}
     )
 
 
-# Routing configuration
+# Routing configuration - CRITICAL: Map input schema fields to exact function parameters
 {{ tool_name }}_routing = RoutingConfig(
     operation_field='operation',
     operation_map={
         'operation1': ('{{ tool_name }}_operation1', lambda x: {
-            # Map input fields to function parameters
-            # 'param1': x.field1,
-            # 'param2': x.field2
+            # Map EXACTLY to function parameter names (no **kwargs!)
+            'param1': x.param1,  # Required field from input schema
+            'param2': x.param2,  # Optional field from input schema
         }),
         'operation2': ('{{ tool_name }}_operation2', lambda x: {
-            # Map input fields to function parameters
+            # These names MUST match the function parameters exactly
+            'key': x.key,
+            'value': x.value,
+            'ttl': x.ttl,  # Can be None if not provided
         }),
         'operation3': ('{{ tool_name }}_operation3', lambda x: {
-            # Map input fields to function parameters
+            # Map list fields and optional parameters
+            'items': x.items,
+            'batch_size': x.batch_size if hasattr(x, 'batch_size') else 10,
         }),
     }
 )

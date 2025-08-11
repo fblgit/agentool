@@ -318,7 +318,7 @@ async def evaluate_code(
                         'labels': {
                             'workflow_id': workflow_id,
                             'agent': 'workflow_evaluator',
-                            'tool': tool_name,
+                            'tool': tool_spec.name,
                             'model': model
                         }
                     })
@@ -330,7 +330,7 @@ async def evaluate_code(
                         'labels': {
                             'workflow_id': workflow_id,
                             'agent': 'workflow_evaluator',
-                            'tool': tool_name,
+                            'tool': tool_spec.name,
                             'model': model
                         }
                     })
@@ -342,7 +342,7 @@ async def evaluate_code(
                         'labels': {
                             'workflow_id': workflow_id,
                             'agent': 'workflow_evaluator',
-                            'tool': tool_name,
+                            'tool': tool_spec.name,
                             'model': model
                         }
                     })
@@ -614,7 +614,6 @@ def create_workflow_evaluator_agent():
         routing_config=routing,
         tools=[evaluate_code],
         output_type=WorkflowEvaluatorOutput,
-        use_typed_output=True,  # Enable typed output for workflow_evaluator
         system_prompt="Evaluate and validate AgenTool implementations for quality and correctness.",
         description="Validates generated code for syntax, patterns, and quality, providing production-ready output",
         version="1.0.0",

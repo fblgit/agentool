@@ -227,7 +227,7 @@ async def craft_single_tool(
         'labels': {
             'workflow_id': workflow_id,
             'agent': 'workflow_crafter',
-            'tool': spec_key,
+            'tool': tool_spec.name,
             'model': model
         }
     })
@@ -239,7 +239,7 @@ async def craft_single_tool(
         'labels': {
             'workflow_id': workflow_id,
             'agent': 'workflow_crafter',
-            'tool': spec_key,
+            'tool': tool_spec.name,
             'model': model
         }
     })
@@ -251,7 +251,7 @@ async def craft_single_tool(
         'labels': {
             'workflow_id': workflow_id,
             'agent': 'workflow_crafter',
-            'tool': spec_key,
+            'tool': tool_spec.name,
             'model': model
         }
     })
@@ -538,7 +538,6 @@ def create_workflow_crafter_agent():
         routing_config=routing,
         tools=[craft_implementation],
         output_type=WorkflowCrafterOutput,
-        use_typed_output=True,  # Enable typed output for workflow_crafter
         system_prompt="Generate production-ready AgenTool implementations from specifications.",
         description="Crafts complete AgenTool code following best practices and patterns",
         version="1.0.0",

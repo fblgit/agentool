@@ -38,8 +38,13 @@ class WorkflowState:
     
     # Input
     task_description: str
-    model: str = "openai:gpt-4o"
+    model: str = "openai:gpt-4o"  # Main/default model for all phases
     generate_tests: bool = True  # Test generation is always enabled
+    
+    # Per-phase model configuration
+    phase_models: Dict[str, str] = field(default_factory=dict)
+    # Maps phase names to specific models, e.g., {"analyzer": "openai:gpt-4o-mini", "crafter": "anthropic:claude-3-5-sonnet-latest"}
+    # If a phase is not in this dict, it uses the main model
     
     # Workflow metadata
     workflow_id: str = field(default_factory=lambda: str(uuid.uuid4()))
@@ -83,12 +88,29 @@ class AnalyzerNode(BaseNode[WorkflowState]):
         try:
             injector = get_injector()
             
+            # Get the model for this phase (fallback to main model if not overridden)
+            phase_model = ctx.state.phase_models.get('analyzer', ctx.state.model)
+            
+            # Debug logging
+            await injector.run('logging', {
+                'operation': 'log',
+                'level': 'INFO',
+                'logger_name': 'workflow',
+                'message': f'Analyzer using model: {phase_model}',
+                'data': {
+                    'workflow_id': ctx.state.workflow_id,
+                    'phase_models': ctx.state.phase_models,
+                    'main_model': ctx.state.model,
+                    'selected_model': phase_model
+                }
+            })
+            
             # Run analyzer AgenTool
             result = await injector.run('workflow_analyzer', {
                 'operation': 'analyze',
                 'task_description': ctx.state.task_description,
                 'workflow_id': ctx.state.workflow_id,
-                'model': ctx.state.model
+                'model': phase_model
             })
             
             # AgenTools now return typed outputs
@@ -103,7 +125,7 @@ class AnalyzerNode(BaseNode[WorkflowState]):
             if ctx.state.metadata:
                 duration = (datetime.now() - start_time).total_seconds()
                 ctx.state.metadata.phase_durations["analyzer"] = duration
-                ctx.state.metadata.models_used["analyzer"] = ctx.state.model
+                ctx.state.metadata.models_used["analyzer"] = phase_model
             
             # Log progress
             analysis = data['data']
@@ -166,11 +188,14 @@ class SpecificationNode(BaseNode[WorkflowState]):
         try:
             injector = get_injector()
             
+            # Get the model for this phase (fallback to main model if not overridden)
+            phase_model = ctx.state.phase_models.get('specification', ctx.state.model)
+            
             # Run specifier AgenTool
             result = await injector.run('workflow_specifier', {
                 'operation': 'specify',
                 'workflow_id': ctx.state.workflow_id,
-                'model': ctx.state.model
+                'model': phase_model
             })
             
             # AgenTools now return typed outputs
@@ -185,7 +210,7 @@ class SpecificationNode(BaseNode[WorkflowState]):
             if ctx.state.metadata:
                 duration = (datetime.now() - start_time).total_seconds()
                 ctx.state.metadata.phase_durations["specification"] = duration
-                ctx.state.metadata.models_used["specification"] = ctx.state.model
+                ctx.state.metadata.models_used["specification"] = phase_model
             
             # Log progress
             spec_data = data['data']
@@ -247,11 +272,14 @@ class CrafterNode(BaseNode[WorkflowState]):
         try:
             injector = get_injector()
             
+            # Get the model for this phase (fallback to main model if not overridden)
+            phase_model = ctx.state.phase_models.get('crafter', ctx.state.model)
+            
             # Run crafter AgenTool
             result = await injector.run('workflow_crafter', {
                 'operation': 'craft',
                 'workflow_id': ctx.state.workflow_id,
-                'model': ctx.state.model
+                'model': phase_model
             })
             
             # AgenTools now return typed outputs
@@ -266,7 +294,7 @@ class CrafterNode(BaseNode[WorkflowState]):
             if ctx.state.metadata:
                 duration = (datetime.now() - start_time).total_seconds()
                 ctx.state.metadata.phase_durations["crafter"] = duration
-                ctx.state.metadata.models_used["crafter"] = ctx.state.model
+                ctx.state.metadata.models_used["crafter"] = phase_model
             
             # Log progress
             code_data = data['data']
@@ -332,11 +360,14 @@ class EvaluatorNode(BaseNode[WorkflowState]):
         try:
             injector = get_injector()
             
+            # Get the model for this phase (fallback to main model if not overridden)
+            phase_model = ctx.state.phase_models.get('evaluator', ctx.state.model)
+            
             # Run evaluator AgenTool
             result = await injector.run('workflow_evaluator', {
                 'operation': 'evaluate',
                 'workflow_id': ctx.state.workflow_id,
-                'model': ctx.state.model,
+                'model': phase_model,
                 'auto_fix': True
             })
             
@@ -353,7 +384,7 @@ class EvaluatorNode(BaseNode[WorkflowState]):
             if ctx.state.metadata:
                 duration = (datetime.now() - start_time).total_seconds()
                 ctx.state.metadata.phase_durations["evaluator"] = duration
-                ctx.state.metadata.models_used["evaluator"] = ctx.state.model
+                ctx.state.metadata.models_used["evaluator"] = phase_model
                 ctx.state.metadata.completed_at = datetime.now().isoformat()
                 ctx.state.metadata.status = "completed" if validation_data.get('ready_for_deployment', False) else "needs_attention"
                 
@@ -467,6 +498,9 @@ class TestAnalyzerNode(BaseNode[WorkflowState]):
             spec_output = json.loads(specs_data['value'])
             tools_analyzed = 0
             
+            # Get the model for this phase (fallback to main model if not overridden)
+            phase_model = ctx.state.phase_models.get('test_analyzer', ctx.state.model)
+            
             # Analyze tests for each tool
             for spec in spec_output.get('specifications', []):
                 tool_name = spec.get('name')
@@ -478,7 +512,7 @@ class TestAnalyzerNode(BaseNode[WorkflowState]):
                     'operation': 'analyze',
                     'workflow_id': ctx.state.workflow_id,
                     'tool_name': tool_name,
-                    'model': ctx.state.model
+                    'model': phase_model
                 })
                 
                 # AgenTools now return typed outputs
@@ -493,7 +527,7 @@ class TestAnalyzerNode(BaseNode[WorkflowState]):
             if ctx.state.metadata:
                 duration = (datetime.now() - start_time).total_seconds()
                 ctx.state.metadata.phase_durations["test_analyzer"] = duration
-                ctx.state.metadata.models_used["test_analyzer"] = ctx.state.model
+                ctx.state.metadata.models_used["test_analyzer"] = phase_model
             
             # Log progress
             await injector.run('logging', {
@@ -566,6 +600,9 @@ class TestStubberNode(BaseNode[WorkflowState]):
             spec_output = json.loads(specs_data['value'])
             tools_stubbed = 0
             
+            # Get the model for this phase (fallback to main model if not overridden)
+            phase_model = ctx.state.phase_models.get('test_stubber', ctx.state.model)
+            
             # Create stubs for each tool
             for spec in spec_output.get('specifications', []):
                 tool_name = spec.get('name')
@@ -590,7 +627,7 @@ class TestStubberNode(BaseNode[WorkflowState]):
                     'operation': 'stub',
                     'workflow_id': ctx.state.workflow_id,
                     'tool_name': tool_name,
-                    'model': ctx.state.model
+                    'model': phase_model
                 })
                 
                 # AgenTools now return typed outputs
@@ -605,7 +642,7 @@ class TestStubberNode(BaseNode[WorkflowState]):
             if ctx.state.metadata:
                 duration = (datetime.now() - start_time).total_seconds()
                 ctx.state.metadata.phase_durations["test_stubber"] = duration
-                ctx.state.metadata.models_used["test_stubber"] = ctx.state.model
+                ctx.state.metadata.models_used["test_stubber"] = phase_model
             
             # Log progress
             await injector.run('logging', {
@@ -681,6 +718,9 @@ class TestCrafterNode(BaseNode[WorkflowState, None, Dict[str, Any]]):
             test_files = []
             test_coverage = {}
             
+            # Get the model for this phase (fallback to main model if not overridden)
+            phase_model = ctx.state.phase_models.get('test_crafter', ctx.state.model)
+            
             # Implement tests for each tool
             for spec in spec_output.get('specifications', []):
                 tool_name = spec.get('name')
@@ -705,7 +745,7 @@ class TestCrafterNode(BaseNode[WorkflowState, None, Dict[str, Any]]):
                     'operation': 'craft',
                     'workflow_id': ctx.state.workflow_id,
                     'tool_name': tool_name,
-                    'model': ctx.state.model
+                    'model': phase_model
                 })
                 
                 # AgenTools now return typed outputs
@@ -723,7 +763,7 @@ class TestCrafterNode(BaseNode[WorkflowState, None, Dict[str, Any]]):
             if ctx.state.metadata:
                 duration = (datetime.now() - start_time).total_seconds()
                 ctx.state.metadata.phase_durations["test_crafter"] = duration
-                ctx.state.metadata.models_used["test_crafter"] = ctx.state.model
+                ctx.state.metadata.models_used["test_crafter"] = phase_model
                 ctx.state.metadata.completed_at = datetime.now().isoformat()
                 
                 # Update total duration

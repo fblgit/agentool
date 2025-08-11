@@ -996,7 +996,6 @@ def create_crypto_agent():
             crypto_hmac
         ],
         output_type=CryptoOutput,
-        use_typed_output=True,  # Enable typed output for crypto (Tier 1 - no dependencies)
         system_prompt="Handle cryptographic operations securely and efficiently.",
         description="Comprehensive cryptographic operations including hashing, encryption, and JWT",
         version="1.0.0",

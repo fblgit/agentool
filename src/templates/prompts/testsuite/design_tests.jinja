@@ -1,0 +1,128 @@
+## Task
+Design comprehensive test cases based on the analysis results.
+
+## Test Analysis Results
+{{ functions_to_test }}
+
+## Test Categories
+{{ test_categories }}
+
+## Testing Configuration
+- **Framework**: {{ framework }}
+- **Coverage Target**: {{ coverage_target * 100 }}%
+
+## Design Instructions
+
+1. **Test Case Specification**
+   - Create detailed test case designs for each function
+   - Specify input parameters, expected outputs, and side effects
+   - Define test data requirements and generation strategies
+   - Plan test execution order and dependencies
+
+2. **Fixture Design**
+   - Create reusable test fixtures for common setup/teardown
+   - Design fixture scope and lifecycle management
+   - Plan fixture parameterization for multiple scenarios
+   - Consider fixture composition and dependencies
+
+3. **Mock and Stub Strategy**
+   - Identify external dependencies requiring mocks
+   - Design mock behaviors and response patterns
+   - Plan patch strategies for module-level dependencies
+   - Create spy objects for behavior verification
+
+4. **Test Organization**
+   - Group related tests into logical test classes
+   - Design clear test naming conventions
+   - Plan test file organization and structure
+   - Consider test markers for categorization
+
+## Expected Output Format
+
+Provide your test designs in the following JSON structure:
+
+```json
+{
+  "test_designs": [
+    {
+      "function_name": "function_to_test",
+      "test_class": "TestClassName",
+      "test_cases": [
+        {
+          "test_name": "test_function_success",
+          "description": "Test successful execution",
+          "setup": "Setup requirements",
+          "inputs": {"param1": "value1"},
+          "expected_output": "expected result",
+          "side_effects": ["side effect description"],
+          "assertions": ["assertion1", "assertion2"],
+          "teardown": "Cleanup requirements"
+        }
+      ],
+      "error_tests": [
+        {
+          "test_name": "test_function_error_condition",
+          "description": "Test error handling",
+          "inputs": {"param1": "invalid_value"},
+          "expected_exception": "ExceptionType",
+          "error_message": "Expected error message"
+        }
+      ],
+      "edge_case_tests": [
+        {
+          "test_name": "test_function_edge_case",
+          "description": "Test boundary conditions",
+          "inputs": {"param1": "edge_value"},
+          "expected_behavior": "description"
+        }
+      ]
+    }
+  ],
+  "fixture_designs": [
+    {
+      "fixture_name": "sample_data",
+      "scope": "function",
+      "purpose": "Provides test data",
+      "implementation_notes": "How to implement",
+      "dependencies": ["other_fixture"],
+      "cleanup_required": true,
+      "parameterized": false,
+      "parameters": []
+    }
+  ],
+  "mock_requirements": [
+    {
+      "target": "module.external_service",
+      "mock_type": "Mock|MagicMock|AsyncMock",
+      "behaviors": {
+        "method_name": "return_value"
+      },
+      "side_effects": [],
+      "call_assertions": ["assert_called_once", "assert_called_with"]
+    }
+  ],
+  "test_data_requirements": {
+    "static_data": {
+      "data_name": "data_content"
+    },
+    "dynamic_data": [
+      {
+        "generator": "generator_function",
+        "parameters": {}
+      }
+    ],
+    "external_data": [
+      "external_data_source"
+    ]
+  },
+  "execution_order": [
+    "test_setup_phase",
+    "test_unit_tests",
+    "test_integration_tests",
+    "test_cleanup_phase"
+  ],
+  "success": true
+}
+```
+
+Focus on creating detailed, implementable test designs that provide comprehensive coverage while being maintainable and clear in their intent.

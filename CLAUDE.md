@@ -99,3 +99,26 @@ storage_agent = create_agentool(
 - `docs/CRAFTING_AGENTOOLS.md`: Guide for creating new AgenTools
 - `examples/`: Example implementations and demos
 - `src/templates/`: Jinja templates used by workflow agents
+
+## Documentation Strategy
+
+### Phases of Documentation Development
+
+- Phase 1: Technical Specification Documentation
+  - Add technical specs: parts, enum list of types with description
+  - No detailed fields except predefined signatures
+  - Create mermaid diagrams showing phase/step/action intents or data mutation
+  - Establish data requirements at each phase (catalog, generated code, spec, etc.)
+  - Map data to step and action
+  - Only include third-party references and context snippets
+
+- Phase 2: Detailed Type and Interoperability Documentation
+  - Elaborate on data types with clear system understanding
+  - Add succinct details about node/type data dependencies
+  - Describe interoperability between system components
+  - Provide insights into how different parts interconnect
+
+- Phase 3: Implementation and Usage Documentation
+  - Add illustrative code snippets after successful implementation and testing
+  - Demonstrate usage, interoperability, and integration patterns
+  - Provide concrete examples of how components work together

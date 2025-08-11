@@ -1,0 +1,56 @@
+Generate API implementation based on the OpenAPI specification:
+
+## OpenAPI Specification
+{{ openapi_spec | tojson(indent=2) }}
+
+## Implementation Requirements
+
+Generate the following components:
+
+### 1. Server Implementation
+Create the main API server with:
+- Route handlers for all endpoints
+- Request validation middleware
+- Error handling middleware
+- CORS configuration
+- Rate limiting
+- Request logging
+
+### 2. Controller Functions
+For each endpoint, implement:
+- Input validation
+- Business logic
+- Database operations (if needed)
+- Response formatting
+- Error handling
+
+### 3. Data Models
+Create model classes/interfaces for:
+- Request DTOs
+- Response DTOs
+- Database entities
+- Validation schemas
+
+### 4. Middleware
+Implement middleware for:
+- Authentication verification
+- Authorization checks
+- Request validation
+- Error formatting
+- Logging
+
+### 5. Tests
+Generate test files including:
+- Unit tests for controllers
+- Integration tests for endpoints
+- Mock data fixtures
+- Test utilities
+
+### 6. Documentation
+Include:
+- README with setup instructions
+- API documentation
+- Environment configuration guide
+- Deployment instructions
+
+Use appropriate framework (Express, FastAPI, etc.) based on requirements.

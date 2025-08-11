@@ -1,0 +1,93 @@
+## Task
+Analyze the task requirements and existing tool catalog to determine what needs to be built.
+
+## Task Description
+{{ task_description }}
+
+## Existing Tool Catalog
+{% if catalog %}
+{{ catalog }}
+{% else %}
+No existing tools found in catalog.
+{% endif %}
+
+## Development Guidelines
+{% if guidelines %}
+{% for guideline in guidelines %}
+- {{ guideline }}
+{% endfor %}
+{% else %}
+- Follow AgenTool framework patterns
+- Use proper input/output schemas
+- Implement comprehensive error handling
+- Include complete documentation
+{% endif %}
+
+## Analysis Instructions
+
+1. **Requirement Analysis**
+   - Parse the task description to understand what functionality is needed
+   - Identify the core operations and capabilities required
+   - Determine data inputs, outputs, and transformations needed
+   - Consider integration points with existing tools
+
+2. **Existing Tool Assessment**
+   - Review existing tools in the catalog for reusable components
+   - Identify gaps where new tools are needed
+   - Determine which existing tools can be leveraged
+   - Plan integration strategy with existing ecosystem
+
+3. **System Design**
+   - Create high-level architecture for the solution
+   - Define tool boundaries and responsibilities  
+   - Plan data flow between components
+   - Consider scalability and maintainability
+
+4. **Development Planning**
+   - Break down into specific tools that need to be created
+   - Prioritize tools by importance and dependencies
+   - Plan implementation sequence
+   - Identify testing and validation requirements
+
+## Expected Output Format
+
+Provide your analysis in the following JSON structure:
+
+```json
+{
+  "missing_tools": [
+    {
+      "name": "tool_name",
+      "purpose": "what this tool does",
+      "priority": "high|medium|low",
+      "complexity": "simple|moderate|complex",
+      "dependencies": ["other_tool1", "other_tool2"],
+      "key_operations": ["operation1", "operation2"]
+    }
+  ],
+  "existing_tools": [
+    {
+      "name": "existing_tool_name", 
+      "relevance": "how it helps with the task",
+      "integration_points": ["where it connects"]
+    }
+  ],
+  "system_design": {
+    "overview": "high-level description of the solution",
+    "architecture": "architectural approach",
+    "data_flow": "how data moves through the system",
+    "integration_strategy": "how tools work together"
+  },
+  "development_plan": [
+    {
+      "step": 1,
+      "action": "what to do in this step",
+      "deliverable": "what gets created",
+      "dependencies": ["what must be done first"]
+    }
+  ],
+  "success": true
+}
+```
+
+Focus on creating a practical, implementable plan that leverages existing tools where possible and creates new ones only where necessary.

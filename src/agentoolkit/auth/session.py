@@ -808,7 +808,6 @@ def create_session_agent():
             session_invalidate_all, session_get_active
         ],
         output_type=SessionOutput,
-        use_typed_output=True,  # Enable typed output for session (Tier 3)
         system_prompt="Manage user sessions efficiently and securely.",
         description="Comprehensive session management for authentication and state tracking",
         version="1.0.0",
