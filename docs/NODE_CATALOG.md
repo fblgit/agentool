@@ -136,49 +136,20 @@ phase_def = PhaseDefinition(
         'template_render',
         'llm_call',
         'schema_validation',
-        'save_output',
+        'save_phase_output',  # Corrected from 'save_output'
         'state_update',
         'quality_gate'
     ],
     # ... other config
 )
-            phase_name=self.phase_def.phase_name
-        ))
-        
-        # 8. Quality gate (determines next action)
-        if self.phase_def.allow_refinement:
-            nodes.append(QualityGateNode(
-                threshold=self.phase_def.quality_threshold,
-                refine_node=self,  # Loop back to this phase
-                continue_node=NextPhaseNode()
-            ))
-        
-        return Graph(nodes=nodes)
-    
-    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode | End[WorkflowState]:
-        """Return first atomic node to start phase execution."""
-        # In pydantic_graph, we don't execute sub-graphs within nodes
-        # Instead, we return the first node of the atomic sequence
-        # The graph execution engine handles the flow
-        
-        # Start with dependency check
-        return DependencyCheckNode(self.phase_def.dependencies)
 ```
 
-### StorageNode (Abstract)
-**Purpose**: Base for storage operations  
-**Extends**: BaseNode  
-**Used By**: GenericPhaseNode for loading/storing phase data
+## Additional Nodes Available in Implementation
 
-### ValidationNode (Abstract)
-**Purpose**: Base for validation operations  
-**Extends**: BaseNode  
-**Used By**: GenericPhaseNode for schema validation
-
-### ControlNode (Abstract)
-**Purpose**: Base for flow control  
-**Extends**: BaseNode  
-**Used By**: Graph orchestration for refinement and sequencing
+### SaveStorageNode
+**Purpose**: Generic storage save operation  
+**Operation**: Save data to storage backend  
+**Retry**: Configurable via state
 
 ## Atomic Storage Nodes (Used by Smoke Domain)
 
@@ -740,6 +711,31 @@ node_configs = {
     )
 }
 ```
+
+## Summary of Actually Implemented Nodes
+
+The smoke domain and GraphToolkit system use these **11 concrete node classes**:
+
+**Storage Nodes (4)**:
+- `DependencyCheckNode` - Validate phase dependencies
+- `LoadDependenciesNode` - Load outputs from previous phases  
+- `SavePhaseOutputNode` - Save phase output to storage
+- `SaveStorageNode` - Generic storage save operation
+
+**Template Nodes (1)**:
+- `TemplateRenderNode` - Render Jinja2 templates
+
+**LLM Nodes (1)**:
+- `LLMCallNode` - Execute LLM API calls
+
+**Validation Nodes (2)**:
+- `SchemaValidationNode` - Validate against Pydantic schema
+- `QualityGateNode` - Check quality thresholds
+
+**Control Nodes (3)**:
+- `StateUpdateNode` - Update workflow state
+- `NextPhaseNode` - Transition to next phase
+- `RefinementNode` - Trigger phase refinement
 
 ## Atomic Decomposition Patterns
 

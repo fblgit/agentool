@@ -82,72 +82,28 @@ def create_node_instance(node_id: str, **kwargs) -> BaseNode:
 
 def _try_import_node(node_id: str) -> None:
     """Try to import a node module to trigger registration."""
-    # Map node IDs to module paths
+    # Map node IDs to module paths - only include nodes that actually exist
     module_map = {
-        # Storage nodes
+        # Storage nodes (actually exist)
         'dependency_check': 'graphtoolkit.nodes.atomic.storage',
         'load_dependencies': 'graphtoolkit.nodes.atomic.storage',
-        'save_output': 'graphtoolkit.nodes.atomic.storage',
         'save_phase_output': 'graphtoolkit.nodes.atomic.storage',
-        'load_storage': 'graphtoolkit.nodes.atomic.storage',
         'save_storage': 'graphtoolkit.nodes.atomic.storage',
-        'batch_load': 'graphtoolkit.nodes.atomic.storage',
-        'batch_save': 'graphtoolkit.nodes.atomic.storage',
         
-        # Template nodes
+        # Template nodes (actually exist)
         'template_render': 'graphtoolkit.nodes.atomic.templates',
-        'template_validate': 'graphtoolkit.nodes.atomic.templates',
-        'template_save': 'graphtoolkit.nodes.atomic.templates',
-        'template_exec': 'graphtoolkit.nodes.atomic.templates',
         
-        # LLM nodes
+        # LLM nodes (actually exist)
         'llm_call': 'graphtoolkit.nodes.atomic.llm',
-        'prompt_builder': 'graphtoolkit.nodes.atomic.llm',
-        'response_parser': 'graphtoolkit.nodes.atomic.llm',
-        'batch_llm': 'graphtoolkit.nodes.atomic.llm',
         
-        # Validation nodes
+        # Validation nodes (actually exist)
         'schema_validation': 'graphtoolkit.nodes.atomic.validation',
         'quality_gate': 'graphtoolkit.nodes.atomic.validation',
-        'dependency_validation': 'graphtoolkit.nodes.atomic.validation',
-        'data_validation': 'graphtoolkit.nodes.atomic.validation',
-        'syntax_validation': 'graphtoolkit.nodes.atomic.validation',
-        'import_validation': 'graphtoolkit.nodes.atomic.validation',
         
-        # Control nodes
+        # Control nodes (actually exist)
         'state_update': 'graphtoolkit.nodes.atomic.control',
         'next_phase': 'graphtoolkit.nodes.atomic.control',
         'refinement': 'graphtoolkit.nodes.atomic.control',
-        'conditional': 'graphtoolkit.nodes.atomic.control',
-        'loop': 'graphtoolkit.nodes.atomic.control',
-        'branch': 'graphtoolkit.nodes.atomic.control',
-        'parallel': 'graphtoolkit.nodes.atomic.control',
-        'state_based_conditional': 'graphtoolkit.nodes.atomic.control',
-        'sequential_map': 'graphtoolkit.nodes.atomic.control',
-        
-        # Transform nodes
-        'json_parse': 'graphtoolkit.nodes.atomic.transform',
-        'json_serialize': 'graphtoolkit.nodes.atomic.transform',
-        'code_format': 'graphtoolkit.nodes.atomic.transform',
-        'data_merge': 'graphtoolkit.nodes.atomic.transform',
-        'data_filter': 'graphtoolkit.nodes.atomic.transform',
-        
-        # Execution nodes
-        'test_execution': 'graphtoolkit.nodes.atomic.execution',
-        'coverage_analysis': 'graphtoolkit.nodes.atomic.execution',
-        'code_execution': 'graphtoolkit.nodes.atomic.execution',
-        
-        # Generator nodes
-        'simple_generator': 'graphtoolkit.nodes.atomic.generators',
-        'advanced_generator': 'graphtoolkit.nodes.atomic.generators',
-        'generator_routing': 'graphtoolkit.nodes.atomic.generators',
-        
-        # Approval nodes
-        'approval': 'graphtoolkit.nodes.atomic.approval',
-        'refinement_loop': 'graphtoolkit.nodes.atomic.approval',
-        'quality_check': 'graphtoolkit.nodes.atomic.approval',
-        
-        # Iteration operation nodes
         
         # Generic nodes
         'generic_phase': 'graphtoolkit.nodes.generic',

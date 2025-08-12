@@ -416,17 +416,20 @@ node_configs = {
 }
 ```
 
-#### Core Nodes (Used by Smoke Domain)
-- `TemplateRenderNode`: Render Jinja templates
-- `SchemaValidationNode`: Pydantic schema validation
-- `QualityGateNode`: Threshold-based quality checks
-- `DependencyCheckNode`: Verify required dependencies
-- `LLMCallNode`: Execute LLM API calls
-- `LoadDependenciesNode`: Load phase dependencies
-- `SavePhaseOutputNode`: Save phase outputs
-- `StateUpdateNode`: Update workflow state
+#### Core Nodes Actually Used by Smoke Domain
+The smoke domain uses these 8 atomic nodes in sequence:
+- `dependency_check` → `DependencyCheckNode`: Verify required dependencies
+- `load_dependencies` → `LoadDependenciesNode`: Load phase dependencies (not in phase 1)
+- `template_render` → `TemplateRenderNode`: Render Jinja templates
+- `llm_call` → `LLMCallNode`: Execute LLM API calls
+- `schema_validation` → `SchemaValidationNode`: Pydantic schema validation
+- `save_phase_output` → `SavePhaseOutputNode`: Save phase outputs
+- `state_update` → `StateUpdateNode`: Update workflow state
+- `quality_gate` → `QualityGateNode`: Threshold-based quality checks
+
+Additional control nodes (returned by quality gate):
 - `NextPhaseNode`: Transition to next phase
-- `RefinementNode`: Iterative improvement with feedback
+- `RefinementNode`: Trigger refinement when quality check fails
 
 **State-Based Retry Pattern**: All nodes can retry via self-return with state tracking when configured as retryable in NodeConfig
 
