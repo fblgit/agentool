@@ -34,6 +34,7 @@ graph TB
     
     Storage --> LoadDep[LoadDependenciesNode]
     Storage --> SaveOut[SavePhaseOutputNode]
+    Storage --> DepCheck[DependencyCheckNode]
     
     LLM --> Template[TemplateRenderNode]
     LLM --> Call[LLMCallNode]
@@ -41,8 +42,9 @@ graph TB
     Validation --> Schema[SchemaValidationNode]
     Validation --> Quality[QualityGateNode]
     
-    Control --> Condition[ConditionalNode]
-    Control --> Iteration[IterableNode]
+    Control --> StateUp[StateUpdateNode]
+    Control --> NextPhase[NextPhaseNode]
+    Control --> Refine[RefinementNode]
 ```
 
 ## Base Node Types
@@ -116,7 +118,7 @@ def create_node_instance(node_id: str) -> BaseNode:
         'template_render': TemplateRenderNode,
         'llm_call': LLMCallNode,
         'schema_validation': SchemaValidationNode,
-        'save_output': SavePhaseOutputNode,
+        'save_phase_output': SavePhaseOutputNode,
         'state_update': StateUpdateNode,
         'quality_gate': QualityGateNode,
     }
@@ -178,87 +180,40 @@ phase_def = PhaseDefinition(
 **Extends**: BaseNode  
 **Used By**: Graph orchestration for refinement and sequencing
 
-## Atomic Storage Nodes
+## Atomic Storage Nodes (Used by Smoke Domain)
 
-### LoadKVNode
-**Purpose**: Atomic KV storage read operation  
-**Operation**: Load single value from key-value store  
-**Retry**: Yes - transient storage failures
-
-**Type Definition**:
-```python
-@dataclass
-class LoadKVNode(StorageNode[WorkflowState, WorkflowDeps, Any]):
-    """Atomic KV load operation."""
-    storage_key: str
-    required: bool = True
-    
-    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode:
-        try:
-            data = await ctx.deps.storage_client.load_kv(self.storage_key)
-            if data is None and self.required:
-                raise ValueError(f"Required key not found: {self.storage_key}")
-            
-            # Store in state for next node
-            new_state = replace(
-                ctx.state,
-                domain_data={
-                    **ctx.state.domain_data,
-                    f'loaded_{self.storage_key}': data
-                }
-            )
-            return self.next
-        except Exception as e:
-            # Storage failure - can be retried
-            raise RetryableError(f"KV load failed: {e}")
-```
-
-### SaveKVNode
-**Purpose**: Atomic KV storage write operation  
-**Operation**: Save single value to key-value store  
-**Retry**: Yes - transient storage failures
+### DependencyCheckNode
+**Purpose**: Validate phase dependencies are satisfied  
+**Operation**: Check previous phases completed  
+**Retry**: No - missing dependencies are non-retryable
 
 **Type Definition**:
 ```python
 @dataclass
-class SaveKVNode(StorageNode[WorkflowState, WorkflowDeps, StorageRef]):
-    """Atomic KV save operation."""
-    storage_key: str
-    data_field: str  # Field in state.domain_data
+class DependencyCheckNode(BaseNode[WorkflowState, WorkflowDeps, None]):
+    """Validate phase dependencies."""
     
     async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode:
-        data = ctx.state.domain_data.get(self.data_field)
-        if data is None:
-            raise ValueError(f"No data in {self.data_field}")
+        phase_def = ctx.state.workflow_def.phases[ctx.state.current_phase]
+        missing = []
+        for dep in phase_def.dependencies:
+            if dep not in ctx.state.completed_phases:
+                missing.append(dep)
         
-        try:
-            await ctx.deps.storage_client.save_kv(self.storage_key, data)
-            
-            # Create reference
-            ref = StorageRef(
-                storage_type='kv',
-                key=self.storage_key,
-                created_at=datetime.now()
+        if missing:
+            raise NonRetryableError(
+                f"Missing dependencies: {missing}. "
+                f"Completed: {ctx.state.completed_phases}"
             )
-            
-            # Update state with reference
-            new_state = replace(
-                ctx.state,
-                phase_outputs={
-                    **ctx.state.phase_outputs,
-                    self.storage_key: ref
-                }
-            )
-            return self.next
-        except Exception as e:
-            # Storage failure - can be retried
-            raise RetryableError(f"KV save failed: {e}")
+        
+        # All dependencies satisfied
+        return LoadDependenciesNode()  # Continue to loading
 ```
 
-### LoadDependenciesNode (Composite)
-**Purpose**: Orchestrates parallel loading of dependencies  
-**Operation**: Uses atomic LoadKVNode/LoadFSNode for each dependency  
-**Retry**: Yes - each load independently retryable
+### LoadDependenciesNode
+**Purpose**: Load dependencies from previous phases  
+**Operation**: Loads data from storage based on phase dependencies  
+**Retry**: Configurable via state
 
 **Type Definition**:
 ```python
@@ -396,170 +351,8 @@ class SavePhaseOutputNode(BaseNode[WorkflowState, WorkflowDeps, StorageRef]):
                 return ErrorNode(error=str(e))
 ```
 
-### LoadFSNode (Atomic)
-**Purpose**: Atomic file system read operation  
-**Operation**: Load single file from filesystem  
-**Retry**: Yes - I/O errors are retryable
 
-**Type Definition**:
-```python
-@dataclass
-class LoadFSNode(StorageNode[WorkflowState, WorkflowDeps, str]):
-    """Atomic file load operation."""
-    file_path: str
-    encoding: str = 'utf-8'
-    
-    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode:
-        try:
-            content = await ctx.deps.storage_client.load_fs(
-                self.file_path,
-                encoding=self.encoding
-            )
-            
-            # Store in domain_data
-            new_state = replace(
-                ctx.state,
-                domain_data={
-                    **ctx.state.domain_data,
-                    f'loaded_file_{self.file_path}': content
-                }
-            )
-            return self.next
-        except IOError as e:
-            raise RetryableError(f"File load failed: {e}")
-```
-
-### SaveFSNode (Atomic)
-**Purpose**: Atomic file system write operation  
-**Operation**: Save single file to filesystem  
-**Retry**: Yes - I/O errors are retryable
-
-**Type Definition**:
-```python
-@dataclass
-class SaveFSNode(StorageNode[WorkflowState, WorkflowDeps, StorageRef]):
-    """Atomic file save operation."""
-    file_path: str
-    data_field: str  # Field in domain_data
-    create_parents: bool = True
-    
-    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode:
-        data = ctx.state.domain_data.get(self.data_field)
-        if data is None:
-            raise NonRetryableError(f"No data in {self.data_field}")
-        
-        try:
-            bytes_written = await ctx.deps.storage_client.save_fs(
-                self.file_path,
-                data,
-                create_parents=self.create_parents
-            )
-            
-            # Create reference
-            ref = StorageRef(
-                storage_type='fs',
-                key=self.file_path,
-                size_bytes=bytes_written,
-                created_at=datetime.now()
-            )
-            
-            # Update state
-            new_state = replace(
-                ctx.state,
-                phase_outputs={
-                    **ctx.state.phase_outputs,
-                    self.file_path: ref
-                }
-            )
-            return self.next
-        except IOError as e:
-            raise RetryableError(f"File save failed: {e}")
-```
-
-### BatchLoadNode
-**Purpose**: Load multiple items in parallel  
-**Operation**: Parallel retrieval from storage
-
-**Data Requirements**:
-```
-Input State:
-  - keys: List[str]
-  - storage_type: Literal['kv', 'fs']
-Output State:
-  - loaded_items: Dict[str, Any]
-  - failed_keys: List[str]
-```
-
-### BatchSaveNode
-**Purpose**: Save multiple items in parallel  
-**Operation**: Parallel storage of multiple items
-
-**Data Requirements**:
-```
-Input State:
-  - items: Dict[str, Any]
-  - storage_type: Literal['kv', 'fs']
-Output State:
-  - saved_refs: Dict[str, str]
-  - failed_items: List[str]
-```
-
-### ExistsCheckNode
-**Purpose**: Check if storage key/path exists  
-**Operation**: Verify existence without loading
-
-**Data Requirements**:
-```
-Input State:
-  - key_or_path: str
-  - storage_type: Literal['kv', 'fs']
-Output State:
-  - exists: bool
-  - metadata: Optional[Dict]
-```
-
-### DeleteNode
-**Purpose**: Remove item from storage  
-**Operation**: Delete by key or path
-
-**Data Requirements**:
-```
-Input State:
-  - key_or_path: str
-  - storage_type: Literal['kv', 'fs']
-Output State:
-  - deleted: bool
-  - error: Optional[str]
-```
-
-## Transform Nodes
-
-### JSONParseNode
-**Purpose**: Parse JSON string to object  
-**Operation**: Deserialize JSON with validation
-
-**Data Requirements**:
-```
-Input State:
-  - json_string: str
-Output State:
-  - parsed_data: Any
-  - parse_errors: List[str]
-```
-
-### JSONSerializeNode
-**Purpose**: Serialize object to JSON string  
-**Operation**: Convert Python object to JSON
-
-**Data Requirements**:
-```
-Input State:
-  - data: Any
-  - indent: Optional[int]
-Output State:
-  - json_string: str
-  - serialization_metadata: Dict
-```
+## Template Nodes
 
 ### TemplateRenderNode (Atomic)
 **Purpose**: Deterministic template rendering  
@@ -610,108 +403,8 @@ class TemplateRenderNode(TransformNode[WorkflowState, WorkflowDeps, Dict[str, st
         return self.next
 ```
 
-### CodeFormatNode
-**Purpose**: Format Python code  
-**Operation**: Apply code formatting standards
-
-**Data Requirements**:
-```
-Input State:
-  - code: str
-  - style: Literal['black', 'yapf', 'autopep8']
-Output State:
-  - formatted_code: str
-  - changes_made: bool
-```
-
-### DataMergeNode
-**Purpose**: Merge multiple data sources  
-**Operation**: Combine dictionaries/lists with strategy
-
-**Data Requirements**:
-```
-Input State:
-  - sources: List[Dict]
-  - merge_strategy: Literal['override', 'append', 'deep']
-Output State:
-  - merged_data: Dict
-  - conflicts: List[str]
-```
-
-### DataFilterNode
-**Purpose**: Filter collection by criteria  
-**Operation**: Apply predicate to collection
-
-**Data Requirements**:
-```
-Input State:
-  - collection: List[Any]
-  - filter_criteria: Dict
-Output State:
-  - filtered: List[Any]
-  - removed_count: int
-```
-
-### DataMapNode
-**Purpose**: Transform each item in collection  
-**Operation**: Apply function to each element
-
-**Data Requirements**:
-```
-Input State:
-  - collection: List[Any]
-  - map_operation: str (operation identifier)
-Output State:
-  - mapped: List[Any]
-  - transform_errors: List[str]
-```
-
-### DataReduceNode
-**Purpose**: Reduce collection to single value  
-**Operation**: Aggregate collection elements
-
-**Data Requirements**:
-```
-Input State:
-  - collection: List[Any]
-  - reduce_operation: str
-  - initial_value: Any
-Output State:
-  - reduced_value: Any
-  - reduction_metadata: Dict
-```
 
 ## Validation Nodes
-
-### SyntaxValidationNode
-**Purpose**: Validate Python syntax  
-**Operation**: AST parsing and syntax checking
-
-**Data Requirements**:
-```
-Input State:
-  - code: str
-  - python_version: str
-Output State:
-  - syntax_valid: bool
-  - syntax_errors: List[SyntaxError]
-  - ast_metadata: Dict
-```
-
-### ImportValidationNode
-**Purpose**: Check import availability  
-**Operation**: Verify imports can be resolved
-
-**Data Requirements**:
-```
-Input State:
-  - code: str
-  - allowed_packages: List[str]
-Output State:
-  - imports_valid: bool
-  - missing_imports: List[str]
-  - forbidden_imports: List[str]
-```
 
 ### SchemaValidationNode (Atomic)
 **Purpose**: Validate data against Pydantic schema  
@@ -823,33 +516,6 @@ class QualityGateNode(ControlNode[WorkflowState, WorkflowDeps, WorkflowState]):
             return NextPhaseNode()
 ```
 
-### DependencyCheckNode (Atomic)
-**Purpose**: Validate phase dependencies are satisfied  
-**Operation**: Check previous phases completed  
-**Retry**: No - missing dependencies are non-retryable
-
-**Type Definition**:
-```python
-@dataclass
-class DependencyCheckNode(ValidationNode[WorkflowState, WorkflowDeps, None]):
-    """Validate phase dependencies."""
-    dependencies: List[str]
-    
-    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode:
-        missing = []
-        for dep in self.dependencies:
-            if dep not in ctx.state.completed_phases:
-                missing.append(dep)
-        
-        if missing:
-            raise NonRetryableError(
-                f"Missing dependencies: {missing}. "
-                f"Completed: {ctx.state.completed_phases}"
-            )
-        
-        # All dependencies satisfied
-        return LoadDependenciesNode(self.dependencies)  # Continue to loading
-```
 
 ### StateUpdateNode (Atomic)
 **Purpose**: Update workflow state after phase completion  
@@ -889,21 +555,6 @@ class StateUpdateNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
 
 ## Atomic LLM Nodes
 
-### PromptBuilderNode
-**Purpose**: Construct prompts from templates  
-**Operation**: Template + data → formatted prompt
-
-**Data Requirements**:
-```
-Input State:
-  - template_ref: str
-  - prompt_data: Dict[str, Any]
-  - system_prompt: Optional[str]
-Output State:
-  - prompt: str
-  - token_estimate: int
-  - prompt_metadata: Dict
-```
 
 ### LLMCallNode (Atomic)
 **Purpose**: Single atomic LLM API call  
@@ -973,335 +624,72 @@ class LLMCallNode(LLMNode[WorkflowState, WorkflowDeps, WorkflowState]):
             raise NonRetryableError(f"LLM call failed: {e}")
 ```
 
-### ResponseParserNode
-**Purpose**: Parse structured LLM response  
-**Operation**: Extract structured data from text
-
-**Data Requirements**:
-```
-Input State:
-  - response: str
-  - expected_format: str (schema reference)
-Output State:
-  - parsed_response: Any
-  - parse_confidence: float
-  - extraction_errors: List[str]
-```
-
-### RefinementLoopNode
-**Purpose**: Manage refinement iterations for GenericPhaseNode  
-**Operation**: Check quality and trigger re-execution with feedback
+### RefinementNode
+**Purpose**: Trigger refinement of the current phase  
+**Operation**: Set up refinement feedback and restart phase
 
 **Data Requirements**:
 ```
 Input State:
   - phase_name: str
+  - feedback: str
   - quality_score: float
-  - max_refinements: int
 Output State:
-  - should_refine: bool
+  - refinement_count: incremented
   - refinement_feedback: str
-  - refinement_count: int
+  - refinement_history: updated
 ```
 
-**Phase 2 Type Definition**:
+**Type Definition**:
 ```python
 @dataclass
-class RefinementLoopNode(ControlNode[WorkflowState, WorkflowDeps, WorkflowState]):
-    """Control refinement iterations for phases."""
-    phase_name: str
-    quality_threshold: float = 0.8
-    max_refinements: int = 3
+class RefinementNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
+    """Trigger phase refinement."""
+    target_phase: str
+    feedback: str
     
     async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode:
-        # Get current quality score
-        quality_score = ctx.state.quality_scores.get(self.phase_name, 0.0)
-        refinement_count = ctx.state.refinement_count.get(self.phase_name, 0)
+        # Update refinement count
+        new_refinement_count = {
+            **ctx.state.refinement_count,
+            self.target_phase: ctx.state.refinement_count.get(self.target_phase, 0) + 1
+        }
         
-        # Check if refinement needed
-        if quality_score >= self.quality_threshold:
-            # Quality meets threshold, continue to next phase
-            return self._get_next_phase_node(ctx.state)
+        # Add feedback to domain_data
+        new_domain_data = {
+            **ctx.state.domain_data,
+            'refinement_feedback': self.feedback
+        }
         
-        if refinement_count >= self.max_refinements:
-            # Max refinements reached, continue anyway
-            return self._get_next_phase_node(ctx.state)
-        
-        # Generate refinement feedback
-        feedback = self._generate_feedback(ctx.state, quality_score)
-        
-        # Update state for refinement
         new_state = replace(
             ctx.state,
-            refinement_count={
-                **ctx.state.refinement_count,
-                self.phase_name: refinement_count + 1
-            },
-            domain_data={
-                **ctx.state.domain_data,
-                f'{self.phase_name}_feedback': feedback
-            }
+            current_phase=self.target_phase,
+            refinement_count=new_refinement_count,
+            domain_data=new_domain_data
         )
         
-        # Re-execute the phase with feedback
-        phase_def = ctx.deps.phase_registry.get(ctx.state.domain, self.phase_name)
-        return GenericPhaseNode(phase_def=phase_def)
-```
-
-### BatchLLMNode
-**Purpose**: Parallel LLM calls  
-**Operation**: Process multiple prompts concurrently
-
-**Data Requirements**:
-```
-Input State:
-  - prompts: List[str]
-  - model: str
-  - max_concurrent: int
-Output State:
-  - responses: List[str]
-  - total_usage: TokenUsage
-  - failed_indices: List[int]
-```
-
-### StreamingLLMNode
-**Purpose**: Stream LLM responses  
-**Operation**: Progressive response generation
-
-**Data Requirements**:
-```
-Input State:
-  - prompt: str
-  - model: str
-  - stream_callback: str (callback reference)
-Output State:
-  - final_response: str
-  - chunks_received: int
-  - stream_metadata: Dict
+        # Re-execute the target phase
+        return GenericPhaseNode()
 ```
 
 ## Control Flow Nodes
 
-### StateBasedConditionalNode
-**Purpose**: State-driven conditional branching aligned with meta-framework  
-**Operation**: Evaluate condition from state configuration, choose path
+### NextPhaseNode
+**Purpose**: Determine and transition to the next phase  
+**Operation**: Find next phase and transition to it
 
 **Data Requirements**:
 ```
 Input State:
-  - workflow_def.conditions[condition_name]: ConditionConfig
-  - Any state data referenced by condition
+  - current_phase: str
+  - completed_phases: Set[str]
+  - phase_sequence: List[str]
 Output State:
-  - branch_taken: Literal['true', 'false']  
-  - condition_result: bool
+  - current_phase: updated to next phase
+  - current_node: set to first node of new phase
 ```
 
-**Flow Pattern**:
-```mermaid
-graph LR
-    StateCheck{Read Condition Config} --> Eval{Evaluate}
-    Eval -->|True| TrueBranch[Execute True Path]
-    Eval -->|False| FalseBranch[Execute False Path]
-    StateCheck --> StateCondition[State Path Condition]
-    StateCheck --> QualityGate[Quality Gate Condition]
-    StateCheck --> CustomCondition[Custom Function]
-```
-
-**State-Driven Configuration Examples**:
-```python
-# State-driven condition examples
-conditions = {
-    # Quality gate condition
-    "quality_check": ConditionConfig(
-        condition_type="quality_gate",
-        quality_field="current_phase",
-        threshold=0.8
-    ),
-    
-    # State path condition
-    "complexity_check": ConditionConfig(
-        condition_type="state_path",
-        state_path="domain_data.complexity",
-        operator="==",
-        expected_value="high"
-    ),
-    
-    # Threshold condition
-    "iteration_limit": ConditionConfig(
-        condition_type="threshold",
-        state_path="refinement_count.current_phase",
-        operator=">=", 
-        expected_value=3
-    )
-}
-```
-
-**Phase 2 Type Definition**:
-```python
-@dataclass
-class StateBasedConditionalNode(ControlNode[WorkflowState, WorkflowDeps, WorkflowState]):
-    """State-driven conditional branching."""
-    condition_name: str  # Name of condition in workflow_def.conditions
-    true_node_id: str    # Node ID if condition is true
-    false_node_id: str   # Node ID if condition is false
-    
-    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode:
-        # Get condition configuration from state
-        condition_config = ctx.state.workflow_def.conditions.get(self.condition_name)
-        if not condition_config:
-            raise ValueError(f"Condition '{self.condition_name}' not found in workflow definition")
-        
-        # Evaluate condition against current state
-        result = condition_config.evaluate(ctx.state)
-        
-        # Choose next node based on result
-        next_node_id = self.true_node_id if result else self.false_node_id
-        
-        # Update state to track decision
-        new_state = replace(
-            ctx.state,
-            domain_data={
-                **ctx.state.domain_data,
-                'last_condition_result': result,
-                'last_branch_taken': 'true' if result else 'false',
-                'last_condition_name': self.condition_name
-            }
-        )
-        
-        # Return next node instance
-        return self.create_node_instance(next_node_id, new_state)
-    
-    def create_node_instance(self, node_id: str, state: WorkflowState) -> BaseNode:
-        """Create node instance based on ID - reads from state configuration."""
-        # This would use the same factory pattern as GenericPhaseNode
-        # Implementation depends on node registry/factory system
-        return create_node_from_id(node_id, state)
-
-```
-
-### IterableNode
-**Purpose**: Process items through iteration with self-return pattern  
-**Operation**: State-based iteration compatible with pydantic_graph
-
-**Data Requirements**:
-```
-Input State:
-  - iter_items: List[Any]
-  - iter_index: int
-  - iter_results: List[Any]
-Output State:
-  - Updated iter_index and iter_results
-  - Or transition to next node when complete
-```
-
-**Correct Implementation (State-Based Iteration)**:
-```python
-@dataclass
-class IterableNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
-    """Process items through self-return pattern - no sub-graphs."""
-    
-    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode | End[WorkflowState]:
-        # Get iteration config from state
-        node_config = ctx.state.workflow_def.node_configs[ctx.state.current_node]
-        
-        if not node_config.iter_enabled:
-            # Single execution mode
-            result = await self.process_once(ctx)
-            return self.get_next_node(ctx.state)
-        
-        # Get items and current index
-        items = ctx.state.iter_items
-        idx = ctx.state.iter_index
-        
-        if idx >= len(items):
-            # Iteration complete - move to next node
-            return self.get_next_node(ctx.state)
-        
-        # Process current item
-        item = items[idx]
-        result = await self.process_item(item, ctx)
-        
-        # Update state with result
-        new_state = replace(
-            ctx.state,
-            iter_results=ctx.state.iter_results + [result],
-            iter_index=idx + 1
-        )
-        
-        # Return self to continue iteration, or next node if done
-        if idx + 1 < len(items):
-            return IterableNode()  # Continue iteration
-        else:
-            return self.get_next_node(new_state)  # Move to next node
-```
-
-**Parallel Execution with Graph.iter()**:
-```python
-# Use Graph.iter() for parallel control, not sub-graphs
-async def parallel_process(graph, items):
-    tasks = []
-    
-    async with graph.iter(StartNode(), state=initial_state) as run:
-        async for node in run:
-            if isinstance(node, IterableNode) and node.iter_enabled:
-                # Fork parallel processing
-                for item in items:
-                    item_state = replace(initial_state, iter_items=[item])
-                    task = asyncio.create_task(
-                        graph.run(node, state=item_state)
-                    )
-                    tasks.append(task)
-                
-                # Gather results
-                results = await asyncio.gather(*tasks)
-                
-                # Continue with aggregated results
-                next_node = AggregateResultsNode(results=results)
-                await run.next(next_node)
-```
-
-**Flow Pattern**:
-```mermaid
-graph LR
-    Start[Item 0] --> Process[IterableNode]
-    Process -->|self-return| Process
-    Process -->|done| Next[NextNode]
-    
-    subgraph "Parallel via Graph.iter()"
-        P1[Process Item 1] 
-        P2[Process Item 2]
-        P3[Process Item N]
-    end
-```
-
-### SequentialMapNode
-**Purpose**: Process items one by one  
-**Operation**: Sequential processing with state accumulation
-
-**Data Requirements**:
-```
-Input State:
-  - items: List[Any]
-  - accumulate_state: bool
-Output State:
-  - results: List[Any]
-  - accumulated_state: Any
-  - processing_order: List[int]
-```
-
-### AggregatorNode
-**Purpose**: Combine results from parallel operations  
-**Operation**: Merge parallel execution results
-
-**Data Requirements**:
-```
-Input State:
-  - partial_results: List[Any]
-  - aggregation_strategy: str
-Output State:
-  - aggregated_result: Any
-  - aggregation_metadata: Dict
-```
+## State-Based Patterns
 
 ### State-Based Retry Pattern
 **Purpose**: Retry through state tracking and self-return  
@@ -1353,60 +741,6 @@ node_configs = {
 }
 ```
 
-### LoopNode
-**Purpose**: Iterate until condition met  
-**Operation**: Conditional loop execution
-
-**Data Requirements**:
-```
-Input State:
-  - loop_state: Any
-  - iteration: int
-  - max_iterations: int
-Output State:
-  - final_state: Any
-  - iterations_completed: int
-  - termination_reason: str
-```
-
-**Flow Pattern**:
-```mermaid
-graph LR
-    Init --> Check{Continue?}
-    Check -->|Yes| Process
-    Process --> Update
-    Update --> Check
-    Check -->|No| End
-```
-
-### ForkNode
-**Purpose**: Split execution into multiple paths  
-**Operation**: Create parallel execution branches
-
-**Data Requirements**:
-```
-Input State:
-  - fork_data: Any
-  - branch_count: int
-Output State:
-  - branch_states: List[Any]
-  - fork_metadata: Dict
-```
-
-### JoinNode
-**Purpose**: Synchronize parallel branches  
-**Operation**: Wait for all branches to complete
-
-**Data Requirements**:
-```
-Input State:
-  - branch_results: List[Any]
-  - join_strategy: str
-Output State:
-  - joined_result: Any
-  - join_metadata: Dict
-```
-
 ## Atomic Decomposition Patterns
 
 ### Why Atomic Decomposition?
@@ -1454,11 +788,11 @@ Nodes can dynamically choose next node based on state:
 ```python
 async def run(self, ctx):
     if ctx.state.quality_score > 0.8:
-        return ApprovalNode(...)
+        return NextPhaseNode()
     elif ctx.state.iteration < 3:
-        return RefinementNode(...)
+        return RefinementNode(feedback="Quality not met")
     else:
-        return FallbackNode(...)
+        return StateUpdateNode()
 ```
 
 ### State Accumulation Pattern
@@ -1645,11 +979,10 @@ async def handle_storage_failure():
 
 ### Cross-Domain Workflows
 ```python
-# Mix phases from different domains
-hybrid_workflow = [
-    GenericPhaseNode(PHASE_REGISTRY['agentool.analyzer']),
-    GenericPhaseNode(PHASE_REGISTRY['api.designer']),
-    GenericPhaseNode(PHASE_REGISTRY['workflow.orchestrator']),
-    GenericPhaseNode(PHASE_REGISTRY['agentool.evaluator'])
-]
+# Example: Mix phases from different domains (when multiple domains are implemented)
+# hybrid_workflow = [
+#     GenericPhaseNode(PHASE_REGISTRY['smoke.ingredient_analyzer']),
+#     GenericPhaseNode(PHASE_REGISTRY['future_domain.phase1']),
+#     GenericPhaseNode(PHASE_REGISTRY['smoke.recipe_evaluator'])
+# ]
 ```

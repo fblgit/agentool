@@ -9,17 +9,17 @@ The GraphToolkit is a meta-framework that transforms workflow development from w
 ```python
 from graphtoolkit import create_domain_workflow, PHASE_REGISTRY
 
-# Create an AgenTool workflow 
+# Create a smoke test workflow 
 workflow = create_domain_workflow(
-    domain='agentool',
-    phases=['analyzer', 'specifier', 'crafter', 'evaluator']
+    domain='smoke',
+    phases=['ingredient_analyzer', 'recipe_designer', 'recipe_crafter', 'recipe_evaluator']
 )
 
 # Run with state-driven configuration
 result = await workflow.run(
     state=WorkflowState(
-        task_description="Create a TODO management system",
-        domain="agentool"
+        task_description="Create a simple recipe",
+        domain="smoke"
     )
 )
 ```
@@ -63,38 +63,22 @@ src/graphtoolkit/
 │
 ├── domains/                          # 🌐 Domain-Specific Configurations
 │   ├── __init__.py                   # Domain exports
-│   ├── agentool.py                   # AgenTool workflow phases (analyzer, specifier, crafter, evaluator)
-│   ├── api.py                        # API design workflow phases (analyzer, designer, generator, validator)  
-│   └── workflow.py                   # Workflow orchestration phases (analyzer, orchestrator, validator)
+│   └── smoke.py                      # Smoke test workflow phases (ingredient_analyzer, recipe_designer, recipe_crafter, recipe_evaluator)
 │
 └── (uses existing src/templates/ directory structure)
     ├── system/                       # System prompt templates by domain
-    │   ├── agentool/                 # AgenTool system prompts
-    │   │   ├── analyzer.jinja        # Analysis system prompt
-    │   │   ├── specifier.jinja       # Specification system prompt  
-    │   │   ├── crafter.jinja         # Code generation system prompt
-    │   │   └── evaluator.jinja       # Evaluation system prompt
-    │   ├── api/                      # API design system prompts
-    │   │   ├── analyzer.jinja        # API analysis system prompt
-    │   │   ├── designer.jinja        # API design system prompt
-    │   │   └── generator.jinja       # API generation system prompt
-    │   └── workflow/                 # Workflow orchestration system prompts
-    │       ├── analyzer.jinja        # Process analysis system prompt
-    │       └── orchestrator.jinja    # Orchestration system prompt
+    │   └── smoke/                    # Smoke test system prompts
+    │       ├── analyzer.jinja        # Ingredient analysis prompt
+    │       ├── designer.jinja        # Recipe design prompt
+    │       ├── crafter.jinja         # Recipe creation prompt
+    │       └── evaluator.jinja       # Recipe evaluation prompt
     │
     ├── prompts/                      # User prompt templates by domain  
-    │   ├── agentool/                 # AgenTool user prompts
-    │   │   ├── analyze_catalog.jinja # Catalog analysis prompt
-    │   │   ├── create_specification.jinja # Specification creation prompt
-    │   │   ├── craft_implementation.jinja # Code generation prompt  
-    │   │   └── evaluate_code.jinja   # Code evaluation prompt
-    │   ├── api/                      # API design user prompts
-    │   │   ├── analyze_requirements.jinja # API requirements analysis
-    │   │   ├── design_schema.jinja   # API schema design
-    │   │   └── generate_implementation.jinja # API implementation
-    │   └── workflow/                 # Workflow orchestration user prompts
-    │       ├── analyze_process.jinja # Process analysis
-    │       └── design_orchestration.jinja # Orchestration design
+    │   └── smoke/                    # Smoke test user prompts
+    │       ├── analyze_ingredients.jinja  # Ingredient analysis prompt
+    │       ├── design_recipe.jinja        # Recipe design prompt
+    │       ├── craft_recipe.jinja         # Recipe creation prompt
+    │       └── evaluate_recipe.jinja      # Recipe evaluation prompt
     │
     └── fragments/                    # Reusable template components
         ├── error_handling.jinja      # Common error handling patterns
@@ -314,80 +298,39 @@ class WorkflowState:
     refinement_count: Dict[str, int]
 ```
 
-## 🌐 Domain Examples
+## 🌐 Domain Example
 
-### AgenTool Domain (Default)
+### Smoke Domain (E2E Testing)
 
 ```python
-# Complete AgenTool workflow definition
-AGENTOOL_WORKFLOW = WorkflowDefinition(
-    domain="agentool",
+# Complete smoke test workflow definition
+SMOKE_WORKFLOW = WorkflowDefinition(
+    domain="smoke",
     phases={
-        "analyzer": PhaseDefinition(
-            atomic_nodes=["dependency_check", "load_dependencies", "template_render", "llm_call", "schema_validation", "save_output", "state_update", "quality_gate"],
-            input_schema=AnalyzerInput,
-            output_schema=AnalyzerOutput,
+        "ingredient_analyzer": PhaseDefinition(
+            atomic_nodes=["dependency_check", "load_dependencies", "template_render", "llm_call", "schema_validation", "save_phase_output", "state_update", "quality_gate"],
+            input_schema=IngredientAnalyzerInput,
+            output_schema=IngredientAnalyzerOutput,
             dependencies=[],
             templates=TemplateConfig(
-                system_template="templates/system/agentool/analyzer.jinja",
-                user_template="templates/prompts/agentool/analyze_catalog.jinja"
+                system_template="templates/system/smoke/analyzer.jinja",
+                user_template="templates/prompts/smoke/analyze_ingredients.jinja"
             )
         ),
-        "specifier": PhaseDefinition(
-            dependencies=["analyzer"],
+        "recipe_designer": PhaseDefinition(
+            dependencies=["ingredient_analyzer"],
             # ... similar structure
         ),
-        "crafter": PhaseDefinition(
-            dependencies=["specifier"],  
+        "recipe_crafter": PhaseDefinition(
+            dependencies=["recipe_designer"],  
             # ... similar structure
         ),
-        "evaluator": PhaseDefinition(
-            dependencies=["crafter"],
+        "recipe_evaluator": PhaseDefinition(
+            dependencies=["recipe_crafter"],
             # ... similar structure
         )
     },
-    phase_sequence=["analyzer", "specifier", "crafter", "evaluator"]
-)
-```
-
-### API Design Domain
-
-```python
-API_WORKFLOW = WorkflowDefinition(
-    domain="api",
-    phases={
-        "analyzer": PhaseDefinition(
-            templates=TemplateConfig(
-                system_template="templates/system/api/analyzer.jinja",
-                user_template="templates/prompts/api/analyze_requirements.jinja"
-            ),
-            # ... same atomic nodes, different templates & schemas
-        ),
-        "designer": PhaseDefinition(
-            dependencies=["analyzer"],
-            # ... API-specific configuration
-        ),
-        "generator": PhaseDefinition(
-            dependencies=["designer"],
-            # ... API generation configuration
-        )
-    },
-    phase_sequence=["analyzer", "designer", "generator"]
-)
-```
-
-### Cross-Domain Workflows
-
-```python
-# Mix phases from different domains
-HYBRID_WORKFLOW = WorkflowDefinition(
-    domain="hybrid",
-    phases={
-        "agentool_analysis": PHASE_REGISTRY["agentool.analyzer"],
-        "api_design": PHASE_REGISTRY["api.designer"], 
-        "workflow_orchestration": PHASE_REGISTRY["workflow.orchestrator"]
-    },
-    phase_sequence=["agentool_analysis", "api_design", "workflow_orchestration"]
+    phase_sequence=["ingredient_analyzer", "recipe_designer", "recipe_crafter", "recipe_evaluator"]
 )
 ```
 
@@ -523,27 +466,27 @@ async def test_v1_compatibility():
 
 ## 🚀 Quick Start Examples
 
-### Basic AgenTool Workflow
+### Basic Smoke Test Workflow
 
 ```python
 from graphtoolkit import create_domain_workflow, WorkflowState
 
 # Create workflow
 workflow = create_domain_workflow(
-    domain='agentool',
-    phases=['analyzer', 'specifier', 'crafter', 'evaluator']
+    domain='smoke',
+    phases=['ingredient_analyzer', 'recipe_designer', 'recipe_crafter', 'recipe_evaluator']
 )
 
 # Execute with configuration
 result = await workflow.run(
     state=WorkflowState(
-        task_description="Create a user authentication system",
-        domain="agentool",
-        workflow_def=AGENTOOL_WORKFLOW
+        task_description="Create a chocolate cake recipe",
+        domain="smoke",
+        workflow_def=SMOKE_WORKFLOW
     )
 )
 
-print(f"Generated code: {result.phase_outputs['crafter']}")
+print(f"Generated recipe: {result.phase_outputs['recipe_crafter']}")
 ```
 
 ### Custom Domain Workflow  

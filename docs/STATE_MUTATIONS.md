@@ -260,19 +260,19 @@ class CollectionUpdateNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState])
     
     async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode:
         # Add to list
-        new_list = ctx.state.missing_tools + ['new_tool']
+        new_list = ctx.state.domain_data.get('items', []) + ['new_item']
         
         # Update dictionary
         new_dict = {
-            **ctx.state.quality_metrics,
-            'new_tool': QualityMetrics(...)
+            **ctx.state.quality_scores,
+            'new_phase': 0.95
         }
         
         # Create new state
         new_state = replace(
             ctx.state,
-            missing_tools=new_list,
-            quality_metrics=new_dict
+            domain_data={**ctx.state.domain_data, 'items': new_list},
+            quality_scores=new_dict
         )
         
         return self.next  # Return next node in graph
@@ -287,13 +287,13 @@ class StorageRefUpdateNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState])
     
     async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode:
         # Save data and get reference
-        data = getattr(ctx.state, 'tool_specifications', [])  # Use actual field
+        data = ctx.state.domain_data.get('phase_output', {})  # Get from domain_data
         ref = await self.save_to_storage(data)
         
-        # Use helper method for storage refs
-        new_state = ctx.state.with_storage_ref(
-            ref_type='analysis_ref',
-            ref=ref
+        # Update phase outputs
+        new_state = replace(
+            ctx.state,
+            phase_outputs={**ctx.state.phase_outputs, ctx.state.current_phase: ref}
         )
         
         return self.next  # Return next node in graph
@@ -633,13 +633,13 @@ def validate_before_mutation(state: WorkflowState) -> None:
         raise ValueError("workflow_id is required")
     
     # Check phase progression
-    if state.phase_status.specification_complete:
-        if not state.phase_status.analysis_complete:
-            raise ValueError("Cannot complete specification before analysis")
+    if 'recipe_designer' in state.completed_phases:
+        if 'ingredient_analyzer' not in state.completed_phases:
+            raise ValueError("Cannot complete recipe_designer before ingredient_analyzer")
     
     # Check data consistency
-    if state.storage.analysis_ref and not state.phase_status.analysis_complete:
-        raise ValueError("Analysis ref exists but phase not marked complete")
+    if 'ingredient_analyzer' in state.phase_outputs and 'ingredient_analyzer' not in state.completed_phases:
+        raise ValueError("Ingredient analysis ref exists but phase not marked complete")
 ```
 
 ### Post-Mutation Validation
@@ -656,15 +656,15 @@ def validate_after_mutation(
         raise ValueError("workflow_id cannot be changed")
     
     # Ensure no data loss (accumulation principle)
-    if len(new_state.missing_tools) < len(old_state.missing_tools):
-        raise ValueError("Data loss detected in missing_tools")
+    domain_items = new_state.domain_data.get('items', [])
+    old_items = old_state.domain_data.get('items', [])
+    if len(domain_items) < len(old_items):
+        raise ValueError("Data loss detected in domain items")
     
-    # Validate new references using proper field access
-    from dataclasses import asdict
-    storage_dict = asdict(new_state.storage)
-    for ref_name, ref in storage_dict.items():
-        if ref and not isinstance(ref, (StorageRef, dict)):
-            raise ValueError(f"Invalid storage reference: {ref_name}")
+    # Validate new references
+    for phase_name, ref in new_state.phase_outputs.items():
+        if ref and not isinstance(ref, StorageRef):
+            raise ValueError(f"Invalid storage reference for phase: {phase_name}")
 ```
 
 ## Token Usage Accumulation
@@ -759,7 +759,7 @@ class AtomicNodeErrorHandler:
     @staticmethod
     def handle_validation_error(state: WorkflowState, node: BaseNode, error: ValidationError):
         """Validation errors trigger refinement."""
-        # REMOVED: RefinementLoopNode - use QualityGateNode that returns refinement node
+        # Use QualityGateNode that returns RefinementNode when quality threshold not met
         # Trigger refinement by updating state and returning appropriate node
         return QualityGateNode()
 ```
@@ -864,15 +864,15 @@ class LLMCallNode:
 # Good - Update related fields together
 new_state = replace(
     state,
-    tool_specifications=specs,
-    phase_status=replace(state.phase_status, specification_complete=True),
-    storage=replace(state.storage, specs_refs=refs)
+    domain_data={**state.domain_data, 'recipe_design': design},
+    completed_phases=state.completed_phases | {'recipe_designer'},
+    phase_outputs={**state.phase_outputs, 'recipe_designer': ref}
 )
 
 # Bad - Multiple separate updates
-state1 = replace(state, tool_specifications=specs)
-state2 = replace(state1, phase_status=...)
-state3 = replace(state2, storage=...)
+state1 = replace(state, domain_data={**state.domain_data, 'recipe_design': design})
+state2 = replace(state1, completed_phases=state.completed_phases | {'recipe_designer'})
+state3 = replace(state2, phase_outputs={**state.phase_outputs, 'recipe_designer': ref})
 ```
 
 ### 3. Validate Mutations
@@ -906,8 +906,8 @@ def update_phase_state(state: WorkflowState, phase_def: PhaseDefinition, output:
     return state.with_phase_complete(phase_def.phase_name, create_storage_ref(output))
 
 # Bad - Domain-specific logic
-def update_agentool_state(state: WorkflowState, ...):
-    """Only works for AgenTool domain."""
+def update_smoke_state(state: WorkflowState, ...):
+    """Only works for Smoke domain."""
     ...
 ```
 
@@ -934,4 +934,3 @@ The meta-framework with atomic decomposition transforms state mutations from mon
 | SavePhaseOutputNode | Updates phase_outputs | Configurable | State-based | No |
 | StateUpdateNode | Updates completed_phases | No | N/A | No |
 | QualityGateNode | Updates quality_scores | No | Returns next node | No |
-| IterableNode | Updates iter_index, iter_results | Configurable | Self-return | Yes |

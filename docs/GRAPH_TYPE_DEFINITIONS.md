@@ -93,7 +93,7 @@ class PhaseDefinition:
     """Defines a workflow phase as configuration."""
     # Identity
     phase_name: str                    # e.g., 'analyzer', 'designer', 'generator'
-    domain: str                        # e.g., 'agentool', 'api', 'workflow'
+    domain: str                        # e.g., 'smoke'
     
     # Atomic Node Sequence
     atomic_nodes: List[str]            # Ordered list of atomic node IDs to execute
@@ -383,29 +383,26 @@ class BasePhaseOutput(BaseModel):
 
 ## Domain-Specific Types
 
-### AgenTool Domain Types
+### Smoke Domain Types
 
-#### ToolSpec
+#### RecipeSpec
 
 ```python
 @dataclass(frozen=True)
-class ToolSpec:
-    """Complete specification for an AgenTool."""
-    name: str                          # Tool name (lowercase_underscore)
+class RecipeSpec:
+    """Complete specification for a recipe in smoke tests."""
+    name: str                          # Recipe name
     description: str                   # One-line description
-    operations: List[str]              # List of operations (e.g., ['get', 'set', 'delete'])
-    input_schema: Dict[str, Any]      # JSON Schema for input
-    output_schema: Dict[str, Any]     # JSON Schema for output
-    required_tools: List[str]          # Dependencies on other tools
-    external_dependencies: List[str]   # Python packages needed
-    examples: List[Dict[str, Any]]    # Input/output examples
-    error_conditions: List[str]        # Expected error cases
-    implementation_notes: List[str]     # Implementation guidelines
+    ingredients: List[str]             # List of ingredients
+    steps: List[str]                  # Recipe steps
+    prep_time: int                     # Preparation time in minutes
+    cook_time: int                     # Cooking time in minutes
+    servings: int                      # Number of servings
+    difficulty: Literal['easy', 'medium', 'hard']  # Recipe difficulty
     
-    def get_operation_schema(self, operation: str) -> Optional[Dict[str, Any]]:
-        """Get schema for specific operation."""
-        # Extract operation-specific schema from input_schema
-        ...
+    def get_total_time(self) -> int:
+        """Get total recipe time."""
+        return self.prep_time + self.cook_time
 ```
 
 ### CodeBlock
@@ -528,31 +525,22 @@ class WorkflowMetadata:
 @dataclass(frozen=True)
 class PhaseStatus:
     """Status tracking for workflow phases."""
-    analysis_complete: bool = False
-    specification_complete: bool = False
-    crafting_complete: bool = False
-    evaluation_complete: bool = False
-    test_analysis_complete: bool = False
-    test_stubbing_complete: bool = False
-    test_crafting_complete: bool = False
+    ingredient_analyzer_complete: bool = False
+    recipe_designer_complete: bool = False
+    recipe_crafter_complete: bool = False
+    recipe_evaluator_complete: bool = False
     
     @property
     def current_phase(self) -> str:
         """Determine current phase based on completion status."""
-        if not self.analysis_complete:
-            return "analysis"
-        elif not self.specification_complete:
-            return "specification"
-        elif not self.crafting_complete:
-            return "crafting"
-        elif not self.evaluation_complete:
-            return "evaluation"
-        elif not self.test_analysis_complete:
-            return "test_analysis"
-        elif not self.test_stubbing_complete:
-            return "test_stubbing"
-        elif not self.test_crafting_complete:
-            return "test_crafting"
+        if not self.ingredient_analyzer_complete:
+            return "ingredient_analyzer"
+        elif not self.recipe_designer_complete:
+            return "recipe_designer"
+        elif not self.recipe_crafter_complete:
+            return "recipe_crafter"
+        elif not self.recipe_evaluator_complete:
+            return "recipe_evaluator"
         else:
             return "completed"
 ```
@@ -563,19 +551,19 @@ class PhaseStatus:
 @dataclass(frozen=True)
 class ProcessingState:
     """Current processing state within a phase."""
-    current_tool: Optional[str] = None           # Tool being processed
-    tools_to_process: List[str] = field(default_factory=list)
-    tools_completed: List[str] = field(default_factory=list)
-    tools_failed: List[str] = field(default_factory=list)
-    processing_errors: Dict[str, str] = field(default_factory=dict)  # tool -> error
+    current_item: Optional[str] = None           # Item being processed
+    items_to_process: List[str] = field(default_factory=list)
+    items_completed: List[str] = field(default_factory=list)
+    items_failed: List[str] = field(default_factory=list)
+    processing_errors: Dict[str, str] = field(default_factory=dict)  # item -> error
     
     @property
     def progress_percentage(self) -> float:
         """Calculate processing progress."""
-        total = len(self.tools_to_process)
+        total = len(self.items_to_process)
         if total == 0:
             return 100.0
-        completed = len(self.tools_completed)
+        completed = len(self.items_completed)
         return (completed / total) * 100
 ```
 
@@ -585,26 +573,21 @@ class ProcessingState:
 @dataclass(frozen=True)
 class StorageReferences:
     """Collection of storage references."""
-    # Analysis phase
-    catalog_ref: Optional[StorageRef] = None
-    analysis_ref: Optional[StorageRef] = None
+    # Ingredient Analysis phase
+    ingredients_ref: Optional[StorageRef] = None
+    ingredient_analysis_ref: Optional[StorageRef] = None
     
-    # Specification phase
-    specs_summary_ref: Optional[StorageRef] = None
-    tool_specs: Dict[str, StorageRef] = field(default_factory=dict)  # tool_name -> ref
+    # Recipe Design phase
+    recipe_design_ref: Optional[StorageRef] = None
+    recipe_specs: Dict[str, StorageRef] = field(default_factory=dict)  # recipe_name -> ref
     
-    # Crafting phase
-    code_files: Dict[str, StorageRef] = field(default_factory=dict)  # tool_name -> ref
+    # Recipe Crafting phase
+    recipe_files: Dict[str, StorageRef] = field(default_factory=dict)  # recipe_name -> ref
     implementations: Dict[str, StorageRef] = field(default_factory=dict)
     
-    # Evaluation phase
-    validations: Dict[str, StorageRef] = field(default_factory=dict)
-    final_code: Dict[str, StorageRef] = field(default_factory=dict)
-    
-    # Test phases
-    test_analyses: Dict[str, StorageRef] = field(default_factory=dict)
-    test_stubs: Dict[str, StorageRef] = field(default_factory=dict)
-    test_implementations: Dict[str, StorageRef] = field(default_factory=dict)
+    # Recipe Evaluation phase
+    evaluations: Dict[str, StorageRef] = field(default_factory=dict)
+    final_recipes: Dict[str, StorageRef] = field(default_factory=dict)
 ```
 
 ## Universal State Types
@@ -620,7 +603,7 @@ class WorkflowState:
     """Universal immutable state for any domain workflow."""
     # Identity
     workflow_id: str
-    domain: str  # 'agentool', 'api', 'workflow', etc.
+    domain: str  # 'smoke', etc.
     created_at: datetime = field(default_factory=datetime.now)
     
     # Phase tracking
@@ -914,7 +897,7 @@ These are the canonical type definitions for the state-driven architecture. Othe
 @dataclass(frozen=True)
 class WorkflowDefinition:
     """Complete workflow definition in state."""
-    domain: str                             # Context (agentool, api, etc)
+    domain: str                             # Context (smoke, etc)
     phases: Dict[str, PhaseDefinition]      # All phase definitions
     phase_sequence: List[str]               # Execution order
     node_configs: Dict[str, NodeConfig]     # Node behavior configs
@@ -1081,30 +1064,24 @@ class NextPhaseNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
 
 ```python
 # Atomic Storage Node Contracts
-LoadKVNode: (WorkflowState, WorkflowDeps) -> Any (loaded data)
-SaveKVNode: (WorkflowState, WorkflowDeps) -> StorageRef
 LoadDependenciesNode: (WorkflowState, WorkflowDeps) -> Dict[str, Any]
 SavePhaseOutputNode: (WorkflowState, WorkflowDeps) -> StorageRef
 DependencyCheckNode: (WorkflowState, WorkflowDeps) -> None (validation only)
 StateUpdateNode: (WorkflowState, WorkflowDeps) -> WorkflowState
 
-# Transform Node Contracts  
-JSONParseNode: (WorkflowState with json_string) -> Any (parsed data)
+# Template Node Contracts  
 TemplateRenderNode: (WorkflowState with templates) -> Dict[str, str] (rendered prompts)
 
 # Validation Node Contracts
 SchemaValidationNode: (Any data, Type[BaseModel]) -> ValidationResult
 QualityGateNode: (WorkflowState with quality_scores) -> BaseNode (refine or continue)
-DependencyCheckNode: (WorkflowState with dependencies) -> None (raises if invalid)
 
 # LLM Node Contracts
 LLMCallNode: (WorkflowState with prompts) -> Any (LLM response)
-RefinementLoopNode: (WorkflowState) -> GenericPhaseNode | NextPhaseNode
 
 # Control Node Contracts
-IterableNode: (WorkflowState with items) -> WorkflowState (self-return or next)
-ConditionalNode: (WorkflowState) -> BaseNode (true_node or false_node)
 NextPhaseNode: (WorkflowState) -> GenericPhaseNode | End[WorkflowState]
+RefinementNode: (WorkflowState) -> GenericPhaseNode
 ```
 
 ### State Mutation Rules
@@ -1162,4 +1139,4 @@ def update_with_analysis(state: WorkflowState, analysis: AnalyzerOutput) -> Work
 - `len(tools_completed) + len(tools_failed) <= len(tools_to_process)`
 - `evaluation_iteration <= max_iterations`
 - All `StorageRef` keys must follow naming convention
-- All `ToolSpec` names must be lowercase_underscore
+- All `RecipeSpec` names must follow naming convention

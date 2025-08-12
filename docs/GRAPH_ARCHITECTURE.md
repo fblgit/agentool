@@ -16,12 +16,9 @@
 ```mermaid
 graph TB
     subgraph "Traditional Approach"
-        T1[Analyzer Code<br/>500 lines] --> T2[Specifier Code<br/>500 lines]
-        T2 --> T3[Crafter Code<br/>500 lines]
-        T3 --> T4[Evaluator Code<br/>500 lines]
-        
-        TA[API Analyzer<br/>500 lines] --> TB[API Designer<br/>500 lines]
-        TB --> TC[API Generator<br/>500 lines]
+        T1[Phase 1 Code<br/>500 lines] --> T2[Phase 2 Code<br/>500 lines]
+        T2 --> T3[Phase 3 Code<br/>500 lines]
+        T3 --> T4[Phase 4 Code<br/>500 lines]
         
         note1[Each phase is hardcoded]
         note2[Duplicate logic everywhere]
@@ -46,7 +43,7 @@ graph TB
     
 ```
 
-The Graph Architecture implements a **state-driven meta-framework** where the entire workflow structure, behavior, and configuration exist as a uniform plane in state. This eliminates code duplication by having nodes act as simple executors that read their configuration from state and chain together. The architecture enables any domain (AgenTools, APIs, workflows, documentation) to define multi-phase workflows through state-driven composition:
+The Graph Architecture implements a **state-driven meta-framework** where the entire workflow structure, behavior, and configuration exist as a uniform plane in state. This eliminates code duplication by having nodes act as simple executors that read their configuration from state and chain together. The architecture enables any domain to define multi-phase workflows through state-driven composition:
 
 **`WorkflowDefinition in State + Node Chaining + Type Safety = Complete Workflow`**
 
@@ -58,7 +55,7 @@ This document details the architectural patterns that enable this state-driven, 
 graph TB
     subgraph "Application Layer"
         UI[User Interface/CLI]
-        API[AgenTool API]
+        API[GraphToolkit API]
     end
     
     subgraph "Orchestration Layer"
@@ -367,13 +364,6 @@ graph LR
 - Support partial validation for drafts
 ```
 
-**RefinementLoopNode**:
-```
-- Check quality scores against thresholds
-- Trigger re-execution with feedback
-- Track refinement iterations
-- Implement termination conditions
-```
 
 ## Meta-Framework Execution Patterns
 
@@ -401,31 +391,19 @@ graph LR
 ### Domain-Specific Workflow Construction
 
 ```python
-# AgenTool workflow
-agentool_workflow = build_domain_workflow(
-    domain='agentool',
-    phases=['analyzer', 'specifier', 'crafter', 'evaluator'],
-    config=agentool_config
+# Smoke test workflow
+smoke_workflow = build_domain_workflow(
+    domain='smoke',
+    phases=['ingredient_analyzer', 'recipe_designer', 'recipe_crafter', 'recipe_evaluator'],
+    config=smoke_config
 )
 
-# API design workflow  
-api_workflow = build_domain_workflow(
-    domain='api',
-    phases=['analyzer', 'designer', 'generator', 'validator'],
-    config=api_config
-)
-
-# Custom workflow mixing domains
-# Phases are selected from registry but nodes don't take params
-custom_workflow = build_workflow(
-    phases=[
-        'agentool.analyzer',
-        'api.designer', 
-        'workflow.orchestrator'
-    ],
-    registry=PHASE_REGISTRY
-)
-# build_workflow creates GenericPhaseNodes that read from state
+# Example of future domain extension
+# new_workflow = build_domain_workflow(
+#     domain='newdomain',
+#     phases=['phase1', 'phase2', 'phase3'],
+#     config=new_config
+# )
 ```
 
 ### Template-Driven Execution
@@ -456,7 +434,7 @@ sequenceDiagram
 WorkflowState (Universal)
 ├── Core Identity
 │   ├── workflow_id: str
-│   ├── domain: str ('agentool', 'api', 'workflow', etc.)
+│   ├── domain: str ('smoke', etc.)
 │   └── timestamp: datetime
 ├── Phase Tracking
 │   ├── completed_phases: Set[str]
@@ -621,16 +599,16 @@ Iteration Pattern:
 
 **Example: Iteration Through Self-Return**
 ```python
-class ProcessToolsNode(BaseNode):
+class IterationExampleNode(BaseNode):
     async def run(self, ctx):
-        config = ctx.state.workflow_def.node_configs["process_tools"]
+        config = ctx.state.workflow_def.node_configs.get("iteration_example")
         
-        if not config.iter_enabled:
+        if not config or not config.iter_enabled:
             # Single execution
-            return await self.process_all(ctx)
+            return await self.process_single(ctx)
         
         # Get current iteration state
-        items = ctx.state.iter_items  # List[ToolSpec]
+        items = ctx.state.iter_items  # List[Any]
         idx = ctx.state.iter_index
         
         if idx >= len(items):
@@ -638,7 +616,7 @@ class ProcessToolsNode(BaseNode):
             return NextNode()
         
         # Process current item
-        result = await self.process_tool(items[idx])
+        result = await self.process_item(items[idx])
         
         # Update state
         new_state = replace(
@@ -649,7 +627,7 @@ class ProcessToolsNode(BaseNode):
         
         # Return self to continue
         if idx + 1 < len(items):
-            return ProcessToolsNode()
+            return IterationExampleNode()
         else:
             return SaveResultsNode()
 ```
@@ -662,7 +640,7 @@ async def parallel_process(graph, items):
     
     async with graph.iter(StartNode(), state=initial_state) as run:
         async for node in run:
-            if isinstance(node, ProcessToolsNode) and node.iter_enabled:
+            if hasattr(node, 'iter_enabled') and node.iter_enabled:
                 # Fork parallel processing
                 for item in items:
                     item_state = replace(initial_state, iter_items=[item])
@@ -847,12 +825,12 @@ class DecisionNode(BaseNode[State, Deps, Output]):
             return RejectionNode()
 ```
 
-### With AgenTool System
+### With GraphToolkit System
 
 Direct integration pattern:
 ```python
-class AgenToolIntegration:
-    """Integrates graph workflows with AgenTool system."""
+class GraphToolkitIntegration:
+    """Integrates graph workflows with GraphToolkit system."""
     
     def __init__(self, graph: Graph):
         self.graph = graph

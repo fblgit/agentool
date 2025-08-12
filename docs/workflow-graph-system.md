@@ -35,11 +35,8 @@ Input → [Phase 1: Domain Analysis] → [Phase 2: Specification] → [Phase 3: 
                                                                                       [Refinement Loop]
 ```
 
-### Domain Examples:
-- **AgenTool Workflow**: Analyzer → Specifier → Crafter → Evaluator
-- **API Design Workflow**: API Analyzer → Schema Designer → Implementation → Validator
-- **Workflow Design**: Process Analyzer → Step Designer → Orchestrator → Tester
-- **Documentation**: Content Analyzer → Structure Designer → Writer → Reviewer
+### Domain Example:
+- **Smoke Workflow**: Ingredient Analyzer → Recipe Designer → Recipe Crafter → Recipe Evaluator
 
 ## Motivation and Purpose
 
@@ -69,7 +66,7 @@ Transform the workflow system into a **meta-framework architecture** where:
 3. **Type Safety**: Full validation via InputSchema/OutputSchema pairs
 4. **Immutable State**: Nodes receive state, produce new state (functional approach)
 5. **Template-Driven**: System/user prompts are external templates
-6. **Domain Agnostic**: Same engine for AgenTools, APIs, workflows, docs, etc.
+6. **Domain Agnostic**: Same engine for any domain (currently implemented: smoke testing)
 7. **Dependency Injection**: Configuration and services via `GraphDeps`
 
 ### Pattern & Style
@@ -206,10 +203,7 @@ class WorkflowDeps:
 ```mermaid
 graph TB
     subgraph CONFIG["Domain Configuration Layer"]
-        AgenToolDef[AgenTool Phases]
-        APIDef[API Design Phases] 
-        WorkflowDef[Workflow Phases]
-        DocsDef[Documentation Phases]
+        SmokeDef[Smoke Test Phases]
     end
     
     subgraph CORE["Meta-Framework Core"]
@@ -271,37 +265,21 @@ graph TB
 #### Phase Registry Architecture
 ```python
 PHASE_REGISTRY: Dict[str, PhaseDefinition] = {
-    # AgenTool domain phases
-    'agentool.analyzer': PhaseDefinition(
-        phase_name='analyzer',
-        domain='agentool',
-        input_schema=AnalyzerInput,
-        output_schema=AnalyzerOutput,
-        system_template='templates/system/analyzer.jinja',
-        user_template='templates/prompts/analyze_catalog.jinja',
-        storage_pattern='workflow/{workflow_id}/analysis',
+    # Smoke domain phases
+    'smoke.ingredient_analyzer': PhaseDefinition(
+        phase_name='ingredient_analyzer',
+        domain='smoke',
+        input_schema=IngredientAnalyzerInput,
+        output_schema=IngredientAnalyzerOutput,
+        system_template='templates/system/smoke/analyzer.jinja',
+        user_template='templates/prompts/smoke/analyze_ingredients.jinja',
+        storage_pattern='workflow/{workflow_id}/ingredient_analysis',
         dependencies=[],
         model_config=ModelParameters(temperature=0.7)
     ),
-    'agentool.specifier': PhaseDefinition(...),
-    'agentool.crafter': PhaseDefinition(...),
-    
-    # API design domain phases
-    'api.analyzer': PhaseDefinition(
-        phase_name='analyzer',
-        domain='api',
-        input_schema=APIAnalysisInput,
-        output_schema=APIDesignOutput,
-        system_template='templates/system/api_analyzer.jinja',
-        user_template='templates/prompts/analyze_api.jinja',
-        storage_pattern='workflow/{workflow_id}/api_analysis',
-        dependencies=[],
-        model_config=ModelParameters(temperature=0.8)
-    ),
-    
-    # Workflow orchestration phases
-    'workflow.analyzer': PhaseDefinition(...),
-    'workflow.orchestrator': PhaseDefinition(...),
+    'smoke.recipe_designer': PhaseDefinition(...),
+    'smoke.recipe_crafter': PhaseDefinition(...),
+    'smoke.recipe_evaluator': PhaseDefinition(...),
 }
 ```
 
@@ -326,7 +304,7 @@ def build_domain_workflow(
     
     # Add control flow nodes
     if config.enable_refinement:
-        nodes.append(RefinementLoopNode())
+        nodes.append(RefinementNode())
     
     return Graph(nodes=nodes, deps=config.deps)
 ```
@@ -412,15 +390,15 @@ node_configs = {
         retry_backoff="exponential"
     ),
     
-    # Iteration-enabled nodes
-    "process_tools": NodeConfig(
-        node_type="tool_processor",
-        retryable=False,
-        iter_enabled=True,
-        iter_in_type=List[ToolSpec],
-        iter_out_type=List[ProcessedTool],
-        max_retries=0
-    ),
+    # Iteration-enabled nodes (if needed in future)
+    # "process_items": NodeConfig(
+    #     node_type="item_processor",
+    #     retryable=False,
+    #     iter_enabled=True,
+    #     iter_in_type=List[Item],
+    #     iter_out_type=List[Result],
+    #     max_retries=0
+    # ),
     
     # Deterministic operations - no retry needed
     "template_render": NodeConfig(
@@ -438,34 +416,17 @@ node_configs = {
 }
 ```
 
-#### Transform Nodes
-- `JSONParseNode`: Parse JSON strings to objects
-- `JSONSerializeNode`: Serialize objects to JSON
+#### Core Nodes (Used by Smoke Domain)
 - `TemplateRenderNode`: Render Jinja templates
-- `CodeFormatNode`: Format Python code
-- `DataMergeNode`: Merge multiple data sources
-- `DataFilterNode`: Filter collections based on criteria
-
-#### Validation Nodes
-- `SyntaxValidationNode`: Python syntax checking via AST
-- `ImportValidationNode`: Verify import availability
 - `SchemaValidationNode`: Pydantic schema validation
 - `QualityGateNode`: Threshold-based quality checks
 - `DependencyCheckNode`: Verify required dependencies
-
-#### LLM Nodes
-- `PromptBuilderNode`: Construct prompts from templates and data
 - `LLMCallNode`: Execute LLM API calls
-- `ResponseParserNode`: Parse structured LLM responses
+- `LoadDependenciesNode`: Load phase dependencies
+- `SavePhaseOutputNode`: Save phase outputs
+- `StateUpdateNode`: Update workflow state
+- `NextPhaseNode`: Transition to next phase
 - `RefinementNode`: Iterative improvement with feedback
-- `BatchLLMNode`: Parallel LLM calls for multiple items
-
-#### Control Flow Nodes
-- `StateBasedConditionalNode`: Branch based on state conditions
-- `IterableNode`: Process items via self-return iteration pattern
-- `SequentialMapNode`: Map operation over collection sequentially
-- `AggregatorNode`: Combine results from parallel operations
-- `LoopNode`: Iterate until condition met
 
 **State-Based Retry Pattern**: All nodes can retry via self-return with state tracking when configured as retryable in NodeConfig
 
@@ -506,78 +467,20 @@ This YAML specification defines the universal pattern that all phases follow reg
 
 #### Domain-Specific Data Examples
 
-**AgenTool Domain**:
+**Smoke Domain**:
 ```python
 domain_data = {
-    'catalog': {...},  # Tool catalog
-    'missing_tools': [...],  # From analyzer
-    'specifications': [...],  # From specifier
-    'generated_code': {...},  # From crafter
-    'quality_metrics': {...}  # From evaluator
+    'ingredients': [...],  # Available ingredients
+    'recipe_design': {...},  # From recipe designer
+    'recipe_implementation': {...},  # From recipe crafter
+    'quality_metrics': {...}  # From recipe evaluator
 }
 ```
 
-**API Design Domain**:
-```python
-domain_data = {
-    'endpoints': [...],  # API endpoints
-    'schemas': {...},  # OpenAPI schemas
-    'implementations': {...},  # Generated handlers
-    'test_suites': {...}  # API tests
-}
-```
+### 3. Iteration Pattern (Note: Not currently used in smoke domain)
 
-**Workflow Domain**:
-```python
-domain_data = {
-    'process_steps': [...],  # Workflow steps
-    'dependencies': {...},  # Step dependencies
-    'orchestration': {...},  # DAG definition
-    'validations': {...}  # Step validators
-}
-```
-
-### 3. Iteration Pattern (Replacing Parallel Sub-graphs)
-
-#### Iteration Through Node Self-Return
-```python
-@dataclass
-class IterableNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
-    """Node that iterates over items without sub-graphs."""
-    
-    async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode | End[WorkflowState]:
-        node_config = ctx.state.get_current_node_config()
-        
-        if not node_config.iter_enabled:
-            # Single execution mode
-            return await self.process_single(ctx)
-        
-        # Get items to process
-        items = ctx.state.iter_items
-        current_idx = ctx.state.iter_index
-        
-        if current_idx >= len(items):
-            # Iteration complete - move to next node
-            return self.on_iteration_complete(ctx)
-        
-        # Process current item
-        current_item = items[current_idx]
-        result = await self.process_item(current_item, ctx)
-        
-        # Update state with result
-        new_state = replace(
-            ctx.state,
-            iter_results=ctx.state.iter_results + [result],
-            iter_index=current_idx + 1
-        )
-        
-        # Return ourselves to process next item
-        if current_idx + 1 < len(items):
-            return self.__class__()  # Continue iteration
-        else:
-            # All items processed - move to next node
-            return self.get_next_node(new_state)
-```
+#### State-Based Iteration (when needed)
+Nodes can iterate by returning themselves with updated state. This pattern is available but not currently utilized in the smoke domain implementation.
 
 #### Parallel Execution with Graph.iter()
 ```python
@@ -595,7 +498,7 @@ async def run_workflow_with_parallel_iteration(workflow_def, items):
         parallel_tasks = []
         
         async for node in run:
-            if isinstance(node, IterableNode) and node.iter_enabled:
+            if hasattr(node, 'iter_enabled') and node.iter_enabled:
                 # Check if we should parallelize
                 node_config = state.get_current_node_config()
                 
@@ -623,15 +526,15 @@ async def run_workflow_with_parallel_iteration(workflow_def, items):
                     await run.next(next_node)
 ```
 
-#### Conditional Composition (Still Works)
+#### Conditional Composition
 ```python
 @dataclass
-class QualityCheck(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
+class QualityGateNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
     async def run(self, ctx):
         if ctx.state.quality_scores[ctx.state.current_phase] >= ctx.state.workflow_def.phases[ctx.state.current_phase].quality_threshold:
-            return ApprovalNode()
+            return NextPhaseNode()
         else:
-            return RefinementNode()
+            return RefinementNode(feedback="Quality threshold not met")
 ```
 
 ## Integration with pydantic_graph
@@ -780,14 +683,14 @@ class LoadDependenciesNode(BaseNode):
 ```python
 # Adding a new domain is just configuration:
 new_phases = {
-    'blockchain.analyzer': PhaseDefinition(...),
-    'blockchain.smart_contract_designer': PhaseDefinition(...),
-    'blockchain.auditor': PhaseDefinition(...),
+    'newdomain.phase1': PhaseDefinition(...),
+    'newdomain.phase2': PhaseDefinition(...),
+    'newdomain.phase3': PhaseDefinition(...),
 }
 PHASE_REGISTRY.update(new_phases)
 
 # Instantly available:
-workflow = build_domain_workflow('blockchain', ['analyzer', 'smart_contract_designer', 'auditor'])
+workflow = build_domain_workflow('newdomain', ['phase1', 'phase2', 'phase3'])
 ```
 
 ### Type Safety Guarantees
@@ -803,9 +706,7 @@ templates/
     base_analyzer.jinja      # Shared analyzer pattern
     base_generator.jinja     # Shared generator pattern
   prompts/
-    agentool/               # Domain-specific prompts
-    api/
-    workflow/
+    smoke/                  # Domain-specific prompts
   fragments/               # Reusable template parts
     error_handling.jinja
     quality_criteria.jinja
@@ -818,13 +719,13 @@ The following example demonstrates the new state-driven conditional pattern that
 ```python
 # Configure state-driven conditions in WorkflowDefinition
 workflow_def = WorkflowDefinition(
-    domain="agentool",
+    domain="smoke",
     phases={"analysis": analysis_phase, "generation": generation_phase},
     phase_sequence=["analysis", "generation"],
     node_configs={
         "quality_gate": NodeConfig(node_type="validation"),
-        "simple_generator": NodeConfig(node_type="generator"),
-        "complex_generator": NodeConfig(node_type="advanced_generator")
+        "template_render": NodeConfig(node_type="template"),
+        "llm_call": NodeConfig(node_type="llm")
     },
     conditions={
         # Quality gate - check if analysis meets threshold
@@ -874,22 +775,22 @@ class QualityGateNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
                 return RefinementNode(target_phase="analysis")
 
 @dataclass
-class GeneratorRoutingNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
+class PhaseRoutingNode(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
     async def run(self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]) -> BaseNode:
         # Route based on complexity analysis stored in state
         complexity_condition = ctx.state.workflow_def.conditions["complexity_routing"]
         
         if complexity_condition.evaluate(ctx.state):
-            # High complexity - use advanced generator
-            return AdvancedGeneratorNode()
+            # High complexity - use different phase
+            return NextPhaseNode()
         else:
-            # Normal complexity - use simple generator
-            return SimpleGeneratorNode()
+            # Normal complexity - continue normally
+            return StateUpdateNode()
 
 # State evolution example - conditions react to state changes
 initial_state = WorkflowState(
     workflow_def=workflow_def,
-    domain="agentool",
+    domain="smoke",
     quality_scores={},  # Empty initially
     refinement_count={}, # Empty initially
     domain_data={"complexity": "high"}  # Set by analysis phase
