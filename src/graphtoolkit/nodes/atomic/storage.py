@@ -377,80 +377,6 @@ class SaveStorageNode(BaseNode[WorkflowState, Any, StorageRef]):
 
 
 
-@dataclass
-class BatchSaveNode(BaseNode[WorkflowState, Any, List[StorageRef]]):
-    """Save multiple items in batch.
-    """
-    storage_prefix: str
-    storage_type: StorageType = StorageType.KV
-    
-    async def execute(self, ctx: GraphRunContext[WorkflowState, Any]) -> BaseNode:
-        """Save multiple items to storage."""
-        import asyncio
-        
-        # Get items from iteration results or domain data
-        items = ctx.state.iter_results if ctx.state.iter_results else []
-        
-        if not items:
-            logger.warning('No items to save in batch')
-            return self._continue_chain(ctx.state, [])
-        
-        async def save_item(idx: int, item: Any) -> StorageRef:
-            key = f'{self.storage_prefix}/{idx}'
-            try:
-                storage_client = ctx.deps.get_storage_client()
-                
-                if self.storage_type == StorageType.KV:
-                    await storage_client.run('storage_kv', {
-                        'operation': 'save',
-                        'key': key,
-                        'data': item
-                    })
-                else:
-                    await storage_client.run('storage_fs', {
-                        'operation': 'save',
-                        'path': key,
-                        'data': item
-                    })
-                
-                return StorageRef(
-                    storage_type=self.storage_type,
-                    key=key,
-                    created_at=datetime.now()
-                )
-            except Exception as e:
-                logger.error(f'Failed to save item {idx}: {e}')
-                from ...exceptions import StorageError
-                raise StorageError(f'Failed to save item {idx}: {e}') from e
-        
-        # Save all items in parallel
-        tasks = [save_item(i, item) for i, item in enumerate(items)]
-        refs = await asyncio.gather(*tasks)
-        
-        # Filter out failed saves
-        valid_refs = [ref for ref in refs if ref is not None]
-        
-        logger.info(f'Batch saved {len(valid_refs)}/{len(items)} items')
-        
-        return self._continue_chain(ctx.state, valid_refs)
-    
-    def _continue_chain(self, state: WorkflowState, refs: List[StorageRef]) -> BaseNode:
-        """Continue to next node with updated state."""
-        new_state = replace(
-            state,
-            domain_data={
-                **state.domain_data,
-                f'{state.current_phase}_batch_refs': refs,
-                f'{state.current_phase}_batch_count': len(refs)
-            }
-        )
-        
-        next_node_id = self.get_next_node(new_state)
-        if next_node_id:
-            new_state = replace(new_state, current_node=next_node_id)
-            return create_node_instance(next_node_id)
-        
-        return End(new_state)
 
 
 @dataclass
@@ -956,5 +882,4 @@ register_node_class('save_analysis', SaveAnalysisNode)
 register_node_class('save_missing_tools', SaveMissingToolsNode)
 register_node_class('save_validation_summary', SaveValidationSummaryNode)
 register_node_class('save_summary_markdown', SaveSummaryMarkdownNode)
-register_node_class('batch_save', BatchSaveNode)
 register_node_class('prepare_specifier_iteration', PrepareSpecifierIterationNode)

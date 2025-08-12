@@ -33,8 +33,7 @@ from graphtoolkit.nodes.base import (
 from graphtoolkit.nodes.atomic.storage import (
     DependencyCheckNode,
     LoadDependenciesNode, 
-    SavePhaseOutputNode,
-    BatchSaveNode
+    SavePhaseOutputNode
 )
 from graphtoolkit.core.types import (
     WorkflowState,
@@ -522,21 +521,32 @@ class TestStorageNodes:
             assert result.data['value'] == f'data_{i}'
     
     @pytest.mark.asyncio
-    async def test_batch_save_node(self):
-        """Test BatchSaveNode parallel saving."""
-        node = BatchSaveNode(storage_prefix='batch_test')
+    async def test_batch_save_via_storage(self):
+        """Test batch saving via storage directly."""
+        items = ['item1', 'item2', 'item3']
         
-        # Set up iteration results to save
-        state_with_results = replace(
-            self.state,
-            iter_results=['item1', 'item2', 'item3']
-        )
+        # Save items individually via storage
+        from agentool.core.injector import get_injector
+        injector = get_injector()
         
-        ctx = GraphRunContext(state_with_results, self.deps)
+        for i, item in enumerate(items):
+            result = await injector.run('storage_kv', {
+                'operation': 'set',
+                'key': f'batch_test/{i}',
+                'value': item,
+                'namespace': 'test'
+            })
+            assert result.success == True
         
-        # Test batch saving node can be created
-        assert node is not None
-        assert node.storage_prefix == 'batch_test'
+        # Verify items were saved
+        for i, item in enumerate(items):
+            result = await injector.run('storage_kv', {
+                'operation': 'get',
+                'key': f'batch_test/{i}',
+                'namespace': 'test'
+            })
+            assert result.success == True
+            assert result.data['value'] == item
 
 
 class TestStorageNodeIntegration:
