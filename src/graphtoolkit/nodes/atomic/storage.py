@@ -376,64 +376,6 @@ class SaveStorageNode(BaseNode[WorkflowState, Any, StorageRef]):
             raise StorageError(f'Failed to save to {self.storage_key}: {e}')
 
 
-@dataclass
-class BatchLoadNode(BaseNode[WorkflowState, Any, Dict[str, Any]]):
-    """Load multiple items in parallel.
-    """
-    storage_keys: List[str]
-    storage_type: StorageType = StorageType.KV
-    
-    async def execute(self, ctx: GraphRunContext[WorkflowState, Any]) -> BaseNode:
-        """Load multiple items from storage."""
-        import asyncio
-        
-        async def load_item(key: str) -> tuple[str, Any]:
-            try:
-                storage_client = ctx.deps.get_storage_client()
-                
-                if self.storage_type == StorageType.KV:
-                    result = await storage_client.run('storage_kv', {
-                        'operation': 'load',
-                        'key': key
-                    })
-                    data = result.data if result.success else None
-                else:
-                    result = await storage_client.run('storage_fs', {
-                        'operation': 'load',
-                        'path': key
-                    })
-                    data = result.data if result.success else None
-                    
-                return key, data
-            except Exception as e:
-                logger.error(f'Failed to load {key}: {e}')
-                from ...exceptions import StorageError
-                raise StorageError(f'Failed to load {key}: {e}') from e
-        
-        # Load all items in parallel
-        tasks = [load_item(key) for key in self.storage_keys]
-        results = await asyncio.gather(*tasks)
-        
-        # Convert to dict
-        loaded_data = dict(results)
-        
-        # Update state
-        new_state = replace(
-            ctx.state,
-            domain_data={
-                **ctx.state.domain_data,
-                'batch_loaded': loaded_data
-            }
-        )
-        
-        # Chain to next node
-        next_node_id = self.get_next_node(new_state)
-        if next_node_id:
-            new_state = replace(new_state, current_node=next_node_id)
-            return create_node_instance(next_node_id)
-        
-        return End(new_state)
-
 
 @dataclass
 class BatchSaveNode(BaseNode[WorkflowState, Any, List[StorageRef]]):
@@ -1014,6 +956,5 @@ register_node_class('save_analysis', SaveAnalysisNode)
 register_node_class('save_missing_tools', SaveMissingToolsNode)
 register_node_class('save_validation_summary', SaveValidationSummaryNode)
 register_node_class('save_summary_markdown', SaveSummaryMarkdownNode)
-register_node_class('batch_load', BatchLoadNode)
 register_node_class('batch_save', BatchSaveNode)
 register_node_class('prepare_specifier_iteration', PrepareSpecifierIterationNode)

@@ -34,7 +34,6 @@ from graphtoolkit.nodes.atomic.storage import (
     DependencyCheckNode,
     LoadDependenciesNode, 
     SavePhaseOutputNode,
-    BatchLoadNode,
     BatchSaveNode
 )
 from graphtoolkit.core.types import (
@@ -495,11 +494,9 @@ class TestStorageNodes:
         assert node is not None
     
     @pytest.mark.asyncio
-    async def test_batch_load_node(self):
-        """Test BatchLoadNode parallel loading."""
+    async def test_batch_load_via_storage(self):
+        """Test parallel loading via storage directly."""
         keys = ['key1', 'key2', 'key3']
-        node = BatchLoadNode(storage_keys=keys)
-        ctx = GraphRunContext(self.state, self.deps)
         
         # First save data for each key
         from agentool.core.injector import get_injector
@@ -514,9 +511,15 @@ class TestStorageNodes:
             })
             assert result.success == True
         
-        # Test batch loading node can be created
-        assert node is not None
-        assert node.storage_keys == keys
+        # Load them back
+        for i, key in enumerate(keys):
+            result = await injector.run('storage_kv', {
+                'operation': 'get',
+                'key': key,
+                'namespace': 'test'
+            })
+            assert result.success == True
+            assert result.data['value'] == f'data_{i}'
     
     @pytest.mark.asyncio
     async def test_batch_save_node(self):
