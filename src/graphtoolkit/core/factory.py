@@ -148,21 +148,6 @@ def _try_import_node(node_id: str) -> None:
         'quality_check': 'graphtoolkit.nodes.atomic.approval',
         
         # Iteration operation nodes
-        'process_tools': 'graphtoolkit.nodes.atomic.iteration_ops',
-        'process_endpoints': 'graphtoolkit.nodes.atomic.iteration_ops',
-        'process_steps': 'graphtoolkit.nodes.atomic.iteration_ops',
-        'process_contracts': 'graphtoolkit.nodes.atomic.iteration_ops',
-        'batch_validate': 'graphtoolkit.nodes.atomic.iteration_ops',
-        'specifier_tool_iterator': 'graphtoolkit.nodes.atomic.iteration_ops',  # V1-compatible specifier
-        'prepare_specifier_iteration': 'graphtoolkit.nodes.atomic.storage',  # V1-compatible prep
-        
-        # Iteration nodes
-        'iterate': 'graphtoolkit.nodes.iteration',
-        'batch_process': 'graphtoolkit.nodes.iteration',
-        'map': 'graphtoolkit.nodes.iteration',
-        'filter': 'graphtoolkit.nodes.iteration',
-        'aggregate': 'graphtoolkit.nodes.iteration',
-        'parallel_map': 'graphtoolkit.nodes.iteration',
         
         # Generic nodes
         'generic_phase': 'graphtoolkit.nodes.generic',

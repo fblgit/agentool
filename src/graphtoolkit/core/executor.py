@@ -140,16 +140,12 @@ class WorkflowExecutor:
         # Import all atomic node classes that are needed
         # This approach loads all classes to ensure they're available in the graph
         from ..nodes.atomic.storage import (
-            DependencyCheckNode, LoadDependenciesNode, SavePhaseOutputNode,
-            PrepareSpecifierIterationNode  # V1-compatible specifier preparation
+            DependencyCheckNode, LoadDependenciesNode, SavePhaseOutputNode
         )
         from ..nodes.atomic.templates import TemplateRenderNode
         from ..nodes.atomic.llm import LLMCallNode
         from ..nodes.atomic.validation import SchemaValidationNode, QualityGateNode
         from ..nodes.atomic.control import StateUpdateNode, NextPhaseNode, RefinementNode
-        from ..nodes.atomic.iteration_ops import (
-            SpecifierToolIteratorNode  # V1-compatible specifier iteration
-        )
         from ..nodes.generic import WorkflowEndNode
         
         # Add base classes to satisfy pydantic_graph's type checking
@@ -162,8 +158,6 @@ class WorkflowExecutor:
         node_classes.add(DependencyCheckNode)
         node_classes.add(LoadDependenciesNode)
         node_classes.add(SavePhaseOutputNode)
-        node_classes.add(PrepareSpecifierIterationNode)  # V1-compatible specifier prep
-        node_classes.add(SpecifierToolIteratorNode)  # V1-compatible specifier iteration
         node_classes.add(TemplateRenderNode)
         node_classes.add(LLMCallNode)
         node_classes.add(SchemaValidationNode)
