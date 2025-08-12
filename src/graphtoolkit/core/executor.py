@@ -150,10 +150,6 @@ class WorkflowExecutor:
         from ..nodes.atomic.iteration_ops import (
             SpecifierToolIteratorNode  # V1-compatible specifier iteration
         )
-        from ..nodes.atomic.crafter_ops import (
-            PrepareCrafterIterationNode,  # V1-compatible crafter preparation
-            CrafterToolIteratorNode  # V1-compatible crafter iteration
-        )
         from ..nodes.generic import WorkflowEndNode
         
         # Add base classes to satisfy pydantic_graph's type checking
@@ -168,8 +164,6 @@ class WorkflowExecutor:
         node_classes.add(SavePhaseOutputNode)
         node_classes.add(PrepareSpecifierIterationNode)  # V1-compatible specifier prep
         node_classes.add(SpecifierToolIteratorNode)  # V1-compatible specifier iteration
-        node_classes.add(PrepareCrafterIterationNode)  # V1-compatible crafter prep
-        node_classes.add(CrafterToolIteratorNode)  # V1-compatible crafter iteration
         node_classes.add(TemplateRenderNode)
         node_classes.add(LLMCallNode)
         node_classes.add(SchemaValidationNode)

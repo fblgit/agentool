@@ -155,8 +155,6 @@ def _try_import_node(node_id: str) -> None:
         'batch_validate': 'graphtoolkit.nodes.atomic.iteration_ops',
         'specifier_tool_iterator': 'graphtoolkit.nodes.atomic.iteration_ops',  # V1-compatible specifier
         'prepare_specifier_iteration': 'graphtoolkit.nodes.atomic.storage',  # V1-compatible prep
-        'prepare_crafter_iteration': 'graphtoolkit.nodes.atomic.crafter_ops',  # V1-compatible crafter prep
-        'crafter_tool_iterator': 'graphtoolkit.nodes.atomic.crafter_ops',  # V1-compatible crafter
         
         # Iteration nodes
         'iterate': 'graphtoolkit.nodes.iteration',
