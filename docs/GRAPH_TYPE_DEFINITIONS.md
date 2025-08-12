@@ -62,7 +62,7 @@ graph TD
     ValidationError --> QualityMetrics
     ModelParameters --> ModelConfig
     
-    ToolSpec --> ProcessingState
+    RecipeSpec --> ProcessingState
     CodeBlock --> ProcessingState
     QualityMetrics --> EvaluationState
     RefinementRecord --> RefinementState

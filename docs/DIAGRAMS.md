@@ -137,7 +137,7 @@ graph TB
 
 ```mermaid
 graph TB
-    SEQ[IterableNode with items] --> CHECK{iter_enabled?}
+    SEQ[Node with items] --> CHECK{iter_enabled?}
     
     CHECK -->|No| SINGLE[Process all at once]
     CHECK -->|Yes| FORK[Fork Execution]
@@ -146,14 +146,14 @@ graph TB
     FORK --> P2[Process Item B] 
     FORK --> P3[Process Item C]
     
-    P1 --> AGG[AggregatorNode]
+    P1 --> AGG[Aggregate Results]
     P2 --> AGG
     P3 --> AGG
     
     AGG --> NEXT[Continue Chain]
     
     subgraph control[Graph.iter Control]
-        ITER[graph.iter start] --> DETECT[detect IterableNode]
+        ITER[graph.iter start] --> DETECT[detect iter_enabled node]
         DETECT --> SPAWN[spawn tasks]
         SPAWN --> GATHER[asyncio.gather]
     end
@@ -161,25 +161,25 @@ graph TB
     FORK -.-> ITER
 ```
 
-## 6. Complete AgenTool Workflow Example
+## 6. Complete Smoke Workflow Example
 
 ```mermaid
 graph TB
-    START[User Request: Create auth_tool] --> INIT[Initialize WorkflowState]
+    START[User Request: Create recipe] --> INIT[Initialize WorkflowState]
     
-    INIT --> PHASE1[Phase: Analyzer]
-    PHASE1 --> A_OUT[Analysis Output]
+    INIT --> PHASE1[Phase: Ingredient Analyzer]
+    PHASE1 --> A_OUT[Ingredient Analysis]
     
-    A_OUT --> PHASE2[Phase: Specifier]  
-    PHASE2 --> S_OUT[Specification Output]
+    A_OUT --> PHASE2[Phase: Recipe Designer]  
+    PHASE2 --> S_OUT[Recipe Design]
     
-    S_OUT --> PHASE3[Phase: Crafter]
-    PHASE3 --> C_OUT[Generated Code]
+    S_OUT --> PHASE3[Phase: Recipe Crafter]
+    PHASE3 --> C_OUT[Crafted Recipe]
     
-    C_OUT --> PHASE4[Phase: Evaluator]
+    C_OUT --> PHASE4[Phase: Recipe Evaluator]
     PHASE4 --> QG{Quality Gate}
     
-    QG -->|Pass| DONE[Complete: auth_tool.py]
+    QG -->|Pass| DONE[Complete: recipe.json]
     QG -->|Fail| REFINE[Refinement]
     REFINE --> PHASE3
     
