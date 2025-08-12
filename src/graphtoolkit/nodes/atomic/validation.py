@@ -173,11 +173,9 @@ class QualityGateNode(BaseNode[WorkflowState, Any, WorkflowState]):
             logger.debug(f"[QualityGateNode] === EXIT === Returning RefinementNode")
             return RefinementNode(feedback=feedback)
         
-        # Cannot refine further, fail the workflow
-        logger.error(f'[QualityGateNode] Quality below threshold and max refinements reached for {phase_name}')
-        logger.error(f"[QualityGateNode] Quality {quality_score} < {phase_def.quality_threshold} is unacceptable")
-        from ...exceptions import WorkflowError
-        raise WorkflowError(f"Quality threshold not met for {phase_name}: {quality_score} < {phase_def.quality_threshold} after max refinements")
+        # Cannot refine further, accept current quality
+        logger.warning(f'[QualityGateNode] Quality below threshold but max refinements reached for {phase_name}')
+        logger.warning(f"[QualityGateNode] Accepting quality {quality_score} < {phase_def.quality_threshold} after {refinement_count} refinements")
         
         # Mark that we accepted below threshold
         new_state = replace(

@@ -15,8 +15,7 @@ from graphtoolkit.core.initialization import (
     cleanup_graphtoolkit,
     reset_graphtoolkit,
     default_config,
-    test_config as get_test_config,  # Rename to avoid pytest confusion
-    agentool_workflow_config
+    test_config as get_test_config  # Rename to avoid pytest confusion
 )
 
 
@@ -206,16 +205,6 @@ class TestConfigurationPresets:
         assert config.test_mode == True
         assert config.clear_on_init == True
     
-    def test_agentool_workflow_config(self):
-        """Test AgenTool workflow config includes workflow agents."""
-        config = agentool_workflow_config()
-        
-        assert config.enable_storage_kv == True
-        assert config.enable_storage_fs == True
-        assert config.enable_templates == True
-        assert config.enable_metrics == True
-        assert config.enable_workflow_agents == True
-        assert config.enable_agentool_management == True
 
 
 class TestRealComponentInitialization:

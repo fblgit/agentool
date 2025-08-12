@@ -5,25 +5,15 @@ Each domain follows the same meta-framework pattern with 4-phase workflows.
 """
 
 # Import domain modules to register phases
-from . import agentool, api, blockchain, documentation, workflow, smoke
+from . import smoke
 
 # Export domain names for easy reference
 AVAILABLE_DOMAINS = [
-    'agentool',      # AgenTool creation workflow
-    'api',           # API design workflow
-    'workflow',      # Workflow orchestration
-    'documentation', # Documentation generation
-    'blockchain',    # Smart contract development
     'smoke'          # Lightweight E2E testing domain
 ]
 
 # Export phase names by domain
 DOMAIN_PHASES = {
-    'agentool': ['analyzer', 'specifier', 'crafter', 'evaluator'],
-    'api': ['analyzer', 'designer', 'generator', 'validator'],
-    'workflow': ['analyzer', 'step_designer', 'orchestrator', 'tester'],
-    'documentation': ['content_analyzer', 'structure_designer', 'writer', 'reviewer'],
-    'blockchain': ['contract_analyzer', 'smart_contract_designer', 'auditor', 'optimizer'],
     'smoke': ['ingredient_analyzer', 'recipe_designer', 'recipe_crafter', 'recipe_evaluator']
 }
 

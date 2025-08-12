@@ -24,10 +24,9 @@ Specification Method:
    - Choose precise operation names (verbs) and ensure they can be routed directly.
    - Specify required and optional parameters per operation with clear descriptions and types.
 
-3) Schemas
+3) MANDATORY Schemas:
    - tool_input_schema: object with an `operation` string enum covering all operations and properties for parameters. Include `required` lists and per-field descriptions.
    - tool_output_schema: object with `success` (boolean), `message` (string), and `data` (object|null) with operation-specific payload notes. Include `required`.
-   - Keep JSON Schema concise, consistent, and aligned with existing patterns.
 
 4) Integration Plan
    - List exact `required_tools` by registry name (from the catalog); avoid inventing tools.

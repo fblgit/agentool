@@ -634,14 +634,3 @@ def full_config() -> InitializationConfig:
     )
 
 
-def agentool_workflow_config() -> InitializationConfig:
-    """Configuration optimized for AgenTool workflows."""
-    return InitializationConfig(
-        enable_storage_kv=True,
-        enable_storage_fs=True,
-        enable_templates=True,
-        enable_logging=True,
-        enable_metrics=True,
-        enable_workflow_agents=True,  # Enable workflow-specific agents
-        enable_agentool_management=True,  # For AgenTool operations
-    )

@@ -16,12 +16,8 @@ from pydantic_ai import RunContext
 # GraphToolkit imports
 from graphtoolkit import (
     GraphToolkit, 
-    create_agentool_workflow, 
-    create_testsuite_workflow,
     list_available_domains,
-    get_domain_phases,
-    execute_agentool_workflow,
-    execute_testsuite_workflow
+    get_domain_phases
 )
 from graphtoolkit.core.types import (
     WorkflowDefinition, 
@@ -45,13 +41,11 @@ class TestGraphToolkitAPI:
         """Test domain discovery functionality."""
         domains = list_available_domains()
         
-        # Should include the 6 documented domains
-        expected_domains = {'agentool', 'testsuite', 'api', 'workflow', 'documentation', 'blockchain'}
+        # Should include the smoke domain
         available_domains = set(domains)
         
-        # Check that core domains are available
-        assert 'agentool' in available_domains
-        assert 'testsuite' in available_domains
+        # Check that smoke domain is available
+        assert 'smoke' in available_domains
         
         # Verify it's not empty
         assert len(domains) > 0
@@ -59,75 +53,50 @@ class TestGraphToolkitAPI:
     
     def test_get_domain_phases(self):
         """Test retrieving phases for a specific domain."""
-        # Test AgenTool domain phases
-        agentool_phases = get_domain_phases('agentool')
-        assert isinstance(agentool_phases, dict)
+        # Test smoke domain phases
+        smoke_phases = get_domain_phases('smoke')
+        assert isinstance(smoke_phases, dict)
         
-        # Should have the 4 standard phases per documentation
-        expected_phases = ['analyzer', 'specifier', 'crafter', 'evaluator']
+        # Should have the 4 standard phases for smoke domain
+        expected_phases = ['ingredient_analyzer', 'recipe_designer', 'recipe_crafter', 'recipe_evaluator']
         for phase in expected_phases:
-            if phase in agentool_phases:  # Some phases might not be registered yet
-                assert isinstance(agentool_phases[phase], PhaseDefinition)
-                assert agentool_phases[phase].phase_name == phase
-                assert agentool_phases[phase].domain == 'agentool'
+            if phase in smoke_phases:  # Some phases might not be registered yet
+                assert isinstance(smoke_phases[phase], PhaseDefinition)
+                assert smoke_phases[phase].phase_name == phase
+                assert smoke_phases[phase].domain == 'smoke'
     
-    def test_create_agentool_workflow(self):
-        """Test AgenTool workflow creation."""
-        task_description = "Create a session management AgenTool"
+    def test_create_smoke_workflow(self):
+        """Test smoke workflow creation."""
+        from graphtoolkit.domains.smoke import create_smoke_workflow
         
-        workflow_def, initial_state = create_agentool_workflow(
-            task_description=task_description,
-            workflow_id="test-workflow-001",
-            model="openai:gpt-4o"
+        ingredients = ["chicken", "rice", "vegetables"]
+        
+        workflow_def, initial_state = create_smoke_workflow(
+            ingredients=ingredients,
+            dietary_restrictions=["gluten-free"],
+            workflow_id="test-workflow-001"
         )
         
         # Verify workflow definition
         assert isinstance(workflow_def, WorkflowDefinition)
-        assert workflow_def.domain == 'agentool'
+        assert workflow_def.domain == 'smoke'
         assert len(workflow_def.phase_sequence) == 4
-        assert workflow_def.phase_sequence == ['analyzer', 'specifier', 'crafter', 'evaluator']
+        assert workflow_def.phase_sequence == ['ingredient_analyzer', 'recipe_designer', 'recipe_crafter', 'recipe_evaluator']
         
         # Verify initial state
         assert isinstance(initial_state, WorkflowState)
         assert initial_state.workflow_id == "test-workflow-001"
-        assert initial_state.domain == 'agentool'
+        assert initial_state.domain == 'smoke'
         assert initial_state.workflow_def == workflow_def
-        assert initial_state.domain_data['task_description'] == task_description
-        assert initial_state.domain_data['model'] == "openai:gpt-4o"
+        assert initial_state.domain_data['ingredients'] == ingredients
+        assert initial_state.domain_data['dietary_restrictions'] == ["gluten-free"]
     
-    def test_create_testsuite_workflow(self):
-        """Test TestSuite workflow creation."""
-        code_to_test = """
-def calculate_total(items):
-    return sum(item['price'] for item in items)
-"""
-        
-        workflow_def, initial_state = create_testsuite_workflow(
-            code_to_test=code_to_test,
-            framework="pytest",
-            coverage_target=0.90,
-            workflow_id="test-suite-001"
-        )
-        
-        # Verify workflow definition
-        assert isinstance(workflow_def, WorkflowDefinition)
-        assert workflow_def.domain == 'testsuite'
-        assert len(workflow_def.phase_sequence) == 4
-        assert workflow_def.phase_sequence == ['test_analyzer', 'test_designer', 'test_generator', 'test_executor']
-        
-        # Verify initial state
-        assert isinstance(initial_state, WorkflowState)
-        assert initial_state.workflow_id == "test-suite-001"
-        assert initial_state.domain == 'testsuite'
-        assert initial_state.domain_data['code_to_test'] == code_to_test
-        assert initial_state.domain_data['framework'] == "pytest"
-        assert initial_state.domain_data['coverage_target'] == 0.90
     
     def test_toolkit_create_workflow_generic(self):
         """Test generic workflow creation via GraphToolkit instance."""
         workflow_def, initial_state = self.toolkit.create_workflow(
-            domain='agentool',
-            phases=['analyzer', 'specifier'],
+            domain='smoke',
+            phases=['ingredient_analyzer', 'recipe_designer'],
             workflow_id='custom-workflow',
             initial_data={'custom_field': 'value'},
             enable_refinement=False,
@@ -136,7 +105,7 @@ def calculate_total(items):
         
         # Verify workflow definition
         assert isinstance(workflow_def, WorkflowDefinition)
-        assert workflow_def.domain == 'agentool'
+        assert workflow_def.domain == 'smoke'
         assert len(workflow_def.phase_sequence) == 2
         assert workflow_def.enable_refinement == False
         assert workflow_def.enable_parallel == True
@@ -148,8 +117,10 @@ def calculate_total(items):
     
     def test_workflow_validation(self):
         """Test workflow definition validation."""
+        from graphtoolkit.domains.smoke import create_smoke_workflow
+        
         # Create a valid workflow
-        workflow_def, _ = create_agentool_workflow("Test task")
+        workflow_def, _ = create_smoke_workflow(["ingredients"])
         
         # Test validation
         errors = self.toolkit.validate_workflow(workflow_def)
@@ -161,18 +132,18 @@ def calculate_total(items):
             assert all(isinstance(error, str) for error in errors)
     
     @pytest.mark.asyncio
-    async def test_execute_agentool_workflow_basic(self):
-        """Test basic AgenTool workflow execution with TestModel."""
+    async def test_execute_smoke_workflow_basic(self):
+        """Test basic smoke workflow execution with TestModel."""
         from graphtoolkit.core.executor import WorkflowExecutor, WorkflowResult
         from graphtoolkit.core.deps import WorkflowDeps
+        from graphtoolkit.domains.smoke import create_smoke_workflow
         
         # Create a test model for deterministic testing
         test_model = TestModel()
         
         # Create workflow definition and initial state
-        workflow_def, initial_state = create_agentool_workflow(
-            task_description="Create a session management AgenTool",
-            model="test",
+        workflow_def, initial_state = create_smoke_workflow(
+            ingredients=["chicken", "rice"],
             workflow_id="test-workflow-persistence"
         )
         
@@ -185,65 +156,24 @@ def calculate_total(items):
         executor = WorkflowExecutor(deps=deps)
         
         # Test basic workflow structure
-        assert workflow_def.domain == 'agentool'
+        assert workflow_def.domain == 'smoke'
         assert len(workflow_def.phase_sequence) == 4
         assert initial_state.workflow_id == "test-workflow-persistence"
-        assert initial_state.domain == 'agentool'
+        assert initial_state.domain == 'smoke'
         
         # Test workflow result structure (without actual execution for now)
         # This tests that the types and structure are correct
         test_result = WorkflowResult(
             state=initial_state,
-            outputs={'analyzer': {'data': 'test_analysis'}},
+            outputs={'ingredient_analyzer': {'data': 'test_analysis'}},
             success=True,
             execution_time=45.2
         )
         
         assert test_result.success == True
         assert test_result.execution_time == 45.2
-        assert 'analyzer' in test_result.outputs
+        assert 'ingredient_analyzer' in test_result.outputs
     
-    @pytest.mark.asyncio
-    async def test_execute_testsuite_workflow_basic(self):
-        """Test basic TestSuite workflow execution with TestModel."""
-        code_to_test = """
-def add_numbers(a, b):
-    return a + b
-
-def multiply_numbers(a, b):
-    return a * b
-"""
-        
-        from graphtoolkit.core.executor import WorkflowExecutor, WorkflowResult
-        from graphtoolkit.core.deps import WorkflowDeps
-        
-        # Create test model
-        test_model = TestModel()
-        
-        # Create workflow
-        workflow_def, initial_state = create_testsuite_workflow(
-            code_to_test=code_to_test,
-            framework="pytest",
-            coverage_target=0.85,
-            workflow_id="testsuite-test"
-        )
-        
-        # Verify workflow structure
-        assert workflow_def.domain == 'testsuite'
-        assert len(workflow_def.phase_sequence) == 4
-        assert initial_state.workflow_id == "testsuite-test"
-        assert initial_state.domain == 'testsuite'
-        assert initial_state.domain_data['code_to_test'] == code_to_test
-        assert initial_state.domain_data['framework'] == "pytest"
-        assert initial_state.domain_data['coverage_target'] == 0.85
-        
-        # Create deps with test model
-        deps = WorkflowDeps(
-            models={'default': test_model}
-        )
-        
-        # Create executor with deps
-        executor = WorkflowExecutor(deps=deps)
         
         # Test result structure
         test_result = WorkflowResult(
@@ -265,28 +195,28 @@ def multiply_numbers(a, b):
         # Create test model
         test_model = TestModel()
         
-        # Test AgenTool domain workflow creation
+        # Test smoke domain workflow creation
         workflow_def, initial_state = self.toolkit.create_workflow(
-            domain='agentool',
-            phases=['analyzer', 'specifier'],
-            initial_data={'task_description': 'Create TODO manager'},
+            domain='smoke',
+            phases=['ingredient_analyzer', 'recipe_designer'],
+            initial_data={'ingredients': ['chicken', 'rice']},
             workflow_id='integration-test'
         )
         
-        assert workflow_def.domain == 'agentool'
+        assert workflow_def.domain == 'smoke'
         assert len(workflow_def.phase_sequence) == 2
         assert initial_state.workflow_id == 'integration-test'
         
-        # Test TestSuite domain workflow creation (including test_designer for dependencies)
+        # Test smoke domain with different phases
         workflow_def_ts, initial_state_ts = self.toolkit.create_workflow(
-            domain='testsuite',
-            phases=['test_analyzer', 'test_designer', 'test_generator'],
-            initial_data={'code_to_test': 'def test(): pass', 'framework': 'pytest'},
-            workflow_id='testsuite-integration'
+            domain='smoke',
+            phases=['ingredient_analyzer', 'recipe_designer', 'recipe_crafter'],
+            initial_data={'ingredients': ['tomato', 'pasta']},
+            workflow_id='smoke-integration'
         )
         
-        assert workflow_def_ts.domain == 'testsuite'
-        assert initial_state_ts.workflow_id == 'testsuite-integration'
+        assert workflow_def_ts.domain == 'smoke'
+        assert initial_state_ts.workflow_id == 'smoke-integration'
         
         # Create deps for testing
         deps = WorkflowDeps(
@@ -300,18 +230,20 @@ def multiply_numbers(a, b):
     
     def test_workflow_id_generation(self):
         """Test automatic workflow ID generation."""
-        # Test AgenTool workflow ID generation
-        workflow_def1, state1 = create_agentool_workflow("Task 1")
-        workflow_def2, state2 = create_agentool_workflow("Task 2")
+        from graphtoolkit.domains.smoke import create_smoke_workflow
+        
+        # Test smoke workflow ID generation
+        workflow_def1, state1 = create_smoke_workflow(["ingredient1"])
+        workflow_def2, state2 = create_smoke_workflow(["ingredient2"])
         
         # Should generate unique IDs
         assert state1.workflow_id != state2.workflow_id
         assert len(state1.workflow_id) > 0
         assert len(state2.workflow_id) > 0
         
-        # Test TestSuite workflow ID generation
-        workflow_def3, state3 = create_testsuite_workflow("def test(): pass")
-        workflow_def4, state4 = create_testsuite_workflow("def test2(): pass")
+        # Test another smoke workflow ID generation
+        workflow_def3, state3 = create_smoke_workflow(["ingredient3"])
+        workflow_def4, state4 = create_smoke_workflow(["ingredient4"])
         
         # Should generate unique IDs
         assert state3.workflow_id != state4.workflow_id
@@ -355,30 +287,32 @@ def multiply_numbers(a, b):
     
     def test_workflow_definition_navigation(self):
         """Test WorkflowDefinition helper methods."""
-        workflow_def, _ = create_agentool_workflow("Test task")
+        from graphtoolkit.domains.smoke import create_smoke_workflow
+        workflow_def, _ = create_smoke_workflow(["test_ingredient"])
         
         # Test get_phase
-        analyzer_phase = workflow_def.get_phase('analyzer')
+        analyzer_phase = workflow_def.get_phase('ingredient_analyzer')
         if analyzer_phase:  # Some phases might not be registered
-            assert analyzer_phase.phase_name == 'analyzer'
-            assert analyzer_phase.domain == 'agentool'
+            assert analyzer_phase.phase_name == 'ingredient_analyzer'
+            assert analyzer_phase.domain == 'smoke'
         
         # Test get_next_phase
-        next_phase = workflow_def.get_next_phase('analyzer')
+        next_phase = workflow_def.get_next_phase('ingredient_analyzer')
         if next_phase:
-            assert next_phase == 'specifier'
+            assert next_phase == 'recipe_designer'
         
         # Test invalid phase
         invalid_phase = workflow_def.get_phase('nonexistent')
         assert invalid_phase is None
         
         # Test next phase for last phase
-        last_next = workflow_def.get_next_phase('evaluator')
+        last_next = workflow_def.get_next_phase('recipe_evaluator')
         assert last_next is None
     
     def test_workflow_state_helpers(self):
         """Test WorkflowState helper methods."""
-        _, initial_state = create_agentool_workflow("Test task")
+        from graphtoolkit.domains.smoke import create_smoke_workflow
+        _, initial_state = create_smoke_workflow(["test_ingredient"])
         
         # Test get_current_node_config when current node is set
         config = initial_state.get_current_node_config()
@@ -411,10 +345,11 @@ class TestGraphToolkitRealIntegration:
     
     def test_real_workflow_creation_and_validation(self):
         """Test that workflows can be created and validated using real components."""
-        # Test real AgenTool workflow creation
-        workflow_def, initial_state = create_agentool_workflow(
-            task_description="Create a real session management AgenTool for testing",
-            model="openai:gpt-4o"
+        # Test real smoke workflow creation
+        from graphtoolkit.domains.smoke import create_smoke_workflow
+        workflow_def, initial_state = create_smoke_workflow(
+            ingredients=["chicken", "rice", "vegetables"],
+            dietary_restrictions=["gluten-free"]
         )
         
         # Verify real workflow components
@@ -430,37 +365,28 @@ class TestGraphToolkitRealIntegration:
         assert isinstance(validation_errors, list)
         # Note: validation might return errors about missing components, but validation itself should work
         
-    def test_real_testsuite_workflow_creation(self):
-        """Test that TestSuite workflows can be created using real components."""
-        test_code = """
-def calculate_area(length, width):
-    '''Calculate area of rectangle.'''
-    if length <= 0 or width <= 0:
-        raise ValueError("Dimensions must be positive")
-    return length * width
-
-def format_currency(amount, currency='USD'):
-    '''Format amount as currency string.'''
-    return f"{currency} {amount:.2f}"
-"""
+    def test_real_smoke_workflow_creation_alternative(self):
+        """Test that smoke workflows can be created with different parameters."""
+        from graphtoolkit.domains.smoke import create_smoke_workflow
         
-        workflow_def, initial_state = create_testsuite_workflow(
-            code_to_test=test_code,
-            framework="pytest",
-            coverage_target=0.95
+        workflow_def, initial_state = create_smoke_workflow(
+            ingredients=["pasta", "tomatoes", "basil"],
+            dietary_restrictions=["vegan"],
+            cuisine_preference="Italian",
+            max_cook_time=30
         )
         
         # Verify real components
         assert isinstance(workflow_def, WorkflowDefinition)
         assert isinstance(initial_state, WorkflowState)
-        assert workflow_def.domain == 'testsuite'
-        assert initial_state.domain_data['code_to_test'] == test_code
-        assert initial_state.domain_data['coverage_target'] == 0.95
+        assert workflow_def.domain == 'smoke'
+        assert initial_state.domain_data['ingredients'] == ["pasta", "tomatoes", "basil"]
+        assert initial_state.domain_data['dietary_restrictions'] == ["vegan"]
         
         # Verify the workflow is properly structured
         assert len(workflow_def.phase_sequence) == 4
-        assert workflow_def.phase_sequence[0] == 'test_analyzer'
-        assert workflow_def.phase_sequence[-1] == 'test_executor'
+        assert workflow_def.phase_sequence[0] == 'ingredient_analyzer'
+        assert workflow_def.phase_sequence[-1] == 'recipe_evaluator'
     
     def test_real_domain_discovery(self):
         """Test that domain discovery works with real registry."""
@@ -489,12 +415,13 @@ class TestGraphToolkitPerformance:
     def test_workflow_creation_performance(self):
         """Test that workflow creation is reasonably fast."""
         import time
+        from graphtoolkit.domains.smoke import create_smoke_workflow
         
         start_time = time.time()
         
         # Create multiple workflows
         for i in range(10):
-            workflow_def, initial_state = create_agentool_workflow(f"Task {i}")
+            workflow_def, initial_state = create_smoke_workflow([f"ingredient_{i}"])
             assert isinstance(workflow_def, WorkflowDefinition)
             assert isinstance(initial_state, WorkflowState)
         
@@ -508,6 +435,7 @@ class TestGraphToolkitPerformance:
         """Test memory usage during workflow creation."""
         import gc
         import sys
+        from graphtoolkit.domains.smoke import create_smoke_workflow
         
         # Get initial memory baseline
         gc.collect()
@@ -516,7 +444,7 @@ class TestGraphToolkitPerformance:
         # Create workflows
         workflows = []
         for i in range(50):
-            workflow_def, initial_state = create_testsuite_workflow(f"def test_{i}(): pass")
+            workflow_def, initial_state = create_smoke_workflow([f"ingredient_{i}"])
             workflows.append((workflow_def, initial_state))
         
         # Check memory growth
