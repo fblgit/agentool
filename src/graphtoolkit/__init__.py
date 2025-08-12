@@ -68,7 +68,7 @@ from .domains import smoke
 
 # Import all atomic nodes to trigger registration
 from .nodes.atomic import (
-    storage, templates, llm, validation, control, execution
+    storage, templates, llm, validation, control
 )
 
 __version__ = '0.1.0'
