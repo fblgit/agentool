@@ -315,56 +315,6 @@ class SavePhaseOutputNode(AtomicNode[WorkflowState, Any, StorageRef]):
         logger.debug(f"[SavePhaseOutputNode] Phase outputs now: {list(state.phase_outputs.keys())}")
 
 
-@dataclass
-class LoadStorageNode(BaseNode[WorkflowState, Any, Any]):
-    """Generic storage load node.
-    Can load from KV or FS based on configuration.
-    """
-    storage_key: str
-    storage_type: StorageType = StorageType.KV
-    required: bool = True
-    
-    async def execute(self, ctx: GraphRunContext[WorkflowState, Any]) -> BaseNode:
-        """Load data from agentoolkit storage."""
-        try:
-            storage_client = ctx.deps.get_storage_client()
-            
-            if self.storage_type == StorageType.KV:
-                result = await storage_client.run('storage_kv', {
-                    'operation': 'load',
-                    'key': self.storage_key
-                })
-                data = result.data if result.success else None
-            else:
-                result = await storage_client.run('storage_fs', {
-                    'operation': 'load',
-                    'path': self.storage_key
-                })
-                data = result.data if result.success else None
-            
-            if data is None and self.required:
-                raise NonRetryableError(f'Required key not found: {self.storage_key}')
-            
-            # Store in domain_data
-            new_state = replace(
-                ctx.state,
-                domain_data={
-                    **ctx.state.domain_data,
-                    f'loaded_{self.storage_key}': data
-                }
-            )
-            
-            # Chain to next node
-            next_node_id = self.get_next_node(new_state)
-            if next_node_id:
-                new_state = replace(new_state, current_node=next_node_id)
-                return create_node_instance(next_node_id)
-            
-            return End(new_state)
-            
-        except Exception as e:
-            raise StorageError(f'Failed to load {self.storage_key}: {e}')
-
 
 @dataclass
 class SaveStorageNode(BaseNode[WorkflowState, Any, StorageRef]):
@@ -1064,7 +1014,6 @@ register_node_class('save_analysis', SaveAnalysisNode)
 register_node_class('save_missing_tools', SaveMissingToolsNode)
 register_node_class('save_validation_summary', SaveValidationSummaryNode)
 register_node_class('save_summary_markdown', SaveSummaryMarkdownNode)
-register_node_class('load_storage', LoadStorageNode)
 register_node_class('save_storage', SaveStorageNode)
 register_node_class('batch_load', BatchLoadNode)
 register_node_class('batch_save', BatchSaveNode)

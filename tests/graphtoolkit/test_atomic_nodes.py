@@ -34,7 +34,6 @@ from graphtoolkit.nodes.atomic.storage import (
     DependencyCheckNode,
     LoadDependenciesNode, 
     SavePhaseOutputNode,
-    LoadStorageNode,
     SaveStorageNode,
     BatchLoadNode,
     BatchSaveNode
