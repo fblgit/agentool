@@ -34,7 +34,6 @@ from graphtoolkit.nodes.atomic.storage import (
     DependencyCheckNode,
     LoadDependenciesNode, 
     SavePhaseOutputNode,
-    SaveStorageNode,
     BatchLoadNode,
     BatchSaveNode
 )
@@ -588,25 +587,12 @@ class TestStorageNodeIntegration:
     @pytest.mark.asyncio
     async def test_storage_integration_kv(self):
         """Test KV storage integration."""
-        node = SaveStorageNode(
-            storage_type=StorageType.KV,
-            storage_key='test_phase',
-            data_field='test_phase_output'
-        )
-        
-        # Add output data to state
-        self.state = replace(
-            self.state,
-            domain_data={'test_phase_output': {'data': 'test_value'}}
-        )
-        
-        ctx = GraphRunContext(self.state, self.deps)
-        
+        # Test using agentoolkit storage directly
         # Save via storage
         result = await self.injector.run('storage_kv', {
             'operation': 'set',
             'key': f'workflow/{self.state.workflow_id}/test_phase',
-            'value': self.state.domain_data['test_phase_output'],
+            'value': {'data': 'test_value'},
             'namespace': 'workflow'
         })
         
