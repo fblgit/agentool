@@ -29,10 +29,10 @@ logger = logging.getLogger(__name__)
 class ModelConfig:
     """LLM model configuration."""
     provider: str = 'openai'
-    model: str = 'gpt-4'
+    model: str = 'gpt-4o'
     api_key: Optional[str] = None
     base_url: Optional[str] = None
-    timeout: int = 60
+    timeout: int = 120
     max_retries: int = 3
 
 

@@ -77,7 +77,14 @@ class IterationControlNode(BaseNode[WorkflowState, Any, WorkflowState]):
             # Set current item for processing
             current_item = items[current_index]
             ctx.state.domain_data[f"{iter_key}_current"] = current_item
-            logger.info(f"[IterationControlNode] Set current item: {current_item.get('name', current_item) if isinstance(current_item, dict) else current_item}")
+            # Extract name for logging
+            if isinstance(current_item, dict):
+                item_display = current_item.get('name', current_item)
+            elif hasattr(current_item, 'name'):
+                item_display = current_item.name
+            else:
+                item_display = str(current_item)
+            logger.info(f"[IterationControlNode] Set current item: {item_display}")
             
             # Return to template_render to process this item
             from ...core.factory import create_node_instance
@@ -155,6 +162,9 @@ class SaveIterationOutputNode(BaseNode[WorkflowState, Any, WorkflowState]):
         # Determine item name for storage
         if isinstance(current_item, dict):
             item_name = current_item.get('name', f'item_{ctx.state.domain_data[f"{iter_key}_index"]}')
+        elif hasattr(current_item, 'name'):
+            # Handle Pydantic models
+            item_name = current_item.name
         else:
             item_name = f'item_{ctx.state.domain_data[f"{iter_key}_index"]}'
         

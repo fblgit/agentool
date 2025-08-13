@@ -579,11 +579,21 @@ class TestAgenToolkitAnalyzer:
         
         # Check individual specifications
         missing_tools = analyzer_output.missing_tools if hasattr(analyzer_output, 'missing_tools') else []
-        for tool in missing_tools:
-            tool_name = tool.get('name') if isinstance(tool, dict) else str(tool)
+        print(f"\n   Missing tools count: {len(missing_tools)}")
+        for i, tool in enumerate(missing_tools):
+            print(f"   Tool {i}: type={type(tool).__name__}, value={tool}")
+            # Handle both dict and Pydantic model
+            if isinstance(tool, dict):
+                tool_name = tool.get('name', f'tool_{i}')
+            elif hasattr(tool, 'name'):
+                tool_name = tool.name
+            else:
+                tool_name = str(tool)
+            print(f"   Extracted tool_name: {tool_name}")
             
             # Check individual spec
             spec_key = f'workflow/{workflow_id}/specification/{tool_name}'
+            print(f"   Looking for key: {spec_key}")
             spec_result = await injector.run('storage_kv', {
                 'operation': 'get',
                 'key': spec_key,

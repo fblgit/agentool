@@ -340,9 +340,9 @@ result = await toolkit.execute_workflow(
     phases=['analyzer', 'specifier', 'crafter', 'evaluator'],
     initial_data={'task_description': 'Create TODO manager'},
     model_config={
-        'analyzer': 'openai:gpt-4o-mini',
+        'analyzer': 'openai:gpt-4o',
         'specifier': 'openai:gpt-4o',
-        'crafter': 'anthropic:claude-3-5-sonnet-latest',
+        'crafter': 'openai:gpt-4o',
         'evaluator': 'openai:gpt-4o'
     }
 )
