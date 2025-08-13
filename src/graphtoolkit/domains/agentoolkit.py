@@ -114,10 +114,24 @@ class AgenToolkitRefinerInput(BaseModel):
     )
 
 
+class AgenToolkitDocumenterInput(BaseModel):
+    """Input for the documenter phase - uses best available implementation."""
+    implementation_code: str = Field(
+        description="The implementation code (refined if available, otherwise crafted)"
+    )
+    specification: Dict[str, Any] = Field(
+        description="Tool specification with operations and schemas"
+    )
+    analyzer_context: Dict[str, Any] = Field(
+        description="System design and context from analyzer phase"
+    )
+
+
 # Output schemas (reusing from agents.models where possible)
 # Using CodeOutput from agents.models for crafter phase
 # Using EvaluationOutput from agents.models for evaluator phase
 # Using CodeOutput from agents.models for refiner phase (same as crafter)
+# Using CodeOutput from agents.models for documenter phase (markdown as string)
 
 
 # Register phases for agentoolkit domain
@@ -339,12 +353,57 @@ refiner_phase = PhaseDefinition(
     )
 )
 
+# Phase 6: Documenter - Generate documentation for each tool
+documenter_phase = PhaseDefinition(
+    phase_name='documenter',
+    domain='agentoolkit',
+    atomic_nodes=[
+        'dependency_check',
+        'load_dependencies',     # Loads best available code (refined or crafted)
+        'iteration_control',     # Start iteration over missing_tools
+        'template_render',       # Renders documenter template for current tool
+        'llm_call',             # Calls LLM for documentation generation
+        'schema_validation',     # Validates against CodeOutput (markdown string)
+        'save_iteration_output', # Saves individual documentation
+        'aggregation',          # Aggregate all documentation
+        'save_phase_output',    # Saves aggregated output
+        'state_update',
+        'quality_gate'
+    ],
+    input_schema=AgenToolkitDocumenterInput,
+    output_schema=CodeOutput,  # Reuse - validates string output (markdown)
+    dependencies=['analyzer', 'specifier', 'crafter', 'evaluator'],  # refiner is optional
+    templates=TemplateConfig(
+        system_template='agentool/system/documenter.jinja',  # System prompt for documentation
+        user_template='agentool/prompts/generate_documentation.jinja',  # User prompt with skeleton
+        variables={}  # No schema needed, outputs raw markdown
+    ),
+    storage_pattern='workflow/{workflow_id}/output/documenter',
+    storage_type=StorageType.KV,
+    additional_storage_patterns={
+        'rendered': 'workflow/{workflow_id}/render/documenter'
+    },
+    iteration_config={
+        'enabled': True,
+        'items_source': 'analyzer_output.missing_tools',  # Document all missing tools
+        'item_storage_pattern': 'workflow/{workflow_id}/document/{item_name}'
+    },
+    quality_threshold=0.8,  # Lower threshold for documentation
+    allow_refinement=False,  # No refinement for documentation
+    max_refinements=0,
+    model_config=ModelParameters(
+        temperature=0.3,  # Low temperature for consistent documentation
+        max_tokens=3000
+    )
+)
+
 # Register all phases
 register_phase('agentoolkit.analyzer', analyzer_phase)
 register_phase('agentoolkit.specifier', specifier_phase)
 register_phase('agentoolkit.crafter', crafter_phase)
 register_phase('agentoolkit.evaluator', evaluator_phase)
 register_phase('agentoolkit.refiner', refiner_phase)
+register_phase('agentoolkit.documenter', documenter_phase)
 
 # Workflow configuration for convenience
 AGENTOOLKIT_WORKFLOW_PHASES = [
@@ -352,7 +411,8 @@ AGENTOOLKIT_WORKFLOW_PHASES = [
     'specifier',
     'crafter',
     'evaluator',
-    'refiner'  # Optional - only run if tools need refinement
+    'refiner',  # Optional - only run if tools need refinement
+    'documenter'  # Generate documentation for all tools
 ]
 
 # Export key components
@@ -362,6 +422,7 @@ __all__ = [
     'AgenToolkitCrafterInput',
     'AgenToolkitEvaluatorInput',
     'AgenToolkitRefinerInput',
+    'AgenToolkitDocumenterInput',
     'AnalyzerOutput',
     'ToolSpecification',
     'CodeOutput',
@@ -371,5 +432,6 @@ __all__ = [
     'crafter_phase',
     'evaluator_phase',
     'refiner_phase',
+    'documenter_phase',
     'AGENTOOLKIT_WORKFLOW_PHASES'
 ]

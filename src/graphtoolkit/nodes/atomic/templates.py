@@ -452,6 +452,84 @@ class TemplateRenderNode(AtomicNode[WorkflowState, Any, Dict[str, str]]):
                 
                 logger.debug(f"[TemplateRenderNode] Added refiner iteration variables for tool: {tool_name}")
             
+            # For documenter phase, add specific variables
+            elif phase_name == 'documenter':
+                variables['agentool_to_document'] = make_serializable(current_item)
+                variables['analysis_output'] = make_serializable(ctx.state.domain_data.get('analyzer_output', {}))
+                
+                # Get the tool name
+                tool_name = current_item.name if hasattr(current_item, 'name') else current_item.get('name', 'unknown')
+                variables['tool_name'] = tool_name
+                
+                # Get the specification for this tool
+                spec_key = f"workflow/{ctx.state.workflow_id}/specification/{tool_name}"
+                storage_client = ctx.deps.get_storage_client()
+                spec_result = await storage_client.run('storage_kv', {
+                    'operation': 'get',
+                    'key': spec_key,
+                    'namespace': 'workflow'
+                })
+                
+                if spec_result.success:
+                    spec_output = spec_result.data.get('value', {})
+                    variables['specification'] = make_serializable(spec_output)
+                    logger.debug(f"[TemplateRenderNode] Loaded specification for {tool_name}")
+                else:
+                    logger.warning(f"[TemplateRenderNode] Could not load specification for {tool_name}")
+                    variables['specification'] = {}
+                
+                # Get the BEST implementation code - try refined first, then crafted
+                # First try refined version
+                refine_key = f"workflow/{ctx.state.workflow_id}/refine/{tool_name}"
+                refine_result = await storage_client.run('storage_kv', {
+                    'operation': 'get',
+                    'key': refine_key,
+                    'namespace': 'workflow'
+                })
+                
+                implementation_code = ""
+                code_source = "unknown"
+                
+                if refine_result.success:
+                    refine_output = refine_result.data.get('value', {})
+                    # Extract the code from CodeOutput if it's stored as such
+                    if isinstance(refine_output, dict) and 'code' in refine_output:
+                        implementation_code = refine_output['code']
+                    elif isinstance(refine_output, str):
+                        implementation_code = refine_output
+                    else:
+                        implementation_code = str(refine_output)
+                    code_source = "refined"
+                    logger.debug(f"[TemplateRenderNode] Using refined code for {tool_name} ({len(implementation_code)} chars)")
+                else:
+                    # Fallback to crafted version
+                    craft_key = f"workflow/{ctx.state.workflow_id}/crafter/{tool_name}"
+                    craft_result = await storage_client.run('storage_kv', {
+                        'operation': 'get',
+                        'key': craft_key,
+                        'namespace': 'workflow'
+                    })
+                    
+                    if craft_result.success:
+                        craft_output = craft_result.data.get('value', {})
+                        # Extract the code from CodeOutput if it's stored as such
+                        if isinstance(craft_output, dict) and 'code' in craft_output:
+                            implementation_code = craft_output['code']
+                        elif isinstance(craft_output, str):
+                            implementation_code = craft_output
+                        else:
+                            implementation_code = str(craft_output)
+                        code_source = "crafted"
+                        logger.debug(f"[TemplateRenderNode] Using crafted code for {tool_name} ({len(implementation_code)} chars)")
+                    else:
+                        logger.warning(f"[TemplateRenderNode] Could not load any implementation for {tool_name}")
+                        implementation_code = ""
+                
+                variables['implementation_code'] = implementation_code
+                variables['code_source'] = code_source  # For debugging
+                
+                logger.debug(f"[TemplateRenderNode] Added documenter iteration variables for tool: {tool_name}")
+            
             # For evaluator phase, add specific variables
             elif phase_name == 'evaluator':
                 variables['agentool_to_implement'] = make_serializable(current_item)

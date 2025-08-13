@@ -15,7 +15,11 @@ from graphtoolkit.domains.agentoolkit import (
     AgenToolkitAnalyzerInput,
     analyzer_phase,
     AnalyzerOutput,
-    evaluator_phase
+    specifier_phase,
+    crafter_phase,
+    evaluator_phase,
+    refiner_phase,
+    documenter_phase
 )
 from graphtoolkit.core.types import WorkflowState, WorkflowDefinition, NodeConfig
 from graphtoolkit.core.deps import WorkflowDeps
@@ -1293,6 +1297,118 @@ class TestAgenToolkitAnalyzer:
                 print(f"\n   ✓ Aggregated Refinements: {len(refinements)} total")
                 print(f"     - Tools refined: {', '.join([r.get('tool_name', 'unknown') for r in refinements])}")
         
+        # Phase 6: Documenter - Generate documentation for all tools
+        print("\n📝 PHASE 6: DOCUMENTER")
+        print("-" * 40)
+        print("   Generating documentation for all tools...")
+        
+        # Update workflow def for documenter phase
+        workflow_def = WorkflowDefinition(
+            domain='agentoolkit',
+            phases={
+                'analyzer': analyzer_phase,
+                'specifier': specifier_phase,
+                'crafter': crafter_phase,
+                'evaluator': evaluator_phase,
+                'refiner': refiner_phase,
+                'documenter': documenter_phase
+            },
+            phase_sequence=['documenter'],  # Only run documenter
+            node_configs={
+                'dependency_check': NodeConfig(node_type='storage_check'),
+                'load_dependencies': NodeConfig(node_type='storage_load'),
+                'iteration_control': NodeConfig(node_type='iteration'),
+                'template_render': NodeConfig(node_type='template'),
+                'llm_call': NodeConfig(node_type='llm', retryable=True, max_retries=2),
+                'schema_validation': NodeConfig(node_type='validation'),
+                'save_iteration_output': NodeConfig(node_type='iteration_save'),
+                'aggregation': NodeConfig(node_type='aggregation'),
+                'save_phase_output': NodeConfig(node_type='storage_save'),
+                'state_update': NodeConfig(node_type='state'),
+                'quality_gate': NodeConfig(node_type='validation')
+            }
+        )
+        
+        # Update state for documenter
+        documenter_state = WorkflowState(
+            workflow_def=workflow_def,
+            workflow_id=workflow_id,
+            domain='agentoolkit',
+            current_phase='documenter',
+            current_node='dependency_check',
+            completed_phases={'analyzer', 'specifier', 'crafter', 'evaluator', 'refiner'},
+            domain_data=final_refiner_state.domain_data if final_refiner_state else final_evaluator_state.domain_data
+        )
+        
+        # Add iteration nodes
+        nodes = [
+            GenericPhaseNode,
+            DependencyCheckNode,
+            LoadDependenciesNode,
+            IterationControlNode,
+            TemplateRenderNode,
+            LLMCallNode,
+            SchemaValidationNode,
+            SaveIterationOutputNode,
+            AggregationNode,
+            SavePhaseOutputNode,
+            StateUpdateNode,
+            QualityGateNode,
+            NextPhaseNode,
+            RefinementNode,
+            ErrorNode,
+            BaseNode
+        ]
+        
+        graph = Graph(nodes=nodes)
+        
+        # Run documenter phase
+        final_documenter_state = await graph.run(GenericPhaseNode(), deps=deps, state=documenter_state)
+        
+        # Report on Documenter
+        print("\n📝 DOCUMENTER PHASE RESULTS")
+        print("-" * 40)
+        
+        # Check individual documentations
+        doc_count = 0
+        for tool in missing_tools:
+            tool_name = tool.name if hasattr(tool, 'name') else tool.get('name', 'unknown')
+            doc_key = f'workflow/{workflow_id}/document/{tool_name}'
+            
+            doc_result = await injector.run('storage_kv', {
+                'operation': 'get',
+                'key': doc_key,
+                'namespace': 'workflow'
+            })
+            
+            if doc_result.success:
+                doc_count += 1
+                doc_data = doc_result.data.get('value', {})
+                markdown = doc_data.get('code', '')
+                print(f"   ✓ Documentation for {tool_name}:")
+                print(f"     - Markdown: {len(markdown)} chars")
+                # Show first heading from markdown
+                if markdown:
+                    lines = markdown.split('\n')
+                    for line in lines:
+                        if line.startswith('#'):
+                            print(f"       {line[:60]}...")
+                            break
+        
+        # Check aggregated documentations
+        docs_key = f'workflow/{workflow_id}/documentations'
+        docs_result = await injector.run('storage_kv', {
+            'operation': 'get',
+            'key': docs_key,
+            'namespace': 'workflow'
+        })
+        
+        if docs_result.success:
+            docs_data = docs_result.data.get('value', {})
+            documentations = docs_data.get('documentations', [])
+            print(f"\n   ✓ Aggregated Documentation: {len(documentations)} total")
+            print(f"     - Tools documented: {', '.join([d.get('tool_name', 'unknown') for d in documentations])}")
+        
         # Summary
         print(f"\n{'='*80}")
         print("📊 WORKFLOW SUMMARY")
@@ -1314,6 +1430,7 @@ class TestAgenToolkitAnalyzer:
             print(f"   5. Refiner: ✅ Refined {refine_count} implementations")
         else:
             print(f"   5. Refiner: ⏭️ Skipped (all tools ready for deployment)")
+        print(f"   6. Documenter: ✅ Generated {doc_count} documentations")
         print(f"   ")
         print(f"   Storage Footprint:")
         print(f"   - Analyzer: 4 artifacts stored")
@@ -1323,12 +1440,14 @@ class TestAgenToolkitAnalyzer:
         if final_refiner_state:
             refine_count = len(tools_to_refine)
             print(f"   - Refiner: {refine_count * 2 + 1} artifacts stored")
-            total_artifacts = 4 + spec_count * 2 + 1 + impl_count * 2 + 1 + eval_count * 2 + 1 + refine_count * 2 + 1
+            print(f"   - Documenter: {doc_count * 2 + 1} artifacts stored")
+            total_artifacts = 4 + spec_count * 2 + 1 + impl_count * 2 + 1 + eval_count * 2 + 1 + refine_count * 2 + 1 + doc_count * 2 + 1
         else:
-            total_artifacts = 4 + spec_count * 2 + 1 + impl_count * 2 + 1 + eval_count * 2 + 1
+            print(f"   - Documenter: {doc_count * 2 + 1} artifacts stored")
+            total_artifacts = 4 + spec_count * 2 + 1 + impl_count * 2 + 1 + eval_count * 2 + 1 + doc_count * 2 + 1
         print(f"   - Total: {total_artifacts} artifacts")
         
-        phases_run = 5 if final_refiner_state else 4
+        phases_run = 6
         print(f"\n✅ COMPLETE {phases_run}-PHASE WORKFLOW TEST SUCCESSFUL!")
         print(f"{'='*80}\n")
 

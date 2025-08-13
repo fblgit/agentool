@@ -342,6 +342,31 @@ class AggregationNode(AtomicNode[WorkflowState, Any, Dict[str, Any]]):
                 'refinements': refinements,
                 'count': len(refinements)
             }
+        # For documenter phase, aggregate documentation
+        elif phase_name == 'documenter':
+            documentations = []
+            for result in results:
+                output = result.get('output', {})
+                item = result.get('item', {})
+                # Extract tool name
+                if hasattr(item, 'name'):
+                    tool_name = item.name
+                elif isinstance(item, dict) and 'name' in item:
+                    tool_name = item['name']
+                else:
+                    tool_name = f'tool_{results.index(result)}'
+                
+                # Store markdown documentation with tool name
+                doc_entry = {
+                    'tool_name': tool_name,
+                    'markdown': output.get('code', '') if isinstance(output, dict) else str(output)
+                }
+                documentations.append(doc_entry)
+            
+            aggregated = {
+                'documentations': documentations,
+                'count': len(documentations)
+            }
         else:
             # Generic aggregation
             aggregated = {
@@ -358,6 +383,8 @@ class AggregationNode(AtomicNode[WorkflowState, Any, Dict[str, Any]]):
             aggregated_key = f"workflow/{ctx.state.workflow_id}/crafts"
         elif phase_name == 'refiner':
             aggregated_key = f"workflow/{ctx.state.workflow_id}/refines"
+        elif phase_name == 'documenter':
+            aggregated_key = f"workflow/{ctx.state.workflow_id}/documentations"
         else:
             aggregated_key = f"workflow/{ctx.state.workflow_id}/{phase_name}_aggregated"
         
