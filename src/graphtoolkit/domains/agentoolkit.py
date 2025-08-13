@@ -189,35 +189,47 @@ analyzer_phase = PhaseDefinition(
 )
 
 # Phase 2: Specifier - Create detailed specification for each missing tool
+# Note: We need to import ToolSpecificationLLM for the output schema
+from agents.models import ToolSpecificationLLM
+
 specifier_phase = PhaseDefinition(
     phase_name='specifier',
     domain='agentoolkit',
     atomic_nodes=[
         'dependency_check',
         'load_dependencies',     # Loads analyzer output
-        'template_render',       # Renders specifier template
+        'iteration_control',     # NEW: Start iteration over missing_tools
+        'template_render',       # Renders specifier template for current tool
         'llm_call',             # Calls LLM for specification
-        'schema_validation',     # Validates against ToolSpecification
-        'save_phase_output',     # Saves to output/specifier
+        'schema_validation',     # Validates against ToolSpecificationLLM
+        'save_iteration_output', # NEW: Saves individual specification
+        'iteration_control',     # NEW: Loop back or continue to aggregation
+        'aggregation',          # NEW: Aggregate all specifications
+        'save_phase_output',    # Saves aggregated output
         'state_update',
         'quality_gate'
     ],
     input_schema=AgenToolkitSpecifierInput,
-    output_schema=ToolSpecification,
+    output_schema=ToolSpecificationLLM,  # Individual spec uses LLM version
     dependencies=['analyzer'],
     templates=TemplateConfig(
-        system_template='templates/agentool/system/specifier.jinja',
-        user_template='templates/agentool/prompts/create_specification.jinja',
-        variables={'schema_json': ToolSpecification.model_json_schema()}
+        system_template='agentool/system/specifier.jinja',  # Fixed path
+        user_template='agentool/prompts/create_specification.jinja',  # Fixed path
+        variables={'schema_json': ToolSpecificationLLM.model_json_schema()}
     ),
     storage_pattern='workflow/{workflow_id}/output/specifier',
     storage_type=StorageType.KV,
     additional_storage_patterns={
         'rendered': 'workflow/{workflow_id}/render/specifier'
     },
+    iteration_config={
+        'enabled': True,
+        'items_source': 'analyzer_output.missing_tools',
+        'item_storage_pattern': 'workflow/{workflow_id}/specification/{item_name}'
+    },
     quality_threshold=0.85,
-    allow_refinement=True,
-    max_refinements=2,
+    allow_refinement=False,  # No refinement during iteration
+    max_refinements=0,
     model_config=ModelParameters(
         temperature=0.5,  # Lower temperature for more consistent specs
         max_tokens=3000

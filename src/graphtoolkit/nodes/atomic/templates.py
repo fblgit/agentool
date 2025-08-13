@@ -5,7 +5,7 @@ Template rendering nodes that integrate with the existing template system.
 
 import logging
 from dataclasses import dataclass, replace
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
 from ...core.factory import register_node_class
 from ...core.types import WorkflowState
@@ -240,6 +240,32 @@ class TemplateRenderNode(AtomicNode[WorkflowState, Any, Dict[str, str]]):
                     logger.error(f"[TemplateRenderNode] Failed to serialize validation for {phase_name}: {e}")
                     variables[f'validation_{phase_name}'] = str(validation_result)
         
+        # Add iteration-specific variables if in iteration
+        phase_name = ctx.state.current_phase
+        iter_key = f"{phase_name}_iteration"
+        if f"{iter_key}_current" in ctx.state.domain_data:
+            logger.debug(f"[TemplateRenderNode] Found iteration context for {phase_name}")
+            current_item = ctx.state.domain_data[f"{iter_key}_current"]
+            
+            # For specifier phase, add specific variables
+            if phase_name == 'specifier':
+                variables['agentool_to_implement'] = make_serializable(current_item)
+                variables['analysis_output'] = make_serializable(ctx.state.domain_data.get('analyzer_output', {}))
+                
+                # Load existing tool schemas for required tools
+                if isinstance(current_item, dict) and 'required_tools' in current_item:
+                    required_tools = current_item.get('required_tools', [])
+                    existing_schemas = self._load_tool_schemas(ctx, required_tools)
+                    variables['existing_tools_schemas'] = make_serializable(existing_schemas)
+                else:
+                    variables['existing_tools_schemas'] = []
+                
+                logger.debug(f"[TemplateRenderNode] Added specifier iteration variables for tool: {current_item.get('name', 'unknown')}")
+            else:
+                # Generic iteration variables
+                variables['current_item'] = make_serializable(current_item)
+                variables['iteration_index'] = ctx.state.domain_data.get(f"{iter_key}_index", 0)
+        
         # Add phase-specific variables from state
         phase_def = ctx.state.get_current_phase_def()
         if phase_def and phase_def.templates and phase_def.templates.variables:
@@ -278,6 +304,31 @@ class TemplateRenderNode(AtomicNode[WorkflowState, Any, Dict[str, str]]):
         
         logger.debug(f"[TemplateRenderNode] _prepare_variables EXIT - returning {len(variables)} variables")
         return variables
+    
+    def _load_tool_schemas(self, ctx: GraphRunContext[WorkflowState, Any], tool_names: List[str]) -> List[Dict[str, Any]]:
+        """Load schemas for existing tools from the catalog."""
+        schemas = []
+        
+        # Get catalog from domain_data (should have been loaded in analyzer phase)
+        catalog = ctx.state.domain_data.get('catalog', {})
+        if not catalog:
+            catalog = ctx.state.domain_data.get('catalog_output', {})
+        
+        if isinstance(catalog, dict) and 'agentools' in catalog:
+            agentools = catalog['agentools']
+            for tool_name in tool_names:
+                # Find the tool in the catalog
+                for tool in agentools:
+                    if tool.get('name') == tool_name:
+                        schemas.append(tool)
+                        logger.debug(f"[TemplateRenderNode] Found schema for tool: {tool_name}")
+                        break
+                else:
+                    logger.warning(f"[TemplateRenderNode] Tool {tool_name} not found in catalog")
+        else:
+            logger.warning(f"[TemplateRenderNode] No catalog available for loading tool schemas")
+        
+        return schemas
     
     async def update_state_in_place(self, state: WorkflowState, result: Dict[str, str]) -> None:
         """Update state with rendered templates - modifies in place."""

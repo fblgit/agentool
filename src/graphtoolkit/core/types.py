@@ -186,6 +186,9 @@ class PhaseDefinition:
     
     # Domain hint
     domain: Optional[str] = None
+    
+    # Iteration configuration
+    iteration_config: Optional[Dict[str, Any]] = None  # Iteration settings for phases that process multiple items
 
 
 @dataclass(frozen=True)

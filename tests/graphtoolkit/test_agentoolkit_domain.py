@@ -412,6 +412,230 @@ class TestAgenToolkitAnalyzer:
         print(f"{'='*80}\n")
 
 
+    async def test_analyzer_and_specifier_phases(self):
+        """Test both analyzer and specifier phases with iteration."""
+        # Setup
+        workflow_id = f"test_{uuid.uuid4().hex[:8]}"
+        task_description = "Create a simple Redis cache with get and set operations"
+        
+        print(f"\n🚀 Starting analyzer + specifier test for workflow {workflow_id}")
+        print(f"📝 Task: {task_description}")
+        
+        # First, run the analyzer phase
+        analyzer_def = WorkflowDefinition(
+            domain='agentoolkit',
+            phases={'analyzer': analyzer_phase},
+            phase_sequence=['analyzer'],
+            node_configs={
+                'dependency_check': NodeConfig(node_type='storage_check'),
+                'load_dependencies': NodeConfig(node_type='storage_load'),
+                'template_render': NodeConfig(node_type='template'),
+                'llm_call': NodeConfig(node_type='llm'),
+                'schema_validation': NodeConfig(node_type='validation'),
+                'save_phase_output': NodeConfig(node_type='storage_save'),
+                'state_update': NodeConfig(node_type='state'),
+                'quality_gate': NodeConfig(node_type='validation')
+            }
+        )
+        
+        analyzer_state = WorkflowState(
+            workflow_def=analyzer_def,
+            workflow_id=workflow_id,
+            domain='agentoolkit',
+            current_phase='analyzer',
+            current_node='dependency_check',
+            domain_data={'task_description': task_description}
+        )
+        
+        deps = WorkflowDeps.create_default()
+        # Disable metrics
+        deps = WorkflowDeps(
+            models=deps.models,
+            storage=deps.storage,
+            template_engine=deps.template_engine,
+            phase_registry=deps.phase_registry,
+            process_executor=deps.process_executor,
+            thread_executor=deps.thread_executor,
+            domain_validators=deps.domain_validators,
+            metrics_enabled=False,
+            logging_level=deps.logging_level,
+            cache_enabled=deps.cache_enabled
+        )
+        
+        # Create graph for analyzer
+        analyzer_nodes = [
+            GenericPhaseNode,
+            DependencyCheckNode,
+            LoadDependenciesNode,
+            TemplateRenderNode,
+            LLMCallNode,
+            SchemaValidationNode,
+            SavePhaseOutputNode,
+            StateUpdateNode,
+            QualityGateNode,
+            NextPhaseNode,
+            RefinementNode,
+            ErrorNode,
+            BaseNode
+        ]
+        
+        analyzer_graph = Graph(nodes=analyzer_nodes)
+        
+        print("\n📊 Phase 1: Running Analyzer...")
+        analyzer_result = await analyzer_graph.run(
+            GenericPhaseNode(),
+            state=analyzer_state,
+            deps=deps
+        )
+        
+        # Extract analyzer output
+        final_analyzer_state = analyzer_result.output if hasattr(analyzer_result, 'output') else analyzer_state
+        analyzer_output = final_analyzer_state.domain_data.get('analyzer_output')
+        
+        if not analyzer_output:
+            print("❌ No analyzer output found")
+            return
+        
+        print(f"\n✅ Analyzer complete! Found {len(analyzer_output.missing_tools if hasattr(analyzer_output, 'missing_tools') else [])} missing tools")
+        
+        # Now run specifier phase with the analyzer output
+        from graphtoolkit.domains.agentoolkit import specifier_phase
+        from graphtoolkit.nodes.atomic.iteration import (
+            IterationControlNode,
+            SaveIterationOutputNode,
+            AggregationNode
+        )
+        
+        specifier_def = WorkflowDefinition(
+            domain='agentoolkit',
+            phases={'specifier': specifier_phase},
+            phase_sequence=['specifier'],
+            node_configs={
+                'dependency_check': NodeConfig(node_type='storage_check'),
+                'load_dependencies': NodeConfig(node_type='storage_load'),
+                'iteration_control': NodeConfig(node_type='iteration'),
+                'template_render': NodeConfig(node_type='template'),
+                'llm_call': NodeConfig(node_type='llm'),
+                'schema_validation': NodeConfig(node_type='validation'),
+                'save_iteration_output': NodeConfig(node_type='iteration_save'),
+                'aggregation': NodeConfig(node_type='aggregation'),
+                'save_phase_output': NodeConfig(node_type='storage_save'),
+                'state_update': NodeConfig(node_type='state'),
+                'quality_gate': NodeConfig(node_type='validation')
+            }
+        )
+        
+        # Create specifier state with analyzer output
+        specifier_state = WorkflowState(
+            workflow_def=specifier_def,
+            workflow_id=workflow_id,
+            domain='agentoolkit',
+            current_phase='specifier',
+            current_node='dependency_check',
+            domain_data={
+                'task_description': task_description,
+                'analyzer_output': analyzer_output
+            },
+            completed_phases={'analyzer'},
+            phase_outputs={'analyzer': final_analyzer_state.phase_outputs.get('analyzer')}
+        )
+        
+        # Create graph for specifier with iteration nodes
+        specifier_nodes = [
+            GenericPhaseNode,
+            DependencyCheckNode,
+            LoadDependenciesNode,
+            IterationControlNode,
+            TemplateRenderNode,
+            LLMCallNode,
+            SchemaValidationNode,
+            SaveIterationOutputNode,
+            AggregationNode,
+            SavePhaseOutputNode,
+            StateUpdateNode,
+            QualityGateNode,
+            NextPhaseNode,
+            RefinementNode,
+            ErrorNode,
+            BaseNode
+        ]
+        
+        specifier_graph = Graph(nodes=specifier_nodes)
+        
+        print("\n📊 Phase 2: Running Specifier with iteration...")
+        specifier_result = await specifier_graph.run(
+            GenericPhaseNode(),
+            state=specifier_state,
+            deps=deps
+        )
+        
+        print("\n✅ Specifier complete!")
+        
+        # Check storage patterns
+        from agentool.core.injector import get_injector
+        injector = get_injector()
+        
+        print("\n🗂️ Checking Specifier Storage Patterns:")
+        
+        # Check individual specifications
+        missing_tools = analyzer_output.missing_tools if hasattr(analyzer_output, 'missing_tools') else []
+        for tool in missing_tools:
+            tool_name = tool.get('name') if isinstance(tool, dict) else str(tool)
+            
+            # Check individual spec
+            spec_key = f'workflow/{workflow_id}/specification/{tool_name}'
+            spec_result = await injector.run('storage_kv', {
+                'operation': 'get',
+                'key': spec_key,
+                'namespace': 'workflow'
+            })
+            
+            if spec_result.success:
+                spec_data = spec_result.data.get('value', {})
+                print(f"\n   ✓ Specification for {tool_name}:")
+                print(f"     - Name: {spec_data.get('name', 'N/A')}")
+                print(f"     - Description: {spec_data.get('description', 'N/A')[:80]}...")
+                print(f"     - Operations: {len(spec_data.get('operations', []))} operations")
+            else:
+                print(f"   ✗ No specification for {tool_name}")
+            
+            # Check render
+            render_key = f'workflow/{workflow_id}/render/specifier/{tool_name}'
+            render_result = await injector.run('storage_kv', {
+                'operation': 'get',
+                'key': render_key,
+                'namespace': 'workflow'
+            })
+            
+            if render_result.success:
+                render_data = render_result.data.get('value', {})
+                print(f"   ✓ Rendered template for {tool_name}:")
+                print(f"     - System prompt: {len(render_data.get('system_prompt', ''))} chars")
+                print(f"     - User prompt: {len(render_data.get('user_prompt', ''))} chars")
+            else:
+                print(f"   ✗ No rendered template for {tool_name}")
+        
+        # Check aggregated specifications
+        specs_key = f'workflow/{workflow_id}/specifications'
+        specs_result = await injector.run('storage_kv', {
+            'operation': 'get',
+            'key': specs_key,
+            'namespace': 'workflow'
+        })
+        
+        if specs_result.success:
+            specs_data = specs_result.data.get('value', {})
+            specifications = specs_data.get('specifications', [])
+            print(f"\n   ✓ Aggregated Specifications:")
+            print(f"     - Total: {len(specifications)} specifications")
+            for spec in specifications:
+                print(f"     - {spec.get('name', 'unknown')}: {spec.get('description', 'N/A')[:60]}...")
+        else:
+            print(f"\n   ✗ No aggregated specifications found")
+        
+        print("\n✅ Test complete!")
+
+
 if __name__ == "__main__":
     # Run tests with verbose output
     pytest.main([__file__, "-v", "-s"])

@@ -4,8 +4,9 @@ Collection of atomic nodes that chain together to form phases.
 """
 
 # Import all atomic nodes to trigger registration
-from . import control, llm, storage, templates, validation
+from . import control, iteration, llm, storage, templates, validation
 from .control import NextPhaseNode, RefinementNode, StateUpdateNode
+from .iteration import AggregationNode, IterationControlNode, SaveIterationOutputNode
 from .llm import LLMCallNode
 
 # Re-export key nodes
@@ -32,5 +33,10 @@ __all__ = [
     # Control
     'StateUpdateNode',
     'NextPhaseNode',
-    'RefinementNode'
+    'RefinementNode',
+    
+    # Iteration
+    'IterationControlNode',
+    'SaveIterationOutputNode',
+    'AggregationNode'
 ]
