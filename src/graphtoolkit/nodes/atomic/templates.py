@@ -33,7 +33,7 @@ class TemplateRenderNode(AtomicNode[WorkflowState, Any, Dict[str, str]]):
             return {}
         
         # Prepare template variables
-        variables = self._prepare_variables(ctx)
+        variables = await self._prepare_variables(ctx)
         
         # Use the existing template system through injector
         from ...core.initialization import ensure_graphtoolkit_initialized
@@ -150,7 +150,7 @@ class TemplateRenderNode(AtomicNode[WorkflowState, Any, Dict[str, str]]):
         
         return rendered
     
-    def _prepare_variables(self, ctx: GraphRunContext[WorkflowState, Any]) -> Dict[str, Any]:
+    async def _prepare_variables(self, ctx: GraphRunContext[WorkflowState, Any]) -> Dict[str, Any]:
         """Prepare variables for template rendering, ensuring all are JSON-serializable."""
         import json
         
@@ -261,6 +261,97 @@ class TemplateRenderNode(AtomicNode[WorkflowState, Any, Dict[str, str]]):
                     variables['existing_tools_schemas'] = []
                 
                 logger.debug(f"[TemplateRenderNode] Added specifier iteration variables for tool: {current_item.get('name', 'unknown')}")
+            
+            # For crafter phase, add specific variables
+            elif phase_name == 'crafter':
+                variables['agentool_to_implement'] = make_serializable(current_item)
+                variables['analysis_output'] = make_serializable(ctx.state.domain_data.get('analyzer_output', {}))
+                
+                # Get the specification for this tool
+                tool_name = current_item.name if hasattr(current_item, 'name') else current_item.get('name', 'unknown')
+                spec_key = f"workflow/{ctx.state.workflow_id}/specification/{tool_name}"
+                
+                # Load the specification from storage
+                storage_client = ctx.deps.get_storage_client()
+                spec_result = await storage_client.run('storage_kv', {
+                    'operation': 'get',
+                    'key': spec_key,
+                    'namespace': 'workflow'
+                })
+                
+                if spec_result.success:
+                    spec_output = spec_result.data.get('value', {})
+                    variables['spec_output'] = make_serializable(spec_output)
+                    logger.debug(f"[TemplateRenderNode] Loaded specification for {tool_name}")
+                else:
+                    logger.warning(f"[TemplateRenderNode] Could not load specification for {tool_name}")
+                    variables['spec_output'] = {}
+                
+                # Get all specifications for context
+                specs_key = f"workflow/{ctx.state.workflow_id}/specifications"
+                specs_result = await storage_client.run('storage_kv', {
+                    'operation': 'get',
+                    'key': specs_key,
+                    'namespace': 'workflow'
+                })
+                
+                if specs_result.success:
+                    all_specs = specs_result.data.get('value', {})
+                    variables['all_specifications'] = make_serializable(all_specs)
+                else:
+                    variables['all_specifications'] = {}
+                
+                # Load existing tool schemas
+                if isinstance(current_item, dict) and 'required_tools' in current_item:
+                    required_tools = current_item.get('required_tools', [])
+                elif hasattr(current_item, 'required_tools'):
+                    required_tools = current_item.required_tools
+                else:
+                    required_tools = []
+                    
+                existing_schemas = self._load_tool_schemas(ctx, required_tools)
+                variables['existing_tools_schemas'] = make_serializable(existing_schemas)
+                
+                # Render the code skeleton using the template
+                try:
+                    from agentool.core.injector import get_injector
+                    injector = get_injector()
+                    skeleton_result = await injector.run('templates', {
+                        'operation': 'render',
+                        'template_name': 'skeletons/agentool_comprehensive',
+                        'variables': {'tool_name': tool_name}
+                    })
+                    
+                    if hasattr(skeleton_result, 'output'):
+                        # It's an AgentRunResult - parse the output
+                        import json
+                        try:
+                            output_data = json.loads(skeleton_result.output)
+                            if output_data.get('success'):
+                                variables['skeleton'] = output_data.get('data', {}).get('rendered', '')
+                                logger.debug(f"[TemplateRenderNode] Rendered skeleton for {tool_name}")
+                            else:
+                                logger.warning(f"[TemplateRenderNode] Failed to render skeleton: {output_data.get('message', 'unknown error')}")
+                                variables['skeleton'] = ''
+                        except json.JSONDecodeError as e:
+                            logger.warning(f"[TemplateRenderNode] Failed to parse skeleton result: {e}")
+                            variables['skeleton'] = ''
+                    elif hasattr(skeleton_result, 'success') and skeleton_result.success:
+                        if skeleton_result.data and isinstance(skeleton_result.data, dict):
+                            variables['skeleton'] = skeleton_result.data.get('rendered', '')
+                            logger.debug(f"[TemplateRenderNode] Rendered skeleton for {tool_name}")
+                        else:
+                            logger.warning(f"[TemplateRenderNode] No skeleton content in result")
+                            variables['skeleton'] = ''
+                    else:
+                        logger.warning(f"[TemplateRenderNode] Failed to render skeleton: {skeleton_result.message if hasattr(skeleton_result, 'message') else 'unknown error'}")
+                        variables['skeleton'] = ''
+                except Exception as e:
+                    logger.warning(f"[TemplateRenderNode] Could not render skeleton: {e}")
+                    variables['skeleton'] = ''
+                
+                logger.debug(f"[TemplateRenderNode] Added crafter iteration variables for tool: {tool_name}")
+            
             else:
                 # Generic iteration variables
                 variables['current_item'] = make_serializable(current_item)

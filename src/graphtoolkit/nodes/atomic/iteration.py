@@ -277,6 +277,31 @@ class AggregationNode(AtomicNode[WorkflowState, Any, Dict[str, Any]]):
             aggregated = {
                 'specifications': specifications
             }
+        # For crafter phase, aggregate implementations
+        elif phase_name == 'crafter':
+            implementations = []
+            for result in results:
+                output = result.get('output', {})
+                item = result.get('item', {})
+                # Extract tool name
+                if hasattr(item, 'name'):
+                    tool_name = item.name
+                elif isinstance(item, dict) and 'name' in item:
+                    tool_name = item['name']
+                else:
+                    tool_name = f'tool_{results.index(result)}'
+                
+                # Add tool name to the implementation
+                impl = {
+                    'tool_name': tool_name,
+                    **output
+                }
+                implementations.append(impl)
+            
+            aggregated = {
+                'crafts': implementations,
+                'count': len(implementations)
+            }
         else:
             # Generic aggregation
             aggregated = {
@@ -286,7 +311,13 @@ class AggregationNode(AtomicNode[WorkflowState, Any, Dict[str, Any]]):
         
         # Store aggregated result
         storage_client = ctx.deps.get_storage_client()
-        aggregated_key = f"workflow/{ctx.state.workflow_id}/specifications"
+        # Use phase-specific key
+        if phase_name == 'specifier':
+            aggregated_key = f"workflow/{ctx.state.workflow_id}/specifications"
+        elif phase_name == 'crafter':
+            aggregated_key = f"workflow/{ctx.state.workflow_id}/crafts"
+        else:
+            aggregated_key = f"workflow/{ctx.state.workflow_id}/{phase_name}_aggregated"
         
         agg_result = await storage_client.run('storage_kv', {
             'operation': 'set',

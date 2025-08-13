@@ -241,29 +241,38 @@ crafter_phase = PhaseDefinition(
     domain='agentoolkit',
     atomic_nodes=[
         'dependency_check',
-        'load_dependencies',     # Loads specification
-        'template_render',       # Renders crafter template
+        'load_dependencies',     # Loads specifications from specifier
+        'iteration_control',     # Start iteration over missing_tools
+        'template_render',       # Renders crafter template for current tool
         'llm_call',             # Calls LLM for implementation
         'schema_validation',     # Validates against ImplementationOutput
-        'save_phase_output',     # Saves to output/crafter
+        'save_iteration_output', # Saves individual implementation
+        'aggregation',          # Aggregate all implementations
+        'save_phase_output',    # Saves aggregated output
         'state_update',
         'quality_gate'
     ],
     input_schema=AgenToolkitCrafterInput,
     output_schema=ImplementationOutput,
-    dependencies=['specifier'],
+    dependencies=['analyzer', 'specifier'],  # Needs both for context
     templates=TemplateConfig(
-        system_template='templates/agentool/system/crafter.jinja',
-        user_template='templates/agentool/prompts/craft_implementation.jinja'
+        system_template='agentool/system/crafter.jinja',  # Fixed path
+        user_template='agentool/prompts/craft_implementation.jinja',  # Fixed path
+        variables={'schema_json': ImplementationOutput.model_json_schema()}
     ),
     storage_pattern='workflow/{workflow_id}/output/crafter',
     storage_type=StorageType.KV,
     additional_storage_patterns={
         'rendered': 'workflow/{workflow_id}/render/crafter'
     },
+    iteration_config={
+        'enabled': True,
+        'items_source': 'analyzer_output.missing_tools',  # Same as specifier
+        'item_storage_pattern': 'workflow/{workflow_id}/crafter/{item_name}'
+    },
     quality_threshold=0.85,
-    allow_refinement=True,
-    max_refinements=3,  # More refinements for code generation
+    allow_refinement=False,  # No refinement during iteration
+    max_refinements=0,
     model_config=ModelParameters(
         temperature=0.3,  # Low temperature for code generation
         max_tokens=4000

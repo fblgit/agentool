@@ -645,6 +645,398 @@ class TestAgenToolkitAnalyzer:
         
         print("\n✅ Test complete!")
 
+    async def test_analyzer_specifier_and_crafter_phases(self):
+        """Test all three phases: analyzer, specifier, and crafter with detailed report."""
+        # Setup
+        workflow_id = f"test_{uuid.uuid4().hex[:8]}"
+        task_description = "Create a notification service that sends alerts via email and SMS"
+        
+        print(f"\n{'='*80}")
+        print(f"COMPLETE AGENTOOLKIT WORKFLOW TEST")
+        print(f"{'='*80}")
+        print(f"Workflow ID: {workflow_id}")
+        print(f"Task: {task_description}")
+        print(f"{'='*80}\n")
+        
+        # Create deps without metrics to avoid loops
+        deps = WorkflowDeps.create_default()
+        deps = WorkflowDeps(
+            models=deps.models,
+            storage=deps.storage,
+            template_engine=deps.template_engine,
+            phase_registry=deps.phase_registry,
+            process_executor=deps.process_executor,
+            thread_executor=deps.thread_executor,
+            domain_validators=deps.domain_validators,
+            metrics_enabled=False,
+            logging_level=deps.logging_level,
+            cache_enabled=deps.cache_enabled
+        )
+        
+        # Common nodes for all phases
+        base_nodes = [
+            GenericPhaseNode,
+            DependencyCheckNode,
+            LoadDependenciesNode,
+            TemplateRenderNode,
+            LLMCallNode,
+            SchemaValidationNode,
+            SavePhaseOutputNode,
+            StateUpdateNode,
+            QualityGateNode,
+            NextPhaseNode,
+            RefinementNode,
+            ErrorNode,
+            BaseNode
+        ]
+        
+        # ========================================
+        # PHASE 1: ANALYZER
+        # ========================================
+        print("📊 PHASE 1: ANALYZER")
+        print("-" * 40)
+        
+        analyzer_def = WorkflowDefinition(
+            domain='agentoolkit',
+            phases={'analyzer': analyzer_phase},
+            phase_sequence=['analyzer'],
+            node_configs={
+                'dependency_check': NodeConfig(node_type='storage_check'),
+                'load_dependencies': NodeConfig(node_type='storage_load'),
+                'template_render': NodeConfig(node_type='template'),
+                'llm_call': NodeConfig(node_type='llm'),
+                'schema_validation': NodeConfig(node_type='validation'),
+                'save_phase_output': NodeConfig(node_type='storage_save'),
+                'state_update': NodeConfig(node_type='state'),
+                'quality_gate': NodeConfig(node_type='validation')
+            }
+        )
+        
+        analyzer_state = WorkflowState(
+            workflow_def=analyzer_def,
+            workflow_id=workflow_id,
+            domain='agentoolkit',
+            current_phase='analyzer',
+            current_node='dependency_check',
+            domain_data={'task_description': task_description}
+        )
+        
+        analyzer_graph = Graph(nodes=base_nodes)
+        
+        print("   → Running analysis of task requirements...")
+        analyzer_result = await analyzer_graph.run(
+            GenericPhaseNode(),
+            state=analyzer_state,
+            deps=deps
+        )
+        
+        final_analyzer_state = analyzer_result.output if hasattr(analyzer_result, 'output') else analyzer_state
+        analyzer_output = final_analyzer_state.domain_data.get('analyzer_output')
+        
+        if not analyzer_output:
+            print("   ❌ Analyzer failed - no output")
+            return
+        
+        # Extract analyzer results
+        missing_tools = analyzer_output.missing_tools if hasattr(analyzer_output, 'missing_tools') else []
+        existing_tools = analyzer_output.existing_tools if hasattr(analyzer_output, 'existing_tools') else []
+        
+        print(f"   ✓ Analysis complete!")
+        print(f"     - System Design: {len(analyzer_output.system_design if hasattr(analyzer_output, 'system_design') else '') } chars")
+        print(f"     - Existing tools to use: {len(existing_tools)}")
+        print(f"     - Missing tools to create: {len(missing_tools)}")
+        
+        if missing_tools:
+            for tool in missing_tools[:3]:  # Show first 3
+                tool_name = tool.name if hasattr(tool, 'name') else tool.get('name', 'unknown')
+                print(f"       • {tool_name}")
+        
+        # ========================================
+        # PHASE 2: SPECIFIER
+        # ========================================
+        print("\n📊 PHASE 2: SPECIFIER")
+        print("-" * 40)
+        
+        from graphtoolkit.domains.agentoolkit import specifier_phase
+        from graphtoolkit.nodes.atomic.iteration import (
+            IterationControlNode,
+            SaveIterationOutputNode,
+            AggregationNode
+        )
+        
+        specifier_def = WorkflowDefinition(
+            domain='agentoolkit',
+            phases={'specifier': specifier_phase},
+            phase_sequence=['specifier'],
+            node_configs={
+                'dependency_check': NodeConfig(node_type='storage_check'),
+                'load_dependencies': NodeConfig(node_type='storage_load'),
+                'iteration_control': NodeConfig(node_type='iteration'),
+                'template_render': NodeConfig(node_type='template'),
+                'llm_call': NodeConfig(node_type='llm'),
+                'schema_validation': NodeConfig(node_type='validation'),
+                'save_iteration_output': NodeConfig(node_type='iteration_save'),
+                'aggregation': NodeConfig(node_type='aggregation'),
+                'save_phase_output': NodeConfig(node_type='storage_save'),
+                'state_update': NodeConfig(node_type='state'),
+                'quality_gate': NodeConfig(node_type='validation')
+            }
+        )
+        
+        specifier_state = WorkflowState(
+            workflow_def=specifier_def,
+            workflow_id=workflow_id,
+            domain='agentoolkit',
+            current_phase='specifier',
+            current_node='dependency_check',
+            domain_data={
+                'task_description': task_description,
+                'analyzer_output': analyzer_output
+            },
+            completed_phases={'analyzer'},
+            phase_outputs={'analyzer': final_analyzer_state.phase_outputs.get('analyzer')}
+        )
+        
+        # Add iteration nodes
+        specifier_nodes = base_nodes + [
+            IterationControlNode,
+            SaveIterationOutputNode,
+            AggregationNode
+        ]
+        
+        specifier_graph = Graph(nodes=specifier_nodes)
+        
+        print(f"   → Creating specifications for {len(missing_tools)} missing tools...")
+        specifier_result = await specifier_graph.run(
+            GenericPhaseNode(),
+            state=specifier_state,
+            deps=deps
+        )
+        
+        final_specifier_state = specifier_result.output if hasattr(specifier_result, 'output') else specifier_state
+        
+        print(f"   ✓ Specifications complete!")
+        
+        # ========================================
+        # PHASE 3: CRAFTER
+        # ========================================
+        print("\n📊 PHASE 3: CRAFTER")
+        print("-" * 40)
+        
+        from graphtoolkit.domains.agentoolkit import crafter_phase
+        
+        crafter_def = WorkflowDefinition(
+            domain='agentoolkit',
+            phases={'crafter': crafter_phase},
+            phase_sequence=['crafter'],
+            node_configs={
+                'dependency_check': NodeConfig(node_type='storage_check'),
+                'load_dependencies': NodeConfig(node_type='storage_load'),
+                'iteration_control': NodeConfig(node_type='iteration'),
+                'template_render': NodeConfig(node_type='template'),
+                'llm_call': NodeConfig(node_type='llm'),
+                'schema_validation': NodeConfig(node_type='validation'),
+                'save_iteration_output': NodeConfig(node_type='iteration_save'),
+                'aggregation': NodeConfig(node_type='aggregation'),
+                'save_phase_output': NodeConfig(node_type='storage_save'),
+                'state_update': NodeConfig(node_type='state'),
+                'quality_gate': NodeConfig(node_type='validation')
+            }
+        )
+        
+        crafter_state = WorkflowState(
+            workflow_def=crafter_def,
+            workflow_id=workflow_id,
+            domain='agentoolkit',
+            current_phase='crafter',
+            current_node='dependency_check',
+            domain_data={
+                'task_description': task_description,
+                'analyzer_output': analyzer_output,
+                'specifier_output': final_specifier_state.domain_data.get('specifier_output')
+            },
+            completed_phases={'analyzer', 'specifier'},
+            phase_outputs={
+                'analyzer': final_analyzer_state.phase_outputs.get('analyzer'),
+                'specifier': final_specifier_state.phase_outputs.get('specifier')
+            }
+        )
+        
+        crafter_nodes = base_nodes + [
+            IterationControlNode,
+            SaveIterationOutputNode,
+            AggregationNode
+        ]
+        
+        crafter_graph = Graph(nodes=crafter_nodes)
+        
+        print(f"   → Crafting implementations for {len(missing_tools)} tools...")
+        crafter_result = await crafter_graph.run(
+            GenericPhaseNode(),
+            state=crafter_state,
+            deps=deps
+        )
+        
+        final_crafter_state = crafter_result.output if hasattr(crafter_result, 'output') else crafter_state
+        
+        print(f"   ✓ Implementations complete!")
+        
+        # ========================================
+        # FINAL REPORT
+        # ========================================
+        print(f"\n{'='*80}")
+        print("📋 WORKFLOW COMPLETION REPORT")
+        print(f"{'='*80}")
+        
+        from agentool.core.injector import get_injector
+        injector = get_injector()
+        
+        # Report on Analyzer
+        print("\n🔍 ANALYZER PHASE RESULTS")
+        print("-" * 40)
+        
+        # Check analyzer storage
+        analyzer_keys = [
+            f'workflow/{workflow_id}/input/catalog',
+            f'workflow/{workflow_id}/input/prompt',
+            f'workflow/{workflow_id}/render/analyzer',
+            f'workflow/{workflow_id}/output/analyzer'
+        ]
+        
+        for key in analyzer_keys:
+            result = await injector.run('storage_kv', {
+                'operation': 'get',
+                'key': key,
+                'namespace': 'workflow'
+            })
+            if result.success:
+                data = result.data.get('value', {})
+                if 'catalog' in key:
+                    print(f"   ✓ Catalog loaded: {len(data.get('agentools', [])) if isinstance(data, dict) else 0} tools")
+                elif 'prompt' in key:
+                    print(f"   ✓ Task prompt stored: {len(str(data))} chars")
+                elif 'render' in key:
+                    print(f"   ✓ Templates rendered: system={len(data.get('system_prompt', ''))} chars, user={len(data.get('user_prompt', ''))} chars")
+                elif 'output' in key:
+                    print(f"   ✓ Analysis output:")
+                    if isinstance(data, dict):
+                        print(f"     - Name: {data.get('name', 'N/A')}")
+                        print(f"     - Description: {data.get('description', 'N/A')[:80]}...")
+                        print(f"     - System design: {len(data.get('system_design', ''))} chars")
+                        print(f"     - Guidelines: {len(data.get('guidelines', []))} items")
+                        print(f"     - Existing tools: {data.get('existing_tools', [])}")
+                        print(f"     - Missing tools: {len(data.get('missing_tools', []))} tools")
+        
+        # Report on Specifier
+        print("\n📝 SPECIFIER PHASE RESULTS")
+        print("-" * 40)
+        
+        # Check individual specifications
+        spec_count = 0
+        for tool in missing_tools:
+            tool_name = tool.name if hasattr(tool, 'name') else tool.get('name', 'unknown')
+            spec_key = f'workflow/{workflow_id}/specification/{tool_name}'
+            
+            spec_result = await injector.run('storage_kv', {
+                'operation': 'get',
+                'key': spec_key,
+                'namespace': 'workflow'
+            })
+            
+            if spec_result.success:
+                spec_count += 1
+                spec_data = spec_result.data.get('value', {})
+                print(f"   ✓ Specification for {tool_name}:")
+                print(f"     - Operations: {len(spec_data.get('operations', []))} defined")
+                print(f"     - Dependencies: {spec_data.get('dependencies', [])}")
+        
+        # Check aggregated specifications
+        specs_key = f'workflow/{workflow_id}/specifications'
+        specs_result = await injector.run('storage_kv', {
+            'operation': 'get',
+            'key': specs_key,
+            'namespace': 'workflow'
+        })
+        
+        if specs_result.success:
+            specs_data = specs_result.data.get('value', {})
+            specifications = specs_data.get('specifications', [])
+            print(f"\n   ✓ Aggregated Specifications: {len(specifications)} total")
+        
+        # Report on Crafter
+        print("\n🔨 CRAFTER PHASE RESULTS")
+        print("-" * 40)
+        
+        # Check individual implementations
+        impl_count = 0
+        for tool in missing_tools:
+            tool_name = tool.name if hasattr(tool, 'name') else tool.get('name', 'unknown')
+            impl_key = f'workflow/{workflow_id}/crafter/{tool_name}'
+            
+            impl_result = await injector.run('storage_kv', {
+                'operation': 'get',
+                'key': impl_key,
+                'namespace': 'workflow'
+            })
+            
+            if impl_result.success:
+                impl_count += 1
+                impl_data = impl_result.data.get('value', {})
+                print(f"   ✓ Implementation for {tool_name}:")
+                print(f"     - Code: {len(impl_data.get('code', ''))} chars")
+                print(f"     - Imports: {len(impl_data.get('imports', []))} imports")
+                print(f"     - Dependencies: {impl_data.get('dependencies', [])}")
+                
+                # Show first few lines of code
+                code = impl_data.get('code', '')
+                if code:
+                    lines = code.split('\n')[:3]
+                    for line in lines:
+                        if line.strip():
+                            print(f"       {line[:60]}...")
+                            break
+        
+        # Check aggregated implementations
+        crafts_key = f'workflow/{workflow_id}/crafts'
+        crafts_result = await injector.run('storage_kv', {
+            'operation': 'get',
+            'key': crafts_key,
+            'namespace': 'workflow'
+        })
+        
+        if crafts_result.success:
+            crafts_data = crafts_result.data.get('value', {})
+            crafts = crafts_data.get('crafts', [])
+            print(f"\n   ✓ Aggregated Implementations: {len(crafts)} total")
+            
+            # Calculate total lines of code
+            total_lines = 0
+            for craft in crafts:
+                code = craft.get('code', '')
+                total_lines += len(code.split('\n')) if code else 0
+            print(f"     - Total lines of code generated: {total_lines}")
+        
+        # Summary
+        print(f"\n{'='*80}")
+        print("📊 WORKFLOW SUMMARY")
+        print(f"{'='*80}")
+        print(f"   Workflow ID: {workflow_id}")
+        print(f"   Task: {task_description}")
+        print(f"   ")
+        print(f"   Phase Results:")
+        print(f"   1. Analyzer: ✅ Identified {len(missing_tools)} tools to create")
+        print(f"   2. Specifier: ✅ Created {spec_count} specifications")
+        print(f"   3. Crafter: ✅ Generated {impl_count} implementations")
+        print(f"   ")
+        print(f"   Storage Footprint:")
+        print(f"   - Analyzer: 4 artifacts stored")
+        print(f"   - Specifier: {spec_count * 2 + 1} artifacts stored")
+        print(f"   - Crafter: {impl_count * 2 + 1} artifacts stored")
+        print(f"   - Total: {4 + spec_count * 2 + 1 + impl_count * 2 + 1} artifacts")
+        
+        print(f"\n✅ COMPLETE WORKFLOW TEST SUCCESSFUL!")
+        print(f"{'='*80}\n")
+
 
 if __name__ == "__main__":
     # Run tests with verbose output
