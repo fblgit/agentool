@@ -85,32 +85,107 @@ class LoadDependenciesNode(AtomicNode[WorkflowState, Any, Dict[str, Any]]):
         # Special case for analyzer phase: Load catalog from agentool_mgmt if no dependencies
         if ctx.state.current_phase == 'analyzer' and not phase_def.dependencies:
             logger.info("[LoadDependenciesNode] Analyzer phase: Loading catalog from agentool_mgmt")
-            try:
-                # Import and initialize
-                from ...core.initialization import ensure_graphtoolkit_initialized
-                from agentool.core.injector import get_injector
-                ensure_graphtoolkit_initialized()
-                injector = get_injector()
-                
-                # Load catalog from agentool_mgmt (V1 behavior)
-                catalog_result = await injector.run('agentool_mgmt', {
-                    'operation': 'export_catalog',
-                    'format': 'json'
-                })
-                
-                if catalog_result.success:
-                    catalog = catalog_result.data.get('catalog', {})
-                    loaded_data['catalog'] = catalog
-                    logger.info(f"[LoadDependenciesNode] Loaded catalog with {len(catalog.get('agentools', []))} tools")
-                else:
-                    logger.error(f"[LoadDependenciesNode] Failed to load catalog: {catalog_result.message}")
-                    from ...exceptions import CatalogError
-                    raise CatalogError(f"Failed to load catalog: {catalog_result.message}")
+            
+            # Special handling for agentoolkit domain
+            if ctx.state.domain == 'agentoolkit':
+                logger.info("[LoadDependenciesNode] AgenToolkit domain: Loading catalog and storing in KV")
+                try:
+                    # Import and initialize
+                    from ...core.initialization import ensure_graphtoolkit_initialized
+                    from agentool.core.injector import get_injector
+                    ensure_graphtoolkit_initialized()
+                    injector = get_injector()
                     
-            except Exception as e:
-                logger.error(f"[LoadDependenciesNode] Could not load catalog from agentool_mgmt: {e}")
-                from ...exceptions import CatalogError
-                raise CatalogError(f"Failed to load catalog from agentool_mgmt: {e}") from e
+                    # Load catalog from agentool_mgmt
+                    catalog_result = await injector.run('agentool_mgmt', {
+                        'operation': 'export_catalog',
+                        'format': 'json'
+                    })
+                    
+                    if catalog_result.success:
+                        catalog = catalog_result.data.get('catalog', {})
+                        loaded_data['catalog'] = catalog
+                        logger.info(f"[LoadDependenciesNode] Loaded catalog with {len(catalog.get('agentools', []))} tools")
+                        
+                        # Store catalog in KV at workflow/{workflow_id}/input/catalog
+                        if phase_def.additional_storage_patterns and 'catalog' in phase_def.additional_storage_patterns:
+                            catalog_key = phase_def.additional_storage_patterns['catalog'].format(
+                                workflow_id=ctx.state.workflow_id
+                            )
+                            logger.debug(f"[LoadDependenciesNode] Storing catalog at {catalog_key}")
+                            
+                            storage_client = ctx.deps.get_storage_client()
+                            storage_result = await storage_client.run('storage_kv', {
+                                'operation': 'set',
+                                'key': catalog_key,
+                                'value': catalog,
+                                'namespace': 'workflow'
+                            })
+                            
+                            if storage_result.success:
+                                logger.info(f"[LoadDependenciesNode] Stored catalog at {catalog_key}")
+                            else:
+                                logger.warning(f"[LoadDependenciesNode] Failed to store catalog: {storage_result.message}")
+                        
+                        # Store the task description (prompt) in KV at workflow/{workflow_id}/input/prompt
+                        if phase_def.additional_storage_patterns and 'prompt' in phase_def.additional_storage_patterns:
+                            # Get the task description from domain_data (should be set by workflow initialization)
+                            task_description = ctx.state.domain_data.get('task_description', '')
+                            if task_description:
+                                prompt_key = phase_def.additional_storage_patterns['prompt'].format(
+                                    workflow_id=ctx.state.workflow_id
+                                )
+                                logger.debug(f"[LoadDependenciesNode] Storing prompt at {prompt_key}")
+                                
+                                prompt_result = await storage_client.run('storage_kv', {
+                                    'operation': 'set',
+                                    'key': prompt_key,
+                                    'value': task_description,
+                                    'namespace': 'workflow'
+                                })
+                                
+                                if prompt_result.success:
+                                    logger.info(f"[LoadDependenciesNode] Stored prompt at {prompt_key}")
+                                    loaded_data['task_description'] = task_description
+                                else:
+                                    logger.warning(f"[LoadDependenciesNode] Failed to store prompt: {prompt_result.message}")
+                    else:
+                        logger.error(f"[LoadDependenciesNode] Failed to load catalog: {catalog_result.message}")
+                        from ...exceptions import CatalogError
+                        raise CatalogError(f"Failed to load catalog: {catalog_result.message}")
+                        
+                except Exception as e:
+                    logger.error(f"[LoadDependenciesNode] Could not load catalog from agentool_mgmt: {e}")
+                    from ...exceptions import CatalogError
+                    raise CatalogError(f"Failed to load catalog from agentool_mgmt: {e}") from e
+            else:
+                # Original smoke domain behavior
+                try:
+                    # Import and initialize
+                    from ...core.initialization import ensure_graphtoolkit_initialized
+                    from agentool.core.injector import get_injector
+                    ensure_graphtoolkit_initialized()
+                    injector = get_injector()
+                    
+                    # Load catalog from agentool_mgmt (V1 behavior)
+                    catalog_result = await injector.run('agentool_mgmt', {
+                        'operation': 'export_catalog',
+                        'format': 'json'
+                    })
+                    
+                    if catalog_result.success:
+                        catalog = catalog_result.data.get('catalog', {})
+                        loaded_data['catalog'] = catalog
+                        logger.info(f"[LoadDependenciesNode] Loaded catalog with {len(catalog.get('agentools', []))} tools")
+                    else:
+                        logger.error(f"[LoadDependenciesNode] Failed to load catalog: {catalog_result.message}")
+                        from ...exceptions import CatalogError
+                        raise CatalogError(f"Failed to load catalog: {catalog_result.message}")
+                        
+                except Exception as e:
+                    logger.error(f"[LoadDependenciesNode] Could not load catalog from agentool_mgmt: {e}")
+                    from ...exceptions import CatalogError
+                    raise CatalogError(f"Failed to load catalog from agentool_mgmt: {e}") from e
         
         # Standard dependency loading
         for dep in phase_def.dependencies:

@@ -284,6 +284,42 @@ class TemplateRenderNode(AtomicNode[WorkflowState, Any, Dict[str, str]]):
         logger.info(f"Storing rendered prompts for {state.current_phase}: {list(result.keys())}")
         state.domain_data['rendered_prompts'] = result
         logger.info(f"State now has domain_data keys: {list(state.domain_data.keys())}")
+        
+        # Also store in KV using the render/* pattern if configured
+        phase_def = state.get_current_phase_def()
+        if phase_def and phase_def.additional_storage_patterns and 'rendered' in phase_def.additional_storage_patterns:
+            render_key = phase_def.additional_storage_patterns['rendered'].format(
+                workflow_id=state.workflow_id
+            )
+            logger.debug(f"[TemplateRenderNode] Storing rendered template at {render_key}")
+            
+            # Combine system and user prompts for storage
+            combined_render = {
+                'system_prompt': result.get('system_prompt', ''),
+                'user_prompt': result.get('user_prompt', ''),
+                'phase': state.current_phase,
+                'timestamp': str(state.updated_at)
+            }
+            
+            try:
+                from ...core.initialization import ensure_graphtoolkit_initialized
+                from agentool.core.injector import get_injector
+                ensure_graphtoolkit_initialized()
+                injector = get_injector()
+                
+                storage_result = await injector.run('storage_kv', {
+                    'operation': 'set',
+                    'key': render_key,
+                    'value': combined_render,
+                    'namespace': 'workflow'
+                })
+                
+                if storage_result.success:
+                    logger.info(f"[TemplateRenderNode] Stored rendered template at {render_key}")
+                else:
+                    logger.warning(f"[TemplateRenderNode] Failed to store rendered template: {storage_result.message}")
+            except Exception as e:
+                logger.warning(f"[TemplateRenderNode] Could not store rendered template: {e}")
 
 
 # Register template nodes
