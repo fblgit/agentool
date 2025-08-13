@@ -14,7 +14,8 @@ from typing import List
 from graphtoolkit.domains.agentoolkit import (
     AgenToolkitAnalyzerInput,
     analyzer_phase,
-    AnalyzerOutput
+    AnalyzerOutput,
+    evaluator_phase
 )
 from graphtoolkit.core.types import WorkflowState, WorkflowDefinition, NodeConfig
 from graphtoolkit.core.deps import WorkflowDeps
@@ -646,13 +647,13 @@ class TestAgenToolkitAnalyzer:
         print("\n✅ Test complete!")
 
     async def test_analyzer_specifier_and_crafter_phases(self):
-        """Test all three phases: analyzer, specifier, and crafter with detailed report."""
+        """Test all four phases: analyzer, specifier, crafter, and evaluator with detailed report."""
         # Setup
         workflow_id = f"test_{uuid.uuid4().hex[:8]}"
         task_description = "Create a notification service that sends alerts via email and SMS"
         
         print(f"\n{'='*80}")
-        print(f"COMPLETE AGENTOOLKIT WORKFLOW TEST")
+        print(f"COMPLETE AGENTOOLKIT WORKFLOW TEST (4 PHASES)")
         print(f"{'='*80}")
         print(f"Workflow ID: {workflow_id}")
         print(f"Task: {task_description}")
@@ -882,6 +883,72 @@ class TestAgenToolkitAnalyzer:
         print(f"   ✓ Implementations complete!")
         
         # ========================================
+        # PHASE 4: EVALUATOR
+        # ========================================
+        print("\n📊 PHASE 4: EVALUATOR")
+        print("-" * 40)
+        
+        from graphtoolkit.domains.agentoolkit import evaluator_phase
+        
+        evaluator_def = WorkflowDefinition(
+            domain='agentoolkit',
+            phases={'evaluator': evaluator_phase},
+            phase_sequence=['evaluator'],
+            node_configs={
+                'dependency_check': NodeConfig(node_type='storage_check'),
+                'load_dependencies': NodeConfig(node_type='storage_load'),
+                'iteration_control': NodeConfig(node_type='iteration'),
+                'template_render': NodeConfig(node_type='template'),
+                'llm_call': NodeConfig(node_type='llm'),
+                'schema_validation': NodeConfig(node_type='validation'),
+                'save_iteration_output': NodeConfig(node_type='iteration_save'),
+                'aggregation': NodeConfig(node_type='aggregation'),
+                'save_phase_output': NodeConfig(node_type='storage_save'),
+                'state_update': NodeConfig(node_type='state'),
+                'quality_gate': NodeConfig(node_type='validation')
+            }
+        )
+        
+        evaluator_state = WorkflowState(
+            workflow_def=evaluator_def,
+            workflow_id=workflow_id,
+            domain='agentoolkit',
+            current_phase='evaluator',
+            current_node='dependency_check',
+            domain_data={
+                'task_description': task_description,
+                'analyzer_output': analyzer_output,
+                'specifier_output': final_specifier_state.domain_data.get('specifier_output'),
+                'crafter_output': final_crafter_state.domain_data.get('crafter_output')
+            },
+            completed_phases={'analyzer', 'specifier', 'crafter'},
+            phase_outputs={
+                'analyzer': final_analyzer_state.phase_outputs.get('analyzer'),
+                'specifier': final_specifier_state.phase_outputs.get('specifier'),
+                'crafter': final_crafter_state.phase_outputs.get('crafter')
+            }
+        )
+        
+        evaluator_nodes = base_nodes + [
+            IterationControlNode,
+            SaveIterationOutputNode,
+            AggregationNode
+        ]
+        
+        evaluator_graph = Graph(nodes=evaluator_nodes)
+        
+        print(f"   → Evaluating implementations for {len(missing_tools)} tools...")
+        evaluator_result = await evaluator_graph.run(
+            GenericPhaseNode(),
+            state=evaluator_state,
+            deps=deps
+        )
+        
+        final_evaluator_state = evaluator_result.output if hasattr(evaluator_result, 'output') else evaluator_state
+        
+        print(f"   ✓ Evaluations complete!")
+        
+        # ========================================
         # FINAL REPORT
         # ========================================
         print(f"\n{'='*80}")
@@ -1016,6 +1083,64 @@ class TestAgenToolkitAnalyzer:
                 total_lines += len(code.split('\n')) if code else 0
             print(f"     - Total lines of code generated: {total_lines}")
         
+        # Report on Evaluator
+        print("\n🔍 EVALUATOR PHASE RESULTS")
+        print("-" * 40)
+        
+        # Check individual evaluations
+        eval_count = 0
+        deployment_ready = 0
+        total_scores = []
+        
+        for tool in missing_tools:
+            tool_name = tool.name if hasattr(tool, 'name') else tool.get('name', 'unknown')
+            eval_key = f'workflow/{workflow_id}/evaluation/{tool_name}'
+            
+            eval_result = await injector.run('storage_kv', {
+                'operation': 'get',
+                'key': eval_key,
+                'namespace': 'workflow'
+            })
+            
+            if eval_result.success:
+                eval_count += 1
+                eval_data = eval_result.data.get('value', {})
+                overall_score = eval_data.get('overall_score', 0.0)
+                ready_for_deployment = eval_data.get('ready_for_deployment', False)
+                total_scores.append(overall_score)
+                
+                if ready_for_deployment:
+                    deployment_ready += 1
+                
+                print(f"   ✓ Evaluation for {tool_name}:")
+                print(f"     - Overall score: {overall_score:.2f}/1.0")
+                print(f"     - Ready for deployment: {'✅' if ready_for_deployment else '❌'}")
+                print(f"     - Issues found: {len(eval_data.get('issues', []))}")
+                print(f"     - Improvements suggested: {len(eval_data.get('improvements', []))}")
+                
+                # Show top issues if any
+                issues = eval_data.get('issues', [])[:2]
+                for issue in issues:
+                    print(f"       - Issue: {issue[:60]}...")
+        
+        # Check aggregated evaluations
+        evals_key = f'workflow/{workflow_id}/evaluations'
+        evals_result = await injector.run('storage_kv', {
+            'operation': 'get',
+            'key': evals_key,
+            'namespace': 'workflow'
+        })
+        
+        if evals_result.success:
+            evals_data = evals_result.data.get('value', {})
+            evaluations = evals_data.get('items', [])
+            print(f"\n   ✓ Aggregated Evaluations: {len(evaluations)} total")
+            
+            if total_scores:
+                avg_score = sum(total_scores) / len(total_scores)
+                print(f"     - Average overall score: {avg_score:.2f}/1.0")
+                print(f"     - Deployment ready: {deployment_ready}/{len(missing_tools)} ({deployment_ready/len(missing_tools)*100:.1f}%)")
+        
         # Summary
         print(f"\n{'='*80}")
         print("📊 WORKFLOW SUMMARY")
@@ -1027,14 +1152,20 @@ class TestAgenToolkitAnalyzer:
         print(f"   1. Analyzer: ✅ Identified {len(missing_tools)} tools to create")
         print(f"   2. Specifier: ✅ Created {spec_count} specifications")
         print(f"   3. Crafter: ✅ Generated {impl_count} implementations")
+        print(f"   4. Evaluator: ✅ Evaluated {eval_count} implementations")
+        if total_scores:
+            avg_score = sum(total_scores) / len(total_scores)
+            print(f"      - Average quality score: {avg_score:.2f}/1.0")
+            print(f"      - Deployment ready: {deployment_ready}/{len(missing_tools)} tools")
         print(f"   ")
         print(f"   Storage Footprint:")
         print(f"   - Analyzer: 4 artifacts stored")
         print(f"   - Specifier: {spec_count * 2 + 1} artifacts stored")
         print(f"   - Crafter: {impl_count * 2 + 1} artifacts stored")
-        print(f"   - Total: {4 + spec_count * 2 + 1 + impl_count * 2 + 1} artifacts")
+        print(f"   - Evaluator: {eval_count * 2 + 1} artifacts stored")
+        print(f"   - Total: {4 + spec_count * 2 + 1 + impl_count * 2 + 1 + eval_count * 2 + 1} artifacts")
         
-        print(f"\n✅ COMPLETE WORKFLOW TEST SUCCESSFUL!")
+        print(f"\n✅ COMPLETE 4-PHASE WORKFLOW TEST SUCCESSFUL!")
         print(f"{'='*80}\n")
 
 

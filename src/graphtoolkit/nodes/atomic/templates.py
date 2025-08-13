@@ -360,6 +360,91 @@ class TemplateRenderNode(AtomicNode[WorkflowState, Any, Dict[str, str]]):
                 
                 logger.debug(f"[TemplateRenderNode] Added crafter iteration variables for tool: {tool_name}")
             
+            # For evaluator phase, add specific variables
+            elif phase_name == 'evaluator':
+                variables['agentool_to_implement'] = make_serializable(current_item)
+                variables['analysis_output'] = make_serializable(ctx.state.domain_data.get('analyzer_output', {}))
+                
+                # Get the tool name
+                tool_name = current_item.name if hasattr(current_item, 'name') else current_item.get('name', 'unknown')
+                
+                # Get the specification for this tool
+                spec_key = f"workflow/{ctx.state.workflow_id}/specification/{tool_name}"
+                storage_client = ctx.deps.get_storage_client()
+                spec_result = await storage_client.run('storage_kv', {
+                    'operation': 'get',
+                    'key': spec_key,
+                    'namespace': 'workflow'
+                })
+                
+                if spec_result.success:
+                    spec_output = spec_result.data.get('value', {})
+                    variables['spec_output'] = make_serializable(spec_output)
+                    logger.debug(f"[TemplateRenderNode] Loaded specification for {tool_name}")
+                else:
+                    logger.warning(f"[TemplateRenderNode] Could not load specification for {tool_name}")
+                    variables['spec_output'] = {}
+                
+                # Get the implementation code for this tool
+                impl_key = f"workflow/{ctx.state.workflow_id}/crafter/{tool_name}"
+                impl_result = await storage_client.run('storage_kv', {
+                    'operation': 'get',
+                    'key': impl_key,
+                    'namespace': 'workflow'
+                })
+                
+                if impl_result.success:
+                    impl_output = impl_result.data.get('value', {})
+                    # Extract the code from CodeOutput if it's stored as such
+                    if isinstance(impl_output, dict) and 'code' in impl_output:
+                        implementation_code = impl_output['code']
+                    elif isinstance(impl_output, str):
+                        implementation_code = impl_output
+                    else:
+                        implementation_code = str(impl_output)
+                    
+                    variables['implementation_code'] = implementation_code
+                    logger.debug(f"[TemplateRenderNode] Loaded implementation code for {tool_name} ({len(implementation_code)} chars)")
+                else:
+                    logger.warning(f"[TemplateRenderNode] Could not load implementation for {tool_name}")
+                    variables['implementation_code'] = ""
+                
+                # Get the skeleton template (render it for this tool)
+                try:
+                    from agentool.core.injector import get_injector
+                    injector = get_injector()
+                    skeleton_result = await injector.run('templates', {
+                        'operation': 'render',
+                        'template_name': 'agentool/skeletons/agentool_comprehensive',
+                        'variables': {'tool_name': tool_name}
+                    })
+                    
+                    if hasattr(skeleton_result, 'output'):
+                        # AgentRunResult - parse the output
+                        import json
+                        try:
+                            output_data = json.loads(skeleton_result.output)
+                            if output_data.get('success'):
+                                variables['skeleton'] = output_data.get('data', {}).get('rendered', '')
+                            else:
+                                variables['skeleton'] = ''
+                        except json.JSONDecodeError:
+                            variables['skeleton'] = ''
+                    elif hasattr(skeleton_result, 'success') and skeleton_result.success:
+                        if skeleton_result.data and isinstance(skeleton_result.data, dict):
+                            variables['skeleton'] = skeleton_result.data.get('rendered', '')
+                        else:
+                            variables['skeleton'] = ''
+                    else:
+                        variables['skeleton'] = ''
+                        
+                    logger.debug(f"[TemplateRenderNode] Rendered skeleton for {tool_name}")
+                except Exception as e:
+                    logger.warning(f"[TemplateRenderNode] Could not render skeleton for {tool_name}: {e}")
+                    variables['skeleton'] = ''
+                
+                logger.debug(f"[TemplateRenderNode] Added evaluator iteration variables for tool: {tool_name}")
+            
             else:
                 # Generic iteration variables
                 variables['current_item'] = make_serializable(current_item)

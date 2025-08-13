@@ -1,70 +1,56 @@
-## Implementation to Evaluate
-{{ implementation }}
+## Tool Being Evaluated: {{ agentool_to_implement.name }}
 
-## Original Specification
-{{ specification }}
-
-## Analysis Context
-{{ analysis_output }}
-
-## Evaluation Criteria
-
-Evaluate the provided implementation against its specification and provide a comprehensive assessment:
-
-1. **Correctness Validation**
-   - Does the implementation match the specification exactly?
-   - Are all required operations implemented?
-   - Do the input/output schemas match the specification?
-   - Are all dependencies properly integrated?
-
-2. **Code Quality Assessment**
-   - Is the code well-structured and readable?
-   - Are there proper docstrings and type hints?
-   - Does it follow Python best practices?
-   - Is error handling comprehensive?
-
-3. **Integration Verification**
-   - Are existing tools properly integrated via injector?
-   - Are the operation calls to dependencies correct?
-   - Is the response handling appropriate?
-
-4. **Completeness Check**
-   - Are all operations fully implemented (not stubbed)?
-   - Are all error cases handled?
-   - Is logging implemented appropriately?
-   - Are all required imports present?
-
-5. **Security and Performance**
-   - Are there any security vulnerabilities?
-   - Is input validation adequate?
-   - Are there performance concerns?
-   - Is resource usage appropriate?
-
-## Output Format
-
-Provide your evaluation in the following JSON structure:
-
-```json
-{
-  "validation_results": {
-    "tool_name": {
-      "specification_match": true/false,
-      "operations_complete": true/false,
-      "schemas_correct": true/false,
-      "dependencies_integrated": true/false,
-      "error_handling": true/false,
-      "issues": ["list of specific issues found"],
-      "suggestions": ["list of improvement suggestions"]
-    }
-  },
-  "quality_scores": {
-    "tool_name": 0.0-1.0
-  },
-  "final_code": {
-    "tool_name": "corrected code if needed, otherwise original"
-  },
-  "success": true/false
-}
+### Implementation Code
+```python
+{{ implementation_code }}
 ```
 
-Evaluate the implementation now:
+### Original Specification
+{{ spec_output | tojson(indent=2) }}
+
+### Analysis Context  
+{{ analysis_output | tojson(indent=2) }}
+
+### Code Skeleton Template
+```python
+{{ skeleton }}
+```
+
+## Evaluation Task
+
+Evaluate this AgenTool implementation for **{{ agentool_to_implement.name }}** against its specification.
+
+### Key Requirements from Specification:
+{% if spec_output.operations -%}
+- **Operations Required**: {% for op in spec_output.operations %}{{ op.name }}{% if not loop.last %}, {% endif %}{% endfor %}
+{%- endif %}
+{% if spec_output.dependencies -%}
+- **Dependencies**: {% for dep in spec_output.dependencies %}{{ dep }}{% if not loop.last %}, {% endif %}{% endfor %}
+{%- endif %}
+{% if spec_output.description -%}
+- **Purpose**: {{ spec_output.description }}
+{%- endif %}
+
+### Focus Areas for This Tool:
+{% if agentool_to_implement.description -%}
+- **Core Function**: {{ agentool_to_implement.description }}
+{%- endif %}
+{% if agentool_to_implement.required_tools -%}
+- **Integration Points**: {{ agentool_to_implement.required_tools | join(', ') }}
+{%- endif %}
+
+## Assessment Instructions
+
+1. **Technical Validation**: Check syntax, imports, schema compliance, routing completeness, and function implementation
+2. **Quality Scoring**: Rate correctness, completeness, integration, and overall quality on 0.0-1.0 scale
+3. **Issue Identification**: List specific problems (missing features, incorrect implementations, etc.)
+4. **Improvement Suggestions**: Recommend enhancements (not fixes - just conceptual improvements)
+5. **Deployment Assessment**: Determine if ready for production use
+
+Remember: 
+- **EVALUATE ONLY** - do not provide fixed code
+- Focus on functionality and production readiness
+- Be specific about issues found
+- Justify your scoring decisions
+
+Provide your comprehensive evaluation now:

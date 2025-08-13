@@ -48,8 +48,8 @@ from pydantic import BaseModel, Field
 from ..core.types import PhaseDefinition, StorageType, TemplateConfig, ModelParameters
 from ..core.registry import register_phase
 
-# Import the AnalyzerOutput and CodeOutput from agents.models
-from agents.models import AnalyzerOutput, ToolSpecification, CodeOutput
+# Import the AnalyzerOutput, CodeOutput, and EvaluationOutput from agents.models
+from agents.models import AnalyzerOutput, ToolSpecification, CodeOutput, EvaluationOutput
 
 
 # Input schemas for each phase
@@ -103,35 +103,7 @@ class AgenToolkitEvaluatorInput(BaseModel):
 
 # Output schemas (reusing from agents.models where possible)
 # Using CodeOutput from agents.models for crafter phase
-
-
-class EvaluationOutput(BaseModel):
-    """Output from the evaluator phase."""
-    correctness_score: float = Field(
-        ge=0, le=1,
-        description="How correctly the implementation matches specification"
-    )
-    completeness_score: float = Field(
-        ge=0, le=1,
-        description="How complete the implementation is"
-    )
-    quality_score: float = Field(
-        ge=0, le=1,
-        description="Code quality and best practices adherence"
-    )
-    overall_score: float = Field(
-        ge=0, le=1,
-        description="Overall evaluation score"
-    )
-    issues: List[str] = Field(
-        description="Issues found in the implementation"
-    )
-    improvements: List[str] = Field(
-        description="Suggested improvements"
-    )
-    ready_to_deploy: bool = Field(
-        description="Whether the implementation is ready for use"
-    )
+# Using EvaluationOutput from agents.models for evaluator phase
 
 
 # Register phases for agentoolkit domain
@@ -265,37 +237,47 @@ crafter_phase = PhaseDefinition(
     )
 )
 
-# Phase 4: Evaluator - Evaluate the implementation
+# Phase 4: Evaluator - Evaluate each implementation (with iteration)
 evaluator_phase = PhaseDefinition(
     phase_name='evaluator',
     domain='agentoolkit',
     atomic_nodes=[
         'dependency_check',
-        'load_dependencies',     # Loads implementation and spec
-        'template_render',       # Renders evaluator template
+        'load_dependencies',     # Loads crafter and specifier outputs
+        'iteration_control',     # Start iteration over missing_tools
+        'template_render',       # Renders evaluator template for current tool
         'llm_call',             # Calls LLM for evaluation
         'schema_validation',     # Validates against EvaluationOutput
-        'save_phase_output',     # Saves to output/evaluator
+        'save_iteration_output', # Saves individual evaluation
+        'aggregation',          # Aggregate all evaluations
+        'save_phase_output',    # Saves aggregated output
         'state_update',
         'quality_gate'
     ],
     input_schema=AgenToolkitEvaluatorInput,
-    output_schema=EvaluationOutput,
-    dependencies=['crafter', 'specifier'],  # Needs both implementation and spec
+    output_schema=EvaluationOutput,  # From agents.models
+    dependencies=['analyzer', 'specifier', 'crafter'],  # Needs analysis, specs, and implementations
     templates=TemplateConfig(
-        system_template='templates/agentool/system/evaluator.jinja',
-        user_template='templates/agentool/prompts/evaluate_code.jinja'
+        system_template='agentool/system/evaluator.jinja',  # Fixed path
+        user_template='agentool/prompts/evaluate_code.jinja',  # Fixed path
+        variables={'schema_json': EvaluationOutput.model_json_schema()}
     ),
     storage_pattern='workflow/{workflow_id}/output/evaluator',
     storage_type=StorageType.KV,
     additional_storage_patterns={
         'rendered': 'workflow/{workflow_id}/render/evaluator'
     },
-    quality_threshold=0.9,  # High threshold for final evaluation
+    iteration_config={
+        'enabled': True,
+        'items_source': 'analyzer_output.missing_tools',  # Same as specifier/crafter
+        'item_storage_pattern': 'workflow/{workflow_id}/evaluation/{item_name}'
+    },
+    quality_threshold=0.8,  # Lower threshold - evaluation is assessment, not generation
     allow_refinement=False,  # No refinement for evaluation
+    max_refinements=0,
     model_config=ModelParameters(
-        temperature=0.5,
-        max_tokens=2000
+        temperature=0.3,  # Low temperature for consistent evaluation
+        max_tokens=3000
     )
 )
 

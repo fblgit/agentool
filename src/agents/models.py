@@ -429,6 +429,138 @@ class ValidationOutput(BaseModel):
         return v
 
 
+class EvaluationOutput(BaseModel):
+    """Evaluation results for a single AgenTool implementation.
+    
+    Provides comprehensive scoring and readiness assessment without code modification.
+    This schema is for evaluation-only phases that assess implementation quality.
+    """
+    tool_name: str = Field(
+        description="Name of the tool being evaluated"
+    )
+    
+    # Technical validation (binary checks)
+    syntax_valid: bool = Field(
+        description="Whether the Python code compiles without syntax errors"
+    )
+    imports_valid: bool = Field(
+        description="Whether all imports resolve correctly (agentool modules, dependencies, standard library)"
+    )
+    schema_compliance: bool = Field(
+        description="Whether Pydantic schemas match the specification exactly"
+    )
+    routing_complete: bool = Field(
+        description="Whether all operations from schema are mapped in routing configuration"
+    )
+    functions_implemented: bool = Field(
+        description="Whether all required functions are implemented (not stubbed or placeholder)"
+    )
+    
+    # Quality scores (0.0 to 1.0)
+    correctness_score: float = Field(
+        ge=0.0, le=1.0,
+        description="How correctly the implementation matches the specification"
+    )
+    completeness_score: float = Field(
+        ge=0.0, le=1.0,
+        description="How complete the implementation is (no missing operations or placeholders)"
+    )
+    integration_score: float = Field(
+        ge=0.0, le=1.0,
+        description="How well it integrates with existing AgenTool patterns and dependencies"
+    )
+    quality_score: float = Field(
+        ge=0.0, le=1.0,
+        description="Code quality including error handling, documentation, and best practices"
+    )
+    overall_score: float = Field(
+        ge=0.0, le=1.0,
+        description="Weighted overall evaluation score"
+    )
+    
+    # Detailed findings
+    issues: List[str] = Field(
+        description="""Specific issues found during evaluation. Examples:
+        - 'Missing error handling for NetworkError in fetch operation'
+        - 'Incorrect type annotation for TTL parameter (should be Optional[int])'
+        - 'Operation "delete" not implemented despite being in schema'
+        - 'Circular dependency detected with metrics tool'
+        - 'Hardcoded values instead of dynamic implementation'"""
+    )
+    improvements: List[str] = Field(
+        description="""Suggested enhancements (not fixes, but improvements). Examples:
+        - 'Consider adding input validation for email format'
+        - 'Could benefit from connection pooling for better performance'
+        - 'Adding retry logic with exponential backoff would improve reliability'
+        - 'Enhanced logging with structured context would aid debugging'"""
+    )
+    
+    # Readiness assessment
+    ready_for_deployment: bool = Field(
+        description="""Whether implementation meets minimum production requirements:
+        syntax_valid=True AND imports_valid=True AND schema_compliance=True AND 
+        routing_complete=True AND functions_implemented=True AND overall_score >= 0.7"""
+    )
+    deployment_blockers: List[str] = Field(
+        description="Critical issues that must be resolved before deployment"
+    )
+    
+    @field_validator('overall_score')
+    @classmethod
+    def validate_overall_score(cls, v: float, info) -> float:
+        """Validate overall score is reasonable given individual scores."""
+        data = info.data
+        
+        # Get individual scores
+        correctness = data.get('correctness_score', 0.0)
+        completeness = data.get('completeness_score', 0.0) 
+        integration = data.get('integration_score', 0.0)
+        quality = data.get('quality_score', 0.0)
+        
+        # Calculate expected range (weighted average ± 0.2)
+        expected = (correctness * 0.3 + completeness * 0.3 + integration * 0.2 + quality * 0.2)
+        
+        # Allow some variance but flag extreme discrepancies
+        if abs(v - expected) > 0.3:
+            # This is a warning, not an error - allow but could indicate inconsistent scoring
+            pass
+        
+        return v
+    
+    @field_validator('ready_for_deployment')
+    @classmethod
+    def validate_deployment_readiness(cls, v: bool, info) -> bool:
+        """Validate deployment readiness is consistent with technical checks."""
+        data = info.data
+        
+        # Required technical validations for deployment
+        syntax_valid = data.get('syntax_valid', False)
+        imports_valid = data.get('imports_valid', False)
+        schema_compliance = data.get('schema_compliance', False)
+        routing_complete = data.get('routing_complete', False)
+        functions_implemented = data.get('functions_implemented', False)
+        overall_score = data.get('overall_score', 0.0)
+        
+        # If marked ready for deployment, all critical checks must pass
+        if v and not all([
+            syntax_valid, imports_valid, schema_compliance, 
+            routing_complete, functions_implemented, overall_score >= 0.7
+        ]):
+            raise ValueError(
+                "ready_for_deployment cannot be True when critical validation checks fail. "
+                "Required: syntax_valid=True, imports_valid=True, schema_compliance=True, "
+                "routing_complete=True, functions_implemented=True, overall_score>=0.7"
+            )
+        
+        return v
+    
+    @field_validator('issues', 'improvements', 'deployment_blockers')
+    @classmethod
+    def validate_lists_not_none(cls, v: List[str]) -> List[str]:
+        """Ensure lists are not None and convert empty to empty list."""
+        return v if v is not None else []
+
+
 class WorkflowMetadata(BaseModel):
     """Metadata tracking for the entire workflow execution."""
     
