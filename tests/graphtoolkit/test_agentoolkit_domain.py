@@ -650,7 +650,8 @@ class TestAgenToolkitAnalyzer:
         """Test all phases: analyzer, specifier, crafter, evaluator, and refiner (if needed) with detailed report."""
         # Setup
         workflow_id = f"test_{uuid.uuid4().hex[:8]}"
-        task_description = "Create a notification service that sends alerts via email and SMS"
+        #task_description = "Create a notification service that sends alerts via email and SMS"
+        task_description = "Create a vehicle insurance and claims comprehensive system"
         
         print(f"\n{'='*80}")
         print(f"COMPLETE AGENTOOLKIT WORKFLOW TEST")
