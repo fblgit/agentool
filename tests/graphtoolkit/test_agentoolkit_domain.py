@@ -1330,6 +1330,8 @@ class TestAgenToolkitAnalyzer:
         )
         
         # Update state for documenter
+        # We need to carry over the phase_outputs from the previous states
+        prev_state = final_refiner_state if final_refiner_state else final_evaluator_state
         documenter_state = WorkflowState(
             workflow_def=workflow_def,
             workflow_id=workflow_id,
@@ -1337,7 +1339,8 @@ class TestAgenToolkitAnalyzer:
             current_phase='documenter',
             current_node='dependency_check',
             completed_phases={'analyzer', 'specifier', 'crafter', 'evaluator', 'refiner'},
-            domain_data=final_refiner_state.domain_data if final_refiner_state else final_evaluator_state.domain_data
+            domain_data=prev_state.domain_data,
+            phase_outputs=prev_state.phase_outputs  # Important: carry over phase outputs
         )
         
         # Add iteration nodes
