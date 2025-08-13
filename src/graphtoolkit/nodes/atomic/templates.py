@@ -35,6 +35,47 @@ class TemplateRenderNode(AtomicNode[WorkflowState, Any, Dict[str, str]]):
         # Prepare template variables
         variables = await self._prepare_variables(ctx)
         
+        # For crafter phase, render the skeleton if needed
+        if ctx.state.current_phase == 'crafter' and '_tool_name_for_skeleton' in variables:
+            tool_name = variables.pop('_tool_name_for_skeleton')
+            try:
+                from agentool.core.injector import get_injector
+                injector = get_injector()
+                skeleton_result = await injector.run('templates', {
+                    'operation': 'render',
+                    'template_name': 'agentool/skeletons/agentool_comprehensive',
+                    'variables': {'tool_name': tool_name}
+                })
+                
+                if hasattr(skeleton_result, 'output'):
+                    # It's an AgentRunResult - parse the output
+                    import json
+                    try:
+                        output_data = json.loads(skeleton_result.output)
+                        if output_data.get('success'):
+                            variables['skeleton'] = output_data.get('data', {}).get('rendered', '')
+                            logger.debug(f"[TemplateRenderNode] Rendered skeleton for {tool_name}")
+                        else:
+                            logger.warning(f"[TemplateRenderNode] Failed to render skeleton: {output_data.get('message', 'unknown error')}")
+                            variables['skeleton'] = ''
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"[TemplateRenderNode] Failed to parse skeleton result: {e}")
+                        variables['skeleton'] = ''
+                elif hasattr(skeleton_result, 'success') and skeleton_result.success:
+                    if skeleton_result.data and isinstance(skeleton_result.data, dict):
+                        variables['skeleton'] = skeleton_result.data.get('rendered', '')
+                        logger.debug(f"[TemplateRenderNode] Rendered skeleton for {tool_name}")
+                    else:
+                        logger.warning(f"[TemplateRenderNode] No skeleton content in result")
+                        variables['skeleton'] = ''
+                else:
+                    error_msg = skeleton_result.message if hasattr(skeleton_result, 'message') else 'unknown error'
+                    logger.error(f"[TemplateRenderNode] Failed to render skeleton: {error_msg}")
+                    raise NonRetryableError(f"Failed to render skeleton: {error_msg}")
+            except Exception as e:
+                logger.error(f"[TemplateRenderNode] Could not render skeleton: {e}")
+                raise NonRetryableError(f"Could not render skeleton: {e}")
+        
         # Use the existing template system through injector
         from ...core.initialization import ensure_graphtoolkit_initialized
         from agentool.core.injector import get_injector
@@ -312,43 +353,10 @@ class TemplateRenderNode(AtomicNode[WorkflowState, Any, Dict[str, str]]):
                 existing_schemas = self._load_tool_schemas(ctx, required_tools)
                 variables['existing_tools_schemas'] = make_serializable(existing_schemas)
                 
-                # Render the code skeleton using the template
-                try:
-                    from agentool.core.injector import get_injector
-                    injector = get_injector()
-                    skeleton_result = await injector.run('templates', {
-                        'operation': 'render',
-                        'template_name': 'skeletons/agentool_comprehensive',
-                        'variables': {'tool_name': tool_name}
-                    })
-                    
-                    if hasattr(skeleton_result, 'output'):
-                        # It's an AgentRunResult - parse the output
-                        import json
-                        try:
-                            output_data = json.loads(skeleton_result.output)
-                            if output_data.get('success'):
-                                variables['skeleton'] = output_data.get('data', {}).get('rendered', '')
-                                logger.debug(f"[TemplateRenderNode] Rendered skeleton for {tool_name}")
-                            else:
-                                logger.warning(f"[TemplateRenderNode] Failed to render skeleton: {output_data.get('message', 'unknown error')}")
-                                variables['skeleton'] = ''
-                        except json.JSONDecodeError as e:
-                            logger.warning(f"[TemplateRenderNode] Failed to parse skeleton result: {e}")
-                            variables['skeleton'] = ''
-                    elif hasattr(skeleton_result, 'success') and skeleton_result.success:
-                        if skeleton_result.data and isinstance(skeleton_result.data, dict):
-                            variables['skeleton'] = skeleton_result.data.get('rendered', '')
-                            logger.debug(f"[TemplateRenderNode] Rendered skeleton for {tool_name}")
-                        else:
-                            logger.warning(f"[TemplateRenderNode] No skeleton content in result")
-                            variables['skeleton'] = ''
-                    else:
-                        logger.warning(f"[TemplateRenderNode] Failed to render skeleton: {skeleton_result.message if hasattr(skeleton_result, 'message') else 'unknown error'}")
-                        variables['skeleton'] = ''
-                except Exception as e:
-                    logger.warning(f"[TemplateRenderNode] Could not render skeleton: {e}")
-                    variables['skeleton'] = ''
+                # Store tool name to render skeleton later
+                variables['_tool_name_for_skeleton'] = tool_name
+                # Placeholder for skeleton - will be rendered in perform_operation
+                variables['skeleton'] = ''
                 
                 logger.debug(f"[TemplateRenderNode] Added crafter iteration variables for tool: {tool_name}")
             

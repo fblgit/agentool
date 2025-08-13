@@ -48,8 +48,8 @@ from pydantic import BaseModel, Field
 from ..core.types import PhaseDefinition, StorageType, TemplateConfig, ModelParameters
 from ..core.registry import register_phase
 
-# Import the AnalyzerOutput from agents.models
-from agents.models import AnalyzerOutput, ToolSpecification
+# Import the AnalyzerOutput and CodeOutput from agents.models
+from agents.models import AnalyzerOutput, ToolSpecification, CodeOutput
 
 
 # Input schemas for each phase
@@ -102,21 +102,7 @@ class AgenToolkitEvaluatorInput(BaseModel):
 
 
 # Output schemas (reusing from agents.models where possible)
-
-class ImplementationOutput(BaseModel):
-    """Output from the crafter phase."""
-    code: str = Field(
-        description="Complete Python implementation of the AgenTool"
-    )
-    imports: List[str] = Field(
-        description="Required import statements"
-    )
-    dependencies: List[str] = Field(
-        description="External package dependencies"
-    )
-    integration_notes: List[str] = Field(
-        description="Notes on integrating with existing tools"
-    )
+# Using CodeOutput from agents.models for crafter phase
 
 
 class EvaluationOutput(BaseModel):
@@ -253,12 +239,12 @@ crafter_phase = PhaseDefinition(
         'quality_gate'
     ],
     input_schema=AgenToolkitCrafterInput,
-    output_schema=ImplementationOutput,
+    output_schema=CodeOutput,  # Using CodeOutput from agents.models
     dependencies=['analyzer', 'specifier'],  # Needs both for context
     templates=TemplateConfig(
         system_template='agentool/system/crafter.jinja',  # Fixed path
         user_template='agentool/prompts/craft_implementation.jinja',  # Fixed path
-        variables={'schema_json': ImplementationOutput.model_json_schema()}
+        variables={}  # No schema needed, LLM outputs raw code
     ),
     storage_pattern='workflow/{workflow_id}/output/crafter',
     storage_type=StorageType.KV,
@@ -335,7 +321,7 @@ __all__ = [
     'AgenToolkitEvaluatorInput',
     'AnalyzerOutput',
     'ToolSpecification',
-    'ImplementationOutput',
+    'CodeOutput',
     'EvaluationOutput',
     'analyzer_phase',
     'specifier_phase',
