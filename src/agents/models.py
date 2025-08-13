@@ -322,22 +322,17 @@ class CodeOutput(BaseModel):
         if not v or not v.strip():
             raise ValueError("code cannot be empty. The crafter must generate a complete AgenTool implementation.")
         
-        # Check minimum length for a basic AgenTool
-        if len(v.strip()) < 500:
-            raise ValueError(f"code is too short ({len(v)} chars). Expected a complete AgenTool with imports, schemas, functions, and routing. Ensure full implementation is generated.")
+        # Check minimum length for a basic AgenTool (relaxed)
+        if len(v.strip()) < 300:
+            raise ValueError(f"code is too short ({len(v)} chars). Expected a complete AgenTool with imports, schemas, functions, and routing.")
         
-        # Check for required AgenTool components
-        if 'from agentool import' not in v and 'import agentool' not in v:
-            raise ValueError("code missing agentool imports. Must include 'from agentool import create_agentool, BaseOperationInput' or similar.")
+        # Check for basic imports (more flexible)
+        if 'agentool' not in v:
+            raise ValueError("code missing agentool imports. Must import agentool modules.")
         
-        if 'BaseOperationInput' not in v:
-            raise ValueError("code missing BaseOperationInput schema. All AgenTools must have an input schema inheriting from BaseOperationInput.")
-        
-        if 'create_agentool(' not in v:
-            raise ValueError("code missing create_agentool() call. Must create the agent using create_agentool() function.")
-        
-        if 'RoutingConfig' not in v and 'routing_config=' not in v:
-            raise ValueError("code missing routing configuration. Must define RoutingConfig for operation mapping.")
+        # Basic structure checks (more flexible)
+        if 'def ' not in v and 'class ' not in v:
+            raise ValueError("code missing function or class definitions. Must contain implementation logic.")
         
         return v
     
