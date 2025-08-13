@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class IterationControlNode(AtomicNode[WorkflowState, Any, BaseNode]):
+class IterationControlNode(BaseNode[WorkflowState, Any, WorkflowState]):
     """Controls iteration over a list of items.
     
     This node manages iteration state and determines whether to:
@@ -29,7 +29,7 @@ class IterationControlNode(AtomicNode[WorkflowState, Any, BaseNode]):
     - {phase}_iteration_current: Current item being processed
     """
     
-    async def perform_operation(self, ctx: GraphRunContext[WorkflowState, Any]) -> BaseNode:
+    async def execute(self, ctx: GraphRunContext[WorkflowState, Any]) -> BaseNode:
         """Manage iteration control flow."""
         phase_name = ctx.state.current_phase
         logger.info(f"[IterationControlNode] Phase: {phase_name}")
@@ -117,23 +117,19 @@ class IterationControlNode(AtomicNode[WorkflowState, Any, BaseNode]):
         
         logger.info(f"[IterationControlNode] Found {len(data)} items to iterate")
         return data
-    
-    async def update_state_in_place(self, state: WorkflowState, result: BaseNode) -> None:
-        """Update state with next node decision."""
-        # The result indicates which node to go to next
-        # This is handled by the graph engine based on our return value
-        pass
 
 
 @dataclass
-class SaveIterationOutputNode(AtomicNode[WorkflowState, Any, str]):
+class SaveIterationOutputNode(BaseNode[WorkflowState, Any, WorkflowState]):
     """Saves individual iteration output.
     
     Stores both the rendered template and the LLM output for the current
     iteration item, then increments the iteration index.
+    
+    Returns IterationControlNode to continue or complete iteration.
     """
     
-    async def perform_operation(self, ctx: GraphRunContext[WorkflowState, Any]) -> str:
+    async def execute(self, ctx: GraphRunContext[WorkflowState, Any]) -> BaseNode:
         """Save the current iteration's output."""
         phase_name = ctx.state.current_phase
         phase_def = ctx.state.get_current_phase_def()
@@ -218,11 +214,9 @@ class SaveIterationOutputNode(AtomicNode[WorkflowState, Any, str]):
         ctx.state.domain_data[f"{iter_key}_index"] = current_index + 1
         logger.info(f"[SaveIterationOutputNode] Incremented index to {current_index + 1}")
         
-        return spec_key
-    
-    async def update_state_in_place(self, state: WorkflowState, result: str) -> None:
-        """State is already updated in perform_operation."""
-        pass
+        # Return to IterationControlNode to check for more items
+        logger.info(f"[SaveIterationOutputNode] Returning to IterationControlNode")
+        return IterationControlNode()
 
 
 @dataclass

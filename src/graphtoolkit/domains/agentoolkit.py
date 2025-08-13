@@ -202,8 +202,7 @@ specifier_phase = PhaseDefinition(
         'template_render',       # Renders specifier template for current tool
         'llm_call',             # Calls LLM for specification
         'schema_validation',     # Validates against ToolSpecificationLLM
-        'save_iteration_output', # NEW: Saves individual specification
-        'iteration_control',     # NEW: Loop back or continue to aggregation
+        'save_iteration_output', # NEW: Saves individual specification (returns to iteration_control)
         'aggregation',          # NEW: Aggregate all specifications
         'save_phase_output',    # Saves aggregated output
         'state_update',
