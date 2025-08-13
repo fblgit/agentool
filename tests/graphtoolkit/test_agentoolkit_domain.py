@@ -1014,8 +1014,12 @@ class TestAgenToolkitAnalyzer:
                 spec_count += 1
                 spec_data = spec_result.data.get('value', {})
                 print(f"   ✓ Specification for {tool_name}:")
-                print(f"     - Operations: {len(spec_data.get('operations', []))} defined")
+                # Check multiple possible field names for operations
+                operations = spec_data.get('operations', spec_data.get('tool_operations', []))
+                print(f"     - Operations: {len(operations)} defined")
                 print(f"     - Dependencies: {spec_data.get('dependencies', [])}")
+                # Debug: show what fields are actually present
+                print(f"     - Available fields: {list(spec_data.keys())[:8]}")  # Show first 8 keys
         
         # Check aggregated specifications
         specs_key = f'workflow/{workflow_id}/specifications'
@@ -1118,10 +1122,15 @@ class TestAgenToolkitAnalyzer:
                 print(f"     - Issues found: {len(eval_data.get('issues', []))}")
                 print(f"     - Improvements suggested: {len(eval_data.get('improvements', []))}")
                 
-                # Show top issues if any
-                issues = eval_data.get('issues', [])[:2]
+                # Show all issues without truncation
+                issues = eval_data.get('issues', [])
                 for issue in issues:
-                    print(f"       - Issue: {issue[:60]}...")
+                    print(f"       - Issue: {issue}")
+                
+                # Show all improvements without truncation  
+                improvements = eval_data.get('improvements', [])
+                for improvement in improvements:
+                    print(f"       - Improvement: {improvement}")
         
         # Check aggregated evaluations
         evals_key = f'workflow/{workflow_id}/evaluations'
