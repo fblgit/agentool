@@ -317,6 +317,31 @@ class AggregationNode(AtomicNode[WorkflowState, Any, Dict[str, Any]]):
                 'crafts': implementations,
                 'count': len(implementations)
             }
+        # For refiner phase, aggregate refined implementations
+        elif phase_name == 'refiner':
+            refinements = []
+            for result in results:
+                output = result.get('output', {})
+                item = result.get('item', {})
+                # Extract tool name
+                if hasattr(item, 'name'):
+                    tool_name = item.name
+                elif isinstance(item, dict) and 'name' in item:
+                    tool_name = item['name']
+                else:
+                    tool_name = f'tool_{results.index(result)}'
+                
+                # Add tool name to the refinement
+                refinement = {
+                    'tool_name': tool_name,
+                    **output
+                }
+                refinements.append(refinement)
+            
+            aggregated = {
+                'refinements': refinements,
+                'count': len(refinements)
+            }
         else:
             # Generic aggregation
             aggregated = {
@@ -331,6 +356,8 @@ class AggregationNode(AtomicNode[WorkflowState, Any, Dict[str, Any]]):
             aggregated_key = f"workflow/{ctx.state.workflow_id}/specifications"
         elif phase_name == 'crafter':
             aggregated_key = f"workflow/{ctx.state.workflow_id}/crafts"
+        elif phase_name == 'refiner':
+            aggregated_key = f"workflow/{ctx.state.workflow_id}/refines"
         else:
             aggregated_key = f"workflow/{ctx.state.workflow_id}/{phase_name}_aggregated"
         

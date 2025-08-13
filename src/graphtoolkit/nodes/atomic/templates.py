@@ -360,6 +360,98 @@ class TemplateRenderNode(AtomicNode[WorkflowState, Any, Dict[str, str]]):
                 
                 logger.debug(f"[TemplateRenderNode] Added crafter iteration variables for tool: {tool_name}")
             
+            # For refiner phase, add specific variables (similar to crafter but with feedback)
+            elif phase_name == 'refiner':
+                variables['agentool_to_implement'] = make_serializable(current_item)
+                variables['analysis_output'] = make_serializable(ctx.state.domain_data.get('analyzer_output', {}))
+                
+                # Get the tool name
+                tool_name = current_item.name if hasattr(current_item, 'name') else current_item.get('name', 'unknown')
+                
+                # Get the specification for this tool
+                spec_key = f"workflow/{ctx.state.workflow_id}/specification/{tool_name}"
+                storage_client = ctx.deps.get_storage_client()
+                spec_result = await storage_client.run('storage_kv', {
+                    'operation': 'get',
+                    'key': spec_key,
+                    'namespace': 'workflow'
+                })
+                
+                if spec_result.success:
+                    spec_output = spec_result.data.get('value', {})
+                    variables['spec_output'] = make_serializable(spec_output)
+                    logger.debug(f"[TemplateRenderNode] Loaded specification for {tool_name}")
+                else:
+                    logger.warning(f"[TemplateRenderNode] Could not load specification for {tool_name}")
+                    variables['spec_output'] = {}
+                
+                # Get the previous implementation code for this tool
+                impl_key = f"workflow/{ctx.state.workflow_id}/crafter/{tool_name}"
+                impl_result = await storage_client.run('storage_kv', {
+                    'operation': 'get',
+                    'key': impl_key,
+                    'namespace': 'workflow'
+                })
+                
+                if impl_result.success:
+                    impl_output = impl_result.data.get('value', {})
+                    # Extract the code from CodeOutput if it's stored as such
+                    if isinstance(impl_output, dict) and 'code' in impl_output:
+                        previous_code = impl_output['code']
+                    elif isinstance(impl_output, str):
+                        previous_code = impl_output
+                    else:
+                        previous_code = str(impl_output)
+                    
+                    variables['previous_code'] = previous_code  # Use previous_code instead of implementation_code
+                    logger.debug(f"[TemplateRenderNode] Loaded previous code for {tool_name} ({len(previous_code)} chars)")
+                else:
+                    logger.warning(f"[TemplateRenderNode] Could not load previous implementation for {tool_name}")
+                    variables['previous_code'] = ""
+                
+                # Get the evaluation feedback for this tool
+                eval_key = f"workflow/{ctx.state.workflow_id}/evaluation/{tool_name}"
+                eval_result = await storage_client.run('storage_kv', {
+                    'operation': 'get',
+                    'key': eval_key,
+                    'namespace': 'workflow'
+                })
+                
+                if eval_result.success:
+                    eval_output = eval_result.data.get('value', {})
+                    variables['evaluation_feedback'] = make_serializable(eval_output)
+                    logger.debug(f"[TemplateRenderNode] Loaded evaluation feedback for {tool_name}")
+                else:
+                    logger.warning(f"[TemplateRenderNode] Could not load evaluation for {tool_name}")
+                    variables['evaluation_feedback'] = {}
+                
+                # Get all specifications for context
+                specs_key = f"workflow/{ctx.state.workflow_id}/specifications"
+                specs_result = await storage_client.run('storage_kv', {
+                    'operation': 'get',
+                    'key': specs_key,
+                    'namespace': 'workflow'
+                })
+                
+                if specs_result.success:
+                    all_specs = specs_result.data.get('value', {})
+                    variables['all_specifications'] = make_serializable(all_specs)
+                else:
+                    variables['all_specifications'] = {}
+                
+                # Load existing tool schemas
+                if isinstance(current_item, dict) and 'required_tools' in current_item:
+                    required_tools = current_item.get('required_tools', [])
+                elif hasattr(current_item, 'required_tools'):
+                    required_tools = current_item.required_tools
+                else:
+                    required_tools = []
+                    
+                existing_schemas = self._load_tool_schemas(ctx, required_tools)
+                variables['existing_tools_schemas'] = make_serializable(existing_schemas)
+                
+                logger.debug(f"[TemplateRenderNode] Added refiner iteration variables for tool: {tool_name}")
+            
             # For evaluator phase, add specific variables
             elif phase_name == 'evaluator':
                 variables['agentool_to_implement'] = make_serializable(current_item)

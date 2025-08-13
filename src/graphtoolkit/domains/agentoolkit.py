@@ -101,9 +101,23 @@ class AgenToolkitEvaluatorInput(BaseModel):
     )
 
 
+class AgenToolkitRefinerInput(BaseModel):
+    """Input for the refiner phase - uses previous implementation and evaluation feedback."""
+    previous_code: str = Field(
+        description="The previous implementation from crafter phase"
+    )
+    specification: Dict[str, Any] = Field(
+        description="Original specification to implement"
+    )
+    evaluation_feedback: Dict[str, Any] = Field(
+        description="Evaluation results with issues and improvements to address"
+    )
+
+
 # Output schemas (reusing from agents.models where possible)
 # Using CodeOutput from agents.models for crafter phase
 # Using EvaluationOutput from agents.models for evaluator phase
+# Using CodeOutput from agents.models for refiner phase (same as crafter)
 
 
 # Register phases for agentoolkit domain
@@ -281,18 +295,64 @@ evaluator_phase = PhaseDefinition(
     )
 )
 
+# Phase 5: Refiner - Refine implementations that failed evaluation
+refiner_phase = PhaseDefinition(
+    phase_name='refiner',
+    domain='agentoolkit',
+    atomic_nodes=[
+        'dependency_check',
+        'load_dependencies',     # Loads evaluator, crafter, specifier outputs
+        'iteration_control',     # Start iteration over tools_to_refine
+        'template_render',       # Renders refiner template for current tool
+        'llm_call',             # Calls LLM for refined implementation
+        'schema_validation',     # Validates against CodeOutput (same as crafter)
+        'save_iteration_output', # Saves individual refined implementation
+        'aggregation',          # Aggregate all refinements
+        'save_phase_output',    # Saves aggregated output
+        'state_update',
+        'quality_gate'
+    ],
+    input_schema=AgenToolkitRefinerInput,
+    output_schema=CodeOutput,  # Same as crafter - outputs refined code
+    dependencies=['analyzer', 'specifier', 'crafter', 'evaluator'],  # Needs all previous phases
+    templates=TemplateConfig(
+        system_template='agentool/system/refiner.jinja',  # System prompt for refinement
+        user_template='agentool/prompts/refine_implementation.jinja',  # User prompt with feedback
+        variables={}  # No schema needed, outputs raw code like crafter
+    ),
+    storage_pattern='workflow/{workflow_id}/output/refiner',
+    storage_type=StorageType.KV,
+    additional_storage_patterns={
+        'rendered': 'workflow/{workflow_id}/render/refiner'
+    },
+    iteration_config={
+        'enabled': True,
+        'items_source': 'tools_to_refine',  # Filtered list of tools needing refinement
+        'item_storage_pattern': 'workflow/{workflow_id}/refine/{item_name}'
+    },
+    quality_threshold=0.9,  # Higher threshold for refined code
+    allow_refinement=False,  # No further refinement during iteration
+    max_refinements=0,
+    model_config=ModelParameters(
+        temperature=0.2,  # Even lower temperature for precise fixes
+        max_tokens=4000
+    )
+)
+
 # Register all phases
 register_phase('agentoolkit.analyzer', analyzer_phase)
 register_phase('agentoolkit.specifier', specifier_phase)
 register_phase('agentoolkit.crafter', crafter_phase)
 register_phase('agentoolkit.evaluator', evaluator_phase)
+register_phase('agentoolkit.refiner', refiner_phase)
 
 # Workflow configuration for convenience
 AGENTOOLKIT_WORKFLOW_PHASES = [
     'analyzer',
     'specifier',
     'crafter',
-    'evaluator'
+    'evaluator',
+    'refiner'  # Optional - only run if tools need refinement
 ]
 
 # Export key components
@@ -301,6 +361,7 @@ __all__ = [
     'AgenToolkitSpecifierInput',
     'AgenToolkitCrafterInput',
     'AgenToolkitEvaluatorInput',
+    'AgenToolkitRefinerInput',
     'AnalyzerOutput',
     'ToolSpecification',
     'CodeOutput',
@@ -309,5 +370,6 @@ __all__ = [
     'specifier_phase',
     'crafter_phase',
     'evaluator_phase',
+    'refiner_phase',
     'AGENTOOLKIT_WORKFLOW_PHASES'
 ]

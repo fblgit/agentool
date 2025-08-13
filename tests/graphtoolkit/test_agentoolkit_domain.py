@@ -647,13 +647,13 @@ class TestAgenToolkitAnalyzer:
         print("\n✅ Test complete!")
 
     async def test_analyzer_specifier_and_crafter_phases(self):
-        """Test all four phases: analyzer, specifier, crafter, and evaluator with detailed report."""
+        """Test all phases: analyzer, specifier, crafter, evaluator, and refiner (if needed) with detailed report."""
         # Setup
         workflow_id = f"test_{uuid.uuid4().hex[:8]}"
         task_description = "Create a notification service that sends alerts via email and SMS"
         
         print(f"\n{'='*80}")
-        print(f"COMPLETE AGENTOOLKIT WORKFLOW TEST (4 PHASES)")
+        print(f"COMPLETE AGENTOOLKIT WORKFLOW TEST")
         print(f"{'='*80}")
         print(f"Workflow ID: {workflow_id}")
         print(f"Task: {task_description}")
@@ -949,6 +949,103 @@ class TestAgenToolkitAnalyzer:
         print(f"   ✓ Evaluations complete!")
         
         # ========================================
+        # PHASE 5: REFINER (Conditional)
+        # ========================================
+        
+        # Check which tools need refinement
+        tools_to_refine = []
+        for tool in missing_tools:
+            tool_name = tool.name if hasattr(tool, 'name') else tool.get('name', 'unknown')
+            eval_key = f'workflow/{workflow_id}/evaluation/{tool_name}'
+            
+            # Get evaluation result for this tool
+            from agentool.core.injector import get_injector
+            injector = get_injector()
+            eval_result = await injector.run('storage_kv', {
+                'operation': 'get',
+                'key': eval_key,
+                'namespace': 'workflow'
+            })
+            
+            if eval_result.success:
+                eval_data = eval_result.data.get('value', {})
+                if not eval_data.get('ready_for_deployment', False):
+                    tools_to_refine.append(tool)
+                    print(f"   📝 Tool {tool_name} needs refinement (score: {eval_data.get('overall_score', 0):.2f})")
+        
+        if tools_to_refine:
+            print("\n📊 PHASE 5: REFINER")
+            print("-" * 40)
+            print(f"   → Refining {len(tools_to_refine)} tools that need improvement...")
+            
+            from graphtoolkit.domains.agentoolkit import refiner_phase
+            
+            refiner_def = WorkflowDefinition(
+                domain='agentoolkit',
+                phases={'refiner': refiner_phase},
+                phase_sequence=['refiner'],
+                node_configs={
+                    'dependency_check': NodeConfig(node_type='storage_check'),
+                    'load_dependencies': NodeConfig(node_type='storage_load'),
+                    'iteration_control': NodeConfig(node_type='iteration'),
+                    'template_render': NodeConfig(node_type='template'),
+                    'llm_call': NodeConfig(node_type='llm'),
+                    'schema_validation': NodeConfig(node_type='validation'),
+                    'save_iteration_output': NodeConfig(node_type='iteration_save'),
+                    'aggregation': NodeConfig(node_type='aggregation'),
+                    'save_phase_output': NodeConfig(node_type='storage_save'),
+                    'state_update': NodeConfig(node_type='state'),
+                    'quality_gate': NodeConfig(node_type='validation')
+                }
+            )
+            
+            refiner_state = WorkflowState(
+                workflow_def=refiner_def,
+                workflow_id=workflow_id,
+                domain='agentoolkit',
+                current_phase='refiner',
+                current_node='dependency_check',
+                domain_data={
+                    'task_description': task_description,
+                    'analyzer_output': analyzer_output,
+                    'specifier_output': final_specifier_state.domain_data.get('specifier_output'),
+                    'crafter_output': final_crafter_state.domain_data.get('crafter_output'),
+                    'evaluator_output': final_evaluator_state.domain_data.get('evaluator_output'),
+                    'tools_to_refine': tools_to_refine  # Set the items to iterate over
+                },
+                completed_phases={'analyzer', 'specifier', 'crafter', 'evaluator'},
+                phase_outputs={
+                    'analyzer': final_analyzer_state.phase_outputs.get('analyzer'),
+                    'specifier': final_specifier_state.phase_outputs.get('specifier'),
+                    'crafter': final_crafter_state.phase_outputs.get('crafter'),
+                    'evaluator': final_evaluator_state.phase_outputs.get('evaluator')
+                }
+            )
+            
+            refiner_nodes = base_nodes + [
+                IterationControlNode,
+                SaveIterationOutputNode,
+                AggregationNode
+            ]
+            
+            refiner_graph = Graph(nodes=refiner_nodes)
+            
+            refiner_result = await refiner_graph.run(
+                GenericPhaseNode(),
+                state=refiner_state,
+                deps=deps
+            )
+            
+            final_refiner_state = refiner_result.output if hasattr(refiner_result, 'output') else refiner_state
+            
+            print(f"   ✓ Refinements complete!")
+        else:
+            print("\n📊 PHASE 5: REFINER")
+            print("-" * 40)
+            print("   ✅ No refinement needed - all tools ready for deployment!")
+            final_refiner_state = None
+        
+        # ========================================
         # FINAL REPORT
         # ========================================
         print(f"\n{'='*80}")
@@ -1150,6 +1247,51 @@ class TestAgenToolkitAnalyzer:
                 print(f"     - Average overall score: {avg_score:.2f}/1.0")
                 print(f"     - Deployment ready: {deployment_ready}/{len(missing_tools)} ({deployment_ready/len(missing_tools)*100:.1f}%)")
         
+        # Report on Refiner (if executed)
+        if final_refiner_state:
+            print("\n🔧 REFINER PHASE RESULTS")
+            print("-" * 40)
+            
+            # Check individual refinements
+            refine_count = 0
+            for tool in tools_to_refine:
+                tool_name = tool.name if hasattr(tool, 'name') else tool.get('name', 'unknown')
+                refine_key = f'workflow/{workflow_id}/refine/{tool_name}'
+                
+                refine_result = await injector.run('storage_kv', {
+                    'operation': 'get',
+                    'key': refine_key,
+                    'namespace': 'workflow'
+                })
+                
+                if refine_result.success:
+                    refine_count += 1
+                    refine_data = refine_result.data.get('value', {})
+                    print(f"   ✓ Refined implementation for {tool_name}:")
+                    print(f"     - Code: {len(refine_data.get('code', ''))} chars")
+                    # Show first few lines of refined code
+                    code = refine_data.get('code', '')
+                    if code:
+                        lines = code.split('\n')[:3]
+                        for line in lines:
+                            if line.strip():
+                                print(f"       {line[:60]}...")
+                                break
+            
+            # Check aggregated refinements
+            refines_key = f'workflow/{workflow_id}/refines'
+            refines_result = await injector.run('storage_kv', {
+                'operation': 'get',
+                'key': refines_key,
+                'namespace': 'workflow'
+            })
+            
+            if refines_result.success:
+                refines_data = refines_result.data.get('value', {})
+                refinements = refines_data.get('refinements', [])
+                print(f"\n   ✓ Aggregated Refinements: {len(refinements)} total")
+                print(f"     - Tools refined: {', '.join([r.get('tool_name', 'unknown') for r in refinements])}")
+        
         # Summary
         print(f"\n{'='*80}")
         print("📊 WORKFLOW SUMMARY")
@@ -1166,15 +1308,27 @@ class TestAgenToolkitAnalyzer:
             avg_score = sum(total_scores) / len(total_scores)
             print(f"      - Average quality score: {avg_score:.2f}/1.0")
             print(f"      - Deployment ready: {deployment_ready}/{len(missing_tools)} tools")
+        if final_refiner_state:
+            refine_count = len(tools_to_refine)
+            print(f"   5. Refiner: ✅ Refined {refine_count} implementations")
+        else:
+            print(f"   5. Refiner: ⏭️ Skipped (all tools ready for deployment)")
         print(f"   ")
         print(f"   Storage Footprint:")
         print(f"   - Analyzer: 4 artifacts stored")
         print(f"   - Specifier: {spec_count * 2 + 1} artifacts stored")
         print(f"   - Crafter: {impl_count * 2 + 1} artifacts stored")
         print(f"   - Evaluator: {eval_count * 2 + 1} artifacts stored")
-        print(f"   - Total: {4 + spec_count * 2 + 1 + impl_count * 2 + 1 + eval_count * 2 + 1} artifacts")
+        if final_refiner_state:
+            refine_count = len(tools_to_refine)
+            print(f"   - Refiner: {refine_count * 2 + 1} artifacts stored")
+            total_artifacts = 4 + spec_count * 2 + 1 + impl_count * 2 + 1 + eval_count * 2 + 1 + refine_count * 2 + 1
+        else:
+            total_artifacts = 4 + spec_count * 2 + 1 + impl_count * 2 + 1 + eval_count * 2 + 1
+        print(f"   - Total: {total_artifacts} artifacts")
         
-        print(f"\n✅ COMPLETE 4-PHASE WORKFLOW TEST SUCCESSFUL!")
+        phases_run = 5 if final_refiner_state else 4
+        print(f"\n✅ COMPLETE {phases_run}-PHASE WORKFLOW TEST SUCCESSFUL!")
         print(f"{'='*80}\n")
 
 
