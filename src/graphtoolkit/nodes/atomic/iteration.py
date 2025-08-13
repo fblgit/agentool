@@ -72,6 +72,11 @@ class IterationControlNode(BaseNode[WorkflowState, Any, WorkflowState]):
         current_index = ctx.state.domain_data[f"{iter_key}_index"]
         
         logger.info(f"[IterationControlNode] Processing item {current_index + 1}/{len(items)}")
+        logger.info(f"[IterationControlNode] Items list has {len(items)} items")
+        for i, item in enumerate(items):
+            item_name = item.get('name', f'item_{i}') if isinstance(item, dict) else getattr(item, 'name', f'item_{i}')
+            logger.info(f"[IterationControlNode]   {i}: {item_name}")
+        logger.info(f"[IterationControlNode] Current index: {current_index}")
         
         if current_index < len(items):
             # Set current item for processing
@@ -86,12 +91,14 @@ class IterationControlNode(BaseNode[WorkflowState, Any, WorkflowState]):
                 item_display = str(current_item)
             logger.info(f"[IterationControlNode] Set current item: {item_display}")
             
-            # Return to template_render to process this item
+            # Update state to template_render and return to process this item
+            ctx.state.current_node = 'template_render'
             from ...core.factory import create_node_instance
             return create_node_instance('template_render')
         else:
             # Iteration complete
             logger.info(f"[IterationControlNode] Iteration complete for {phase_name}")
+            ctx.state.current_node = 'aggregation'
             from ...core.factory import create_node_instance
             return create_node_instance('aggregation')
     
@@ -151,13 +158,15 @@ class SaveIterationOutputNode(BaseNode[WorkflowState, Any, WorkflowState]):
         current_item = ctx.state.domain_data.get(f"{iter_key}_current")
         if not current_item:
             logger.warning(f"[SaveIterationOutputNode] No current item for {phase_name}")
-            return "skipped"
+            # Still return to IterationControlNode to handle properly
+            return IterationControlNode()
         
         # Get the LLM response (should have been validated already)
         llm_output = ctx.state.domain_data.get(f"{phase_name}_llm_response")
         if not llm_output:
             logger.warning(f"[SaveIterationOutputNode] No LLM output for {phase_name}")
-            return "skipped"
+            # Still return to IterationControlNode to handle properly
+            return IterationControlNode()
         
         # Determine item name for storage
         if isinstance(current_item, dict):
@@ -221,8 +230,14 @@ class SaveIterationOutputNode(BaseNode[WorkflowState, Any, WorkflowState]):
         
         # Increment iteration index
         current_index = ctx.state.domain_data.get(f"{iter_key}_index", 0)
-        ctx.state.domain_data[f"{iter_key}_index"] = current_index + 1
-        logger.info(f"[SaveIterationOutputNode] Incremented index to {current_index + 1}")
+        new_index = current_index + 1
+        ctx.state.domain_data[f"{iter_key}_index"] = new_index
+        
+        # Debug: check total items
+        items = ctx.state.domain_data.get(f"{iter_key}_items", [])
+        logger.info(f"[SaveIterationOutputNode] Incremented index from {current_index} to {new_index}")
+        logger.info(f"[SaveIterationOutputNode] Total items: {len(items)}, new index: {new_index}")
+        logger.info(f"[SaveIterationOutputNode] More items to process: {new_index < len(items)}")
         
         # Return to IterationControlNode to check for more items
         logger.info(f"[SaveIterationOutputNode] Returning to IterationControlNode")
