@@ -1,348 +1,144 @@
 # 🛠️ AgenTools
 
 <p align="center">
-  <a href="https://github.com/agentool/agentool"><img src="https://img.shields.io/badge/Python-3.8%2B-blue.svg" alt="Python 3.8+"></a>
-  <a href="https://github.com/agentool/agentool/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License: MIT"></a>
-  <a href="https://pypi.org/project/agentool/"><img src="https://img.shields.io/pypi/v/agentool.svg" alt="PyPI version"></a>
-  <a href="https://github.com/agentool/agentool/actions"><img src="https://img.shields.io/github/actions/workflow/status/agentool/agentool/tests.yml?branch=main" alt="Build Status"></a>
-  <a href="https://agentool.readthedocs.io"><img src="https://readthedocs.org/projects/agentool/badge/?version=latest" alt="Documentation Status"></a>
-  <a href="https://codecov.io/gh/agentool/agentool"><img src="https://codecov.io/gh/agentool/agentool/branch/main/graph/badge.svg" alt="Coverage"></a>
+  <b>Meta-Framework for Building AI-Powered Workflows with pydantic-ai</b><br>
+  <i>From simple tools to complex state-driven workflows - all with type safety and composability</i>
 </p>
 
 <p align="center">
-  <b>Deterministic Tool Execution Framework for pydantic-ai</b><br>
-  <i>Build type-safe, composable, and testable AI agents with predictable behavior</i>
+  <a href="https://github.com/fblgit/agentools"><img src="https://img.shields.io/badge/Python-3.9%2B-blue.svg" alt="Python 3.9+"></a>
+  <a href="https://github.com/fblgit/agentools/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License: MIT"></a>
+  <a href="https://pypi.org/project/agentools/"><img src="https://img.shields.io/pypi/v/agentools.svg" alt="PyPI version"></a>
 </p>
 
 ---
 
-## Table of Contents
+## 📋 Table of Contents
 
 - [Overview](#overview)
-- [Key Features](#key-features)
 - [Quick Start](#quick-start)
-- [Installation](#installation)
-- [Core Concepts](#core-concepts)
-- [Usage Examples](#usage-examples)
 - [Architecture](#architecture)
-- [AgenToolkits](#agentoolkits)
-- [Creating Custom AgenTools](#creating-custom-agentools)
-- [Workflow System](#workflow-system)
-- [API Reference](#api-reference)
-- [Testing](#testing)
-- [Contributing](#contributing)
+  - [AgenTool Framework](#1-agentool-framework)
+  - [AgenToolkit Collections](#2-agentoolkit-collections)
+  - [GraphToolkit Meta-Framework](#3-graphtoolkit-meta-framework)
+  - [UI Components](#4-ui-components)
+- [Installation](#installation)
+- [Documentation](#documentation)
+- [Examples](#examples)
+- [Development](#development)
 - [License](#license)
 
 ## Overview
 
-AgenTools extends [pydantic-ai](https://github.com/pydantic/pydantic-ai) with a revolutionary approach to building AI agents. Instead of relying on unpredictable LLM outputs, AgenTools provides **deterministic tool execution** with full type safety, making your AI agents reliable, testable, and production-ready.
+AgenTools is a comprehensive meta-framework built on [pydantic-ai](https://github.com/pydantic/pydantic-ai) that provides a three-layer architecture for building AI-powered applications:
 
-### What is AgenTools?
+### 🎯 Three-Layer Architecture
 
-AgenTools is a framework that transforms the way you build AI agents by:
+1. **AgenTool Framework** - Core layer for creating type-safe, schema-driven tools with deterministic routing
+2. **AgenToolkit Collections** - Pre-built, production-ready tool collections for common domains (auth, storage, HTTP, etc.)
+3. **GraphToolkit Meta-Framework** - State-driven workflow engine for building complex, multi-phase AI workflows
 
-1. **Replacing LLM decision-making with schema-driven routing** - Your agents execute specific tools based on structured inputs
-2. **Providing comprehensive pre-built toolkits** - Ready-to-use components for storage, auth, HTTP, crypto, and more
-3. **Enabling multi-layer agent architectures** - Build complex systems with dependency injection
-4. **Offering LLM-powered workflow agents** - Analyze, specify, craft, and evaluate new AgenTools automatically
+```mermaid
+graph TB
+    subgraph "Layer 3: GraphToolkit Meta-Framework"
+        WF[Workflow Engine]
+        PS[Phase System]
+        AN[Atomic Nodes]
+        SM[State Manager]
+    end
+    
+    subgraph "Layer 2: AgenToolkit Collections"
+        AUTH[Auth Toolkit]
+        STOR[Storage Toolkit]
+        HTTP[HTTP Toolkit]
+        CRYP[Crypto Toolkit]
+        METR[Metrics Toolkit]
+    end
+    
+    subgraph "Layer 1: AgenTool Framework"
+        CORE[Core Engine]
+        ROUT[Router]
+        VAL[Validator]
+        INJ[Injector]
+    end
+    
+    subgraph "Foundation: pydantic-ai"
+        PA[pydantic-ai Agent]
+        PM[Pydantic Models]
+    end
+    
+    WF --> PS --> AN --> SM
+    PS --> AUTH & STOR & HTTP
+    
+    AUTH & STOR & HTTP & CRYP & METR --> CORE
+    CORE --> ROUT & VAL & INJ
+    ROUT --> PA
+    VAL --> PM
+    
+    style WF fill:#e1f5fe
+    style AUTH fill:#fff3e0
+    style CORE fill:#e8f5e9
+    style PA fill:#f3e5f5
+```
 
-### Why AgenTools?
+### 💡 Key Benefits
 
-Traditional LLM-based agents suffer from:
-- ❌ Unpredictable behavior and hallucinations
-- ❌ Difficult to test and debug
-- ❌ High token costs for simple operations
-- ❌ Inconsistent tool selection
+- **Type Safety**: Full Pydantic validation throughout the stack
+- **Composability**: Build complex systems from simple, reusable components
+- **State-Driven**: Declarative workflow definitions with atomic node decomposition
+- **Production Ready**: Comprehensive toolkits for common use cases
+- **Visual Interface**: Streamlit UI for workflow visualization and monitoring
+- **Extensible**: Easy to add new tools, toolkits, and workflow domains
 
-AgenTools solves these problems with:
-- ✅ **Deterministic execution** - Same input always produces same output
-- ✅ **Full type safety** - Pydantic validation throughout
-- ✅ **Comprehensive testing** - Schema-driven design enables thorough testing
-- ✅ **Cost efficiency** - No LLM tokens for tool routing
-- ✅ **Composability** - Build complex systems from simple components
+### 🚀 Use Cases
 
-## Key Features
-
-### 🎯 Deterministic Tool Execution
-- Schema-driven routing eliminates LLM unpredictability
-- Operation-based tool selection with parameter transformation
-- Consistent behavior across all executions
-- **Learn more**: [`docs/architecture.md`](docs/architecture.md)
-
-### 🔒 Type Safety & Validation
-- Full Pydantic model validation for inputs and outputs
-- Automatic type inference from tool signatures
-- Compile-time type checking support
-- **API Docs**: [`docs/api-reference.md`](docs/api-reference.md)
-
-### 🧩 Composable Architecture
-- Dependency injection for multi-agent systems
-- Layer agents to build complex workflows
-- Clean separation of concerns
-- **DI Guide**: [`docs/agentool_dependency_injection.md`](docs/agentool_dependency_injection.md)
-
-### 📦 Rich Toolkit Ecosystem
-- **Storage**: File system, key-value, vector databases
-- **Authentication**: Session management, token handling
-- **Network**: HTTP client, webhooks, network utilities
-- **Security**: Encryption, hashing, signing
-- **Data Processing**: JSON/CSV/XML transformation, validation
-- **Monitoring**: Metrics, health checks, logging
-- **Full List**: [`docs/foundational-agentoolkits.md`](docs/foundational-agentoolkits.md)
-
-### 🤖 Workflow Agents
-- LLM-powered agents for creating new AgenTools
-- Analyze requirements, generate specifications
-- Craft implementations with tests
-- Evaluate code quality
-- **Templates**: [`src/templates/`](src/templates/)
-
-### 🔍 Observable & Testable
-- Built-in Logfire integration for monitoring
-- Comprehensive testing patterns
-- Schema-based test generation
-- **Testing Guide**: [`docs/testing-guide.md`](docs/testing-guide.md)
+- Building reliable AI agents with predictable behavior
+- Creating multi-step workflows with complex state management
+- Implementing production services with built-in auth, storage, and monitoring
+- Rapid prototyping of AI-powered applications
+- Testing and validating AI workflows with deterministic execution
 
 ## Quick Start
 
-### Basic Example
+### Basic AgenTool Example
 
 ```python
-from agentool import create_agentool
-from agentool.base import BaseOperationInput
-from pydantic import Field
-from typing import Literal, Optional
+from agentool import create_agentool, BaseOperationInput
+from typing import Literal
 
-# 0. Register AgenTool models (only needed once at startup)
-from agentool import register_agentool_models
-register_agentool_models()
-
-# 1. Define your input schema
+# Define schema
 class CalculatorInput(BaseOperationInput):
-    operation: Literal['add', 'subtract', 'multiply', 'divide']
-    a: float = Field(description="First number")
-    b: float = Field(description="Second number")
+    operation: Literal['add', 'subtract']
+    a: float
+    b: float
 
-# 2. Create tool functions
+# Create tool functions
 async def add(ctx, a: float, b: float) -> dict:
     return {"result": a + b}
 
 async def subtract(ctx, a: float, b: float) -> dict:
     return {"result": a - b}
 
-async def multiply(ctx, a: float, b: float) -> dict:
-    return {"result": a * b}
-
-async def divide(ctx, a: float, b: float) -> dict:
-    if b == 0:
-        raise ValueError("Division by zero")
-    return {"result": a / b}
-
-# 3. Configure routing
-from agentool.core.registry import RoutingConfig
-
-routing = RoutingConfig(
-    operation_field='operation',
-    operation_map={
-        'add': ('add', lambda x: {'a': x.a, 'b': x.b}),
-        'subtract': ('subtract', lambda x: {'a': x.a, 'b': x.b}),
-        'multiply': ('multiply', lambda x: {'a': x.a, 'b': x.b}),
-        'divide': ('divide', lambda x: {'a': x.a, 'b': x.b}),
-    }
-)
-
-# 4. Create the AgenTool
+# Create AgenTool
 calculator = create_agentool(
     name='calculator',
     input_schema=CalculatorInput,
-    routing_config=routing,
-    tools=[add, subtract, multiply, divide],
-    description="Simple calculator with basic operations"
+    routing_config={
+        'operation_field': 'operation',
+        'operation_map': {
+            'add': ('add', lambda x: {'a': x.a, 'b': x.b}),
+            'subtract': ('subtract', lambda x: {'a': x.a, 'b': x.b}),
+        }
+    },
+    tools=[add, subtract]
 )
 
-# 5. Use it!
-import asyncio
-import json
-
-async def main():
-    result = await calculator.run(json.dumps({
-        "operation": "add",
-        "a": 10,
-        "b": 5
-    }))
-    print(result.output)  # {"result": 15}
-
-# Run the example
-if __name__ == "__main__":
-    asyncio.run(main())
+# Use it
+result = await calculator.run('{"operation": "add", "a": 10, "b": 5}')
+print(result.output)  # {"result": 15}
 ```
 
-## Installation
-
-### Basic Installation
-
-```bash
-pip install agentool
-```
-
-### With Optional Dependencies
-
-```bash
-# Install with specific toolkits
-pip install "agentool[storage,auth,http]"
-
-# Install with all toolkits
-pip install "agentool[all]"
-
-# Development installation
-pip install -e ".[dev,lint]"
-```
-
-### Available Extras
-
-- `storage`: File system and key-value storage with async support (aiofiles, asyncpg, pgvector)
-- `auth`: Authentication with passlib and python-jose
-- `crypto`: Cryptographic operations
-- `http`: HTTP client with httpx
-- `templates`: Jinja2 template rendering
-- `observability`: Logfire integration for monitoring
-- `ui`: Streamlit-based UI components with pandas
-
-### Development Setup
-
-```bash
-# Clone the repository
-git clone https://github.com/agentool/agentool.git
-cd agentool
-
-# Install in development mode
-pip install -e ".[dev,lint]"
-
-# Run tests
-pytest
-
-# Run linting
-ruff check src tests
-mypy src
-```
-
-## Core Concepts
-
-### AgenTools vs Traditional Agents
-
-| Traditional LLM Agents | AgenTools |
-|------------------------|-----------|
-| LLM decides which tool to call | Schema determines tool routing |
-| Unpredictable tool selection | Deterministic operation mapping |
-| High token costs | No LLM tokens for routing |
-| Hard to test | Fully testable |
-| Prone to hallucinations | Type-safe execution |
-
-### How AgenTools Work - Detailed Flow
-
-```mermaid
-graph TB
-    subgraph "1. Input Processing"
-        A[JSON String Input] --> B{Valid JSON?}
-        B -->|Yes| C[Parse to Dict]
-        B -->|No| D[Return Error]
-        C --> E[Pydantic Validation]
-        E --> F{Valid Schema?}
-        F -->|No| G[Validation Error]
-        F -->|Yes| H[Typed Input Object]
-    end
-    
-    subgraph "2. Operation Routing"
-        H --> I[Extract Operation Field]
-        I --> J[Lookup in RoutingConfig]
-        J --> K{Operation Found?}
-        K -->|No| L[Unknown Operation Error]
-        K -->|Yes| M[Get Tool & Transform]
-        M --> N[Apply Parameter Transform]
-    end
-    
-    subgraph "3. Tool Execution"
-        N --> O[Call Tool Function]
-        O --> P{Exception?}
-        P -->|Yes| Q[Propagate Exception]
-        P -->|No| R[Tool Result]
-    end
-    
-    subgraph "4. Output Processing"
-        R --> S{Output Type?}
-        S -->|BaseModel| T[Validate Output]
-        S -->|Dict/Other| U[Direct Return]
-        T --> V[JSON Serialize]
-        U --> V
-        V --> W[Final JSON Output]
-    end
-    
-    style A fill:#e3f2fd
-    style W fill:#c8e6c9
-    style D fill:#ffcdd2
-    style G fill:#ffcdd2
-    style L fill:#ffcdd2
-    style Q fill:#ffcdd2
-```
-
-### Execution Flow Example
-
-Let's trace through a real example:
-
-```python
-# 1. User sends JSON input
-input_json = '{"operation": "set", "key": "user:123", "value": {"name": "Alice"}}'
-
-# 2. AgenToolModel receives and parses
-# 3. Validates against StorageKvInput schema
-# 4. Routes to 'set' operation in routing_config
-# 5. Transforms parameters: {key: "user:123", value: {...}, namespace: "default", ttl: None}
-# 6. Calls kv_set() tool function
-# 7. Returns StorageKvOutput
-# 8. Serializes to JSON response
-```
-
-**Related Documentation**: [`docs/architecture.md`](docs/architecture.md)
-
-### Key Components
-
-#### 1. BaseOperationInput
-All AgenTools use schemas that extend `BaseOperationInput`:
-
-```python
-from agentool.base import BaseOperationInput
-from typing import Literal
-
-class MyToolInput(BaseOperationInput):
-    operation: Literal['action1', 'action2']  # Required
-    # Add your fields here
-```
-
-#### 2. RoutingConfig
-Maps operations to tools with parameter transformation:
-
-```python
-RoutingConfig(
-    operation_field='operation',  # Field containing the operation
-    operation_map={
-        'action1': ('tool_func_1', lambda x: {'param': x.field}),
-        'action2': ('tool_func_2', lambda x: {'data': x.data}),
-    }
-)
-```
-
-#### 3. Tool Functions
-Async functions that perform the actual work:
-
-```python
-async def tool_func_1(ctx: RunContext[Any], param: str) -> dict:
-    # Implementation
-    return {"result": "success"}
-```
-
-## Usage Examples
-
-### Storage Operations
+### Using AgenToolkit
 
 ```python
 from agentoolkit.storage.kv import create_storage_kv_agent
@@ -350,1250 +146,417 @@ from agentoolkit.storage.kv import create_storage_kv_agent
 # Create a key-value storage agent
 storage = create_storage_kv_agent()
 
-# Store data
-await storage.run(json.dumps({
-    "operation": "set",
-    "key": "user:123",
-    "value": {"name": "Alice", "role": "admin"},
-    "ttl": 3600  # Optional: expire after 1 hour
-}))
-
-# Retrieve data
-result = await storage.run(json.dumps({
-    "operation": "get",
-    "key": "user:123"
-}))
-
-# List keys by pattern
-result = await storage.run(json.dumps({
-    "operation": "keys",
-    "pattern": "user:*"
-}))
+# Store and retrieve data
+await storage.run('{"operation": "set", "key": "user:123", "value": {"name": "Alice"}}')
+result = await storage.run('{"operation": "get", "key": "user:123"}')
 ```
 
-### Multi-Agent Workflows
+### GraphToolkit Workflow
 
 ```python
-from agentool.core.injector import get_injector
+from graphtoolkit import create_domain_workflow
 
-async def process_user_data(ctx, user_id: str) -> dict:
-    injector = get_injector()
-    
-    # Get user from storage
-    user_data = await injector.run('storage', {
-        "operation": "get",
-        "key": f"user:{user_id}"
-    })
-    
-    # Validate with auth service
-    auth_result = await injector.run('auth', {
-        "operation": "verify",
-        "token": user_data['token']
-    })
-    
-    # Make HTTP request
-    api_result = await injector.run('http', {
-        "operation": "get",
-        "url": f"https://api.example.com/users/{user_id}",
-        "headers": {"Authorization": f"Bearer {auth_result['access_token']}"}
-    })
-    
-    return {"user": user_data, "api_data": api_result}
-```
+# Create a smoke test workflow with multiple phases
+workflow = create_domain_workflow(
+    domain='smoke',
+    phases=['ingredient_analyzer', 'recipe_designer', 'recipe_crafter', 'recipe_evaluator']
+)
 
-### Error Handling
-
-```python
-async def safe_divide(ctx, a: float, b: float) -> dict:
-    """Proper error handling in AgenTools."""
-    # Validate inputs
-    if not isinstance(a, (int, float)) or not isinstance(b, (int, float)):
-        raise TypeError("Arguments must be numbers")
-    
-    if b == 0:
-        raise ValueError("Cannot divide by zero")
-    
-    # Perform operation
-    try:
-        result = a / b
-        return {"result": result, "success": True}
-    except Exception as e:
-        # Re-raise with context
-        raise RuntimeError(f"Division failed: {e}") from e
-```
-
-### Custom Output Types
-
-```python
-from pydantic import BaseModel
-
-class CalculationResult(BaseModel):
-    result: float
-    operation: str
-    inputs: dict
-
-async def advanced_calc(ctx, operation: str, **kwargs) -> CalculationResult:
-    # Tool functions can return Pydantic models
-    result = perform_calculation(operation, **kwargs)
-    return CalculationResult(
-        result=result,
-        operation=operation,
-        inputs=kwargs
+# Run the workflow
+result = await workflow.run(
+    state=WorkflowState(
+        task_description="Create a chocolate cake recipe",
+        domain="smoke"
     )
+)
 ```
 
 ## Architecture
 
-### System Overview
+### 1. AgenTool Framework
+
+The foundation layer providing schema-driven tool execution with type safety.
+
+**Key Features:**
+- ✅ Schema-driven routing based on Pydantic models
+- ✅ Type-safe parameter transformation
+- ✅ Dependency injection for multi-agent systems
+- ✅ Comprehensive error handling
+
+**Components:**
+- `BaseOperationInput` - Base schema for all tools
+- `RoutingConfig` - Operation to tool mapping
+- `AgenToolRegistry` - Global tool registration
+- `AgenToolInjector` - Dependency injection system
+
+#### How AgenTool Works - Execution Flow
 
 ```mermaid
 graph TB
-    subgraph "External Layer"
-        U[User Application]
-        P[pydantic-ai Framework]
-    end
+    JSON[JSON String Input]
+    JSON --> PARSE[Parse JSON]
+    PARSE --> VALID[Pydantic Validation]
+    VALID --> SCHEMA[Input Schema Object]
+    SCHEMA --> OP[Extract Operation Field]
+    OP --> ROUTE[Check Routing Config]
+    ROUTE --> MAP[Find in Operation Map]
+    MAP --> TOOL[Select Tool Function]
+    TOOL --> TRANS[Apply Parameter Transform]
+    TRANS --> ARGS[Prepare Tool Arguments]
+    ARGS --> EXEC[Execute Tool Function]
+    EXEC --> RES[Get Tool Result]
+    RES --> OUT[Format as JSON]
+    OUT --> RESP[Return Response]
     
-    subgraph "AgenTool Core"
-        subgraph "Factory Layer"
-            CA[create_agentool]
-            RA[register_agentool_models]
-        end
-        
-        subgraph "Model Layer"
-            ATM[AgenToolModel]
-            MGR[AgenToolManager]
-        end
-        
-        subgraph "Storage Layer"
-            REG[AgenToolRegistry]
-            INJ[AgenToolInjector]
-        end
-        
-        subgraph "Configuration"
-            RC[RoutingConfig]
-            AC[AgenToolConfig]
-            TM[ToolMetadata]
-        end
-    end
-    
-    subgraph "Implementation Layer"
-        IS[Input Schemas]
-        TF[Tool Functions]
-        OT[Output Types]
-    end
-    
-    U -->|JSON| P
-    P -->|Agent.run()| ATM
-    CA --> ATM
-    CA --> REG
-    RA --> P
-    
-    ATM --> MGR
-    MGR --> TF
-    REG --> AC
-    AC --> RC
-    AC --> TM
-    
-    INJ -->|get/run| REG
-    IS --> AC
-    OT --> AC
-    
-    style U fill:#e3f2fd
-    style CA fill:#fff3e0
-    style ATM fill:#f3e5f5
-    style REG fill:#e8f5e9
+    style JSON fill:#e3f2fd
+    style RESP fill:#c8e6c9
+    style VALID fill:#fff3e0
+    style ROUTE fill:#ffebee
+    style EXEC fill:#f3e5f5
 ```
 
-**Related Documentation**: 
-- [`docs/architecture.md`](docs/architecture.md) - Detailed architecture guide
-- [`src/agentool/core/`](src/agentool/core/) - Core implementation
+#### Routing and Transformation Example
 
-### Component Interactions
+```mermaid
+graph TB
+    subgraph "Input Schema"
+        INPUT["{<br/>'operation': 'add',<br/>'a': 10,<br/>'b': 5<br/>}"]
+    end
+    
+    subgraph "Routing Config"
+        RC["operation_map = {<br/>'add': ('add_tool', transform_fn),<br/>'subtract': ('sub_tool', transform_fn)<br/>}"]
+    end
+    
+    subgraph "Transformation"
+        INPUT --> EXTRACT["Extract: operation='add'"]
+        EXTRACT --> LOOKUP["Lookup: 'add' → 'add_tool'"]
+        LOOKUP --> TRANSFORM["Transform: {a: 10, b: 5}"]
+    end
+    
+    subgraph "Tool Execution"
+        TRANSFORM --> TOOL["add_tool(ctx, a=10, b=5)"]
+        TOOL --> RESULT["{'result': 15}"]
+    end
+    
+    style INPUT fill:#e3f2fd
+    style RESULT fill:#c8e6c9
+```
+
+📚 [Architecture Guide](docs/architecture.md) | [API Reference](docs/api-reference.md) | [Dependency Injection](docs/agentool_dependency_injection.md)
+
+### 2. AgenToolkit Collections
+
+Pre-built, production-ready tool collections organized by domain.
+
+**Available Toolkits:**
+
+| Category | Toolkits | Description |
+|----------|----------|-------------|
+| **Storage** | `storage_fs`, `storage_kv`, `storage_vector` | File system, key-value, and vector storage |
+| **Auth & Security** | `auth`, `session`, `crypto` | Authentication, sessions, encryption |
+| **Network** | `http`, `webhook` | HTTP client and webhook handling |
+| **System** | `config`, `logging`, `metrics`, `queue`, `scheduler` | System utilities and monitoring |
+| **Data** | `templates`, `validation` | Data processing and validation |
+
+#### Multi-Agent Interaction Pattern
 
 ```mermaid
 sequenceDiagram
     participant User
-    participant Agent
-    participant Model
-    participant Manager
-    participant Registry
-    participant Tool
+    participant AuthAgent
+    participant SessionAgent
+    participant StorageAgent
+    participant CryptoAgent
+    participant Injector
     
-    User->>Agent: run(json_input)
-    Agent->>Model: create_request()
-    Model->>Model: parse_json()
-    Model->>Registry: get_config(name)
-    Registry-->>Model: AgenToolConfig
-    Model->>Manager: handle_input(parsed)
-    Manager->>Manager: validate_schema()
-    Manager->>Manager: route_operation()
-    Manager->>Tool: execute(**params)
-    Tool-->>Manager: result
-    Manager->>Manager: validate_output()
-    Manager-->>Model: formatted_result
-    Model-->>Agent: tool_call
-    Agent-->>User: RunResult
+    User->>AuthAgent: login(username, password)
+    AuthAgent->>Injector: get('crypto')
+    Injector-->>AuthAgent: CryptoAgent
+    AuthAgent->>CryptoAgent: hash_password(password)
+    CryptoAgent-->>AuthAgent: hashed_pwd
+    
+    AuthAgent->>Injector: get('storage_kv')
+    Injector-->>AuthAgent: StorageAgent
+    AuthAgent->>StorageAgent: get(user:username)
+    StorageAgent-->>AuthAgent: user_data
+    
+    AuthAgent->>SessionAgent: create_session(user_id)
+    SessionAgent->>StorageAgent: set(session:id, data, ttl=3600)
+    StorageAgent-->>SessionAgent: stored
+    
+    SessionAgent-->>AuthAgent: session_token
+    AuthAgent-->>User: {token, user_data}
+    
+    Note over Injector: Manages all agent<br/>dependencies and<br/>enables composition
 ```
 
-### Component Responsibilities
+📚 [Toolkit Catalog](docs/foundational-agentoolkits.md) | [Individual Toolkit Docs](docs/agentoolkits/)
 
-#### AgenToolModel
-**Source**: [`src/agentool/core/model.py`](src/agentool/core/model.py)
-- Implements pydantic-ai Model interface
-- Parses JSON input from messages
-- Generates tool calls to manager
-- Formats responses
+### 3. GraphToolkit Meta-Framework
 
-#### AgenToolManager
-**Source**: [`src/agentool/core/manager.py`](src/agentool/core/manager.py)
-- Validates input against schema
-- Routes operations to tools
-- Transforms parameters
-- Handles output validation
+State-driven workflow engine for building complex, multi-phase AI workflows.
 
-#### AgenToolRegistry
-**Source**: [`src/agentool/core/registry.py`](src/agentool/core/registry.py)
-- Stores configurations globally
-- Enables runtime lookups
-- Provides introspection
-- Manages metadata
-- Tracks metrics configuration
+**Key Concepts:**
+- **Atomic Node Decomposition** - Break complex phases into simple, retryable nodes
+- **State-Driven Execution** - Workflows defined as data, not code
+- **Universal Pattern** - `InputSchema → Variables → TemplateRender → LLM Call → OutputSchema → Storage`
+- **Domain Agnostic** - Same engine for any domain (recipes, code generation, analysis, etc.)
 
-#### AgenToolInjector
-**Source**: [`src/agentool/core/injector.py`](src/agentool/core/injector.py)
-- Resolves agent dependencies
-- Handles JSON serialization
-- Enables testing with overrides
-- Manages agent instances
+**Architecture:**
+```
+Phase Definition (Data) → GenericPhaseNode → Atomic Node Chain → State Mutations
+```
 
-### Multi-Agent Architecture
+#### GraphToolkit Workflow Execution
 
 ```mermaid
 graph TB
-    subgraph "High-Level Agents"
-        A1[Business Logic Agent]
-        A2[Workflow Agent]
+    subgraph "Workflow State"
+        STATE["{<br/>domain: 'smoke',<br/>current_phase: 'analyzer',<br/>phase_outputs: {},<br/>quality_scores: {}<br/>}"]
     end
     
-    subgraph "Mid-Level Agents"
-        B1[Auth Agent]
-        B2[Session Agent]
-        B3[HTTP Agent]
+    subgraph "Phase: Ingredient Analyzer"
+        A1[DependencyCheck] --> A2[LoadDependencies]
+        A2 --> A3[TemplateRender]
+        A3 --> A4[LLMCall]
+        A4 --> A5[SchemaValidation]
+        A5 --> A6[SaveOutput]
+        A6 --> A7[QualityGate]
     end
     
-    subgraph "Low-Level Agents"
-        C1[Storage KV Agent]
-        C2[Crypto Agent]
-        C3[Config Agent]
+    subgraph "Phase: Recipe Designer"
+        B1[DependencyCheck] --> B2[LoadDependencies]
+        B2 --> B3[TemplateRender]
+        B3 --> B4[LLMCall]
+        B4 --> B5[SchemaValidation]
+        B5 --> B6[SaveOutput]
+        B6 --> B7[QualityGate]
     end
     
-    subgraph "Injector"
-        INJ[Global Injector]
-    end
+    STATE --> A1
+    A7 -->|Pass| B1
+    A7 -->|Fail| REF1[Refinement]
+    REF1 --> A3
     
-    A1 -->|injector.run()| B1
-    A1 -->|injector.run()| B3
-    A2 -->|injector.run()| B1
-    A2 -->|injector.run()| B2
+    B7 -->|Pass| NEXT[Next Phase...]
+    B7 -->|Fail| REF2[Refinement]
+    REF2 --> B3
     
-    B1 -->|injector.run()| C1
-    B1 -->|injector.run()| C2
-    B2 -->|injector.run()| C1
-    B3 -->|injector.run()| C3
-    
-    INJ -.->|manages| A1
-    INJ -.->|manages| A2
-    INJ -.->|manages| B1
-    INJ -.->|manages| B2
-    INJ -.->|manages| B3
-    INJ -.->|manages| C1
-    INJ -.->|manages| C2
-    INJ -.->|manages| C3
-    
-    style A1 fill:#e1f5fe
-    style A2 fill:#e1f5fe
-    style B1 fill:#fff3e0
-    style B2 fill:#fff3e0
-    style B3 fill:#fff3e0
-    style C1 fill:#e8f5e9
-    style C2 fill:#e8f5e9
-    style C3 fill:#e8f5e9
+    style STATE fill:#e3f2fd
+    style A4 fill:#fff3e0
+    style B4 fill:#fff3e0
+    style A7 fill:#ffebee
+    style B7 fill:#ffebee
 ```
 
-### Data Flow
-
-1. **Input**: User provides JSON string
-2. **Validation**: Pydantic validates against schema
-3. **Routing**: Operation field determines tool
-4. **Transform**: Parameters mapped to tool signature
-5. **Execution**: Tool function runs
-6. **Output**: Result validated and returned
-
-**Related Guides**:
-- [`docs/integration-guide.md`](docs/integration-guide.md) - Integration patterns
-- [`docs/agentool_dependency_injection.md`](docs/agentool_dependency_injection.md) - DI system details
-
-## AgenToolkits
-
-AgenTools includes a comprehensive set of pre-built toolkits organized by functionality. Each toolkit is a fully-featured AgenTool ready for production use.
-
-**Overview Documentation**: [`docs/foundational-agentoolkits.md`](docs/foundational-agentoolkits.md)
-
-### Storage Layer
-- **storage_fs**: File system operations (read, write, delete, list)  
-  📄 [`docs/agentoolkits/storage-fs.md`](docs/agentoolkits/storage-fs.md) | 💻 [`src/agentoolkit/storage/fs.py`](src/agentoolkit/storage/fs.py)
-  
-- **storage_kv**: Key-value storage with TTL support  
-  📄 [`docs/agentoolkits/storage-kv.md`](docs/agentoolkits/storage-kv.md) | 💻 [`src/agentoolkit/storage/kv.py`](src/agentoolkit/storage/kv.py)
-  
-- **storage_vector**: Vector database for embeddings  
-  💻 [`src/agentoolkit/storage/vector.py`](src/agentoolkit/storage/vector.py)
-  
-
-### Authentication & Security
-- **auth**: Authentication with JWT tokens  
-  📄 [`docs/agentoolkits/auth.md`](docs/agentoolkits/auth.md) | 💻 [`src/agentoolkit/auth/auth.py`](src/agentoolkit/auth/auth.py)
-  
-- **session**: Session management  
-  📄 [`docs/agentoolkits/session.md`](docs/agentoolkits/session.md) | 💻 [`src/agentoolkit/auth/session.py`](src/agentoolkit/auth/session.py)
-  
-- **crypto**: Encryption, hashing, signing operations  
-  📄 [`docs/agentoolkits/crypto.md`](docs/agentoolkits/crypto.md) | 💻 [`src/agentoolkit/security/crypto.py`](src/agentoolkit/security/crypto.py)
-
-### Network & Communication
-- **http**: Full-featured HTTP client  
-  📄 [`docs/agentoolkits/http.md`](docs/agentoolkits/http.md) | 💻 [`src/agentoolkit/network/http.py`](src/agentoolkit/network/http.py)
-  
-- **webhook**: Webhook handling and delivery  
-  💻 [`src/agentoolkit/network/webhook.py`](src/agentoolkit/network/webhook.py)
-
-### Data Processing
-- **templates**: Jinja2 template rendering  
-  📄 [`docs/agentoolkits/templates.md`](docs/agentoolkits/templates.md) | 💻 [`src/agentoolkit/system/templates.py`](src/agentoolkit/system/templates.py)
-  
-- **validation**: Advanced data validation  
-  💻 [`src/agentoolkit/system/validation.py`](src/agentoolkit/system/validation.py)
-  
-
-### System & Monitoring
-- **config**: Configuration management  
-  📄 [`docs/agentoolkits/config.md`](docs/agentoolkits/config.md) | 💻 [`src/agentoolkit/system/config.py`](src/agentoolkit/system/config.py)
-  
-- **logging**: Structured logging  
-  📄 [`docs/agentoolkits/logging.md`](docs/agentoolkits/logging.md) | 💻 [`src/agentoolkit/system/logging.py`](src/agentoolkit/system/logging.py)
-  
-- **metrics**: Metrics collection  
-  📄 [`docs/agentoolkits/metrics.md`](docs/agentoolkits/metrics.md) | 💻 [`src/agentoolkit/observability/metrics.py`](src/agentoolkit/observability/metrics.py)
-  
-- **queue**: Task queue management  
-  📄 [`docs/agentoolkits/queue.md`](docs/agentoolkits/queue.md) | 💻 [`src/agentoolkit/system/queue.py`](src/agentoolkit/system/queue.py)
-  
-- **scheduler**: Job scheduling  
-  📄 [`docs/agentoolkits/scheduler.md`](docs/agentoolkits/scheduler.md) | 💻 [`src/agentoolkit/system/scheduler.py`](src/agentoolkit/system/scheduler.py)
-
-### Example: Using Storage Toolkit
-
-```python
-from agentoolkit.storage.fs import create_storage_fs_agent
-
-# Create file system agent
-fs_agent = create_storage_fs_agent()
-
-# Write file
-await fs_agent.run(json.dumps({
-    "operation": "write",
-    "path": "/tmp/hello.txt",
-    "content": "Hello, World!"
-}))
-
-# Read file
-result = await fs_agent.run(json.dumps({
-    "operation": "read",
-    "path": "/tmp/hello.txt"
-}))
-
-# List directory
-result = await fs_agent.run(json.dumps({
-    "operation": "list",
-    "path": "/tmp",
-    "pattern": "*.txt"
-}))
-```
-
-## Creating Custom AgenTools
-
-Creating custom AgenTools follows a structured pattern that ensures consistency, type safety, and maintainability.
-
-**Detailed Guide**: [`docs/CRAFTING_AGENTOOLS.md`](docs/CRAFTING_AGENTOOLS.md)  
-**Examples**: [`examples/`](examples/) - Working implementations
-
-### Step-by-Step Guide
-
-#### 1. Define Your Domain
-Identify what operations your AgenTool will support:
-
-```python
-# What functionality do you need?
-# - User management: create, read, update, delete users
-# - Authentication: login, logout, verify
-# - Permissions: grant, revoke, check
-```
-
-#### 2. Design the Schema
-
-```python
-from agentool.base import BaseOperationInput
-from typing import Literal, Optional, Dict, Any, List
-
-class UserManagementInput(BaseOperationInput):
-    operation: Literal['create_user', 'get_user', 'update_user', 'delete_user']
-    user_id: Optional[str] = None
-    user_data: Optional[Dict[str, Any]] = None
-    fields: Optional[List[str]] = None  # For partial updates
-```
-
-#### 3. Implement Tool Functions
-
-```python
-from pydantic_ai import RunContext
-
-async def create_user(
-    ctx: RunContext[Any], 
-    user_data: Dict[str, Any]
-) -> Dict[str, Any]:
-    """Create a new user."""
-    # Validate required fields
-    if 'email' not in user_data:
-        raise ValueError("Email is required")
-    
-    # Check if user exists
-    existing = await check_user_exists(user_data['email'])
-    if existing:
-        raise ValueError(f"User with email {user_data['email']} already exists")
-    
-    # Create user
-    user_id = await save_user(user_data)
-    return {
-        "user_id": user_id,
-        "created": True,
-        "user": user_data
-    }
-
-async def get_user(
-    ctx: RunContext[Any], 
-    user_id: str,
-    fields: Optional[List[str]] = None
-) -> Dict[str, Any]:
-    """Retrieve user by ID."""
-    user = await fetch_user(user_id)
-    if not user:
-        raise KeyError(f"User {user_id} not found")
-    
-    # Filter fields if requested
-    if fields:
-        user = {k: v for k, v in user.items() if k in fields}
-    
-    return {"user": user}
-```
-
-#### 4. Configure Routing
-
-```python
-from agentool.core.registry import RoutingConfig
-
-routing = RoutingConfig(
-    operation_field='operation',
-    operation_map={
-        'create_user': (
-            'create_user', 
-            lambda x: {'user_data': x.user_data}
-        ),
-        'get_user': (
-            'get_user', 
-            lambda x: {'user_id': x.user_id, 'fields': x.fields}
-        ),
-        'update_user': (
-            'update_user', 
-            lambda x: {'user_id': x.user_id, 'user_data': x.user_data}
-        ),
-        'delete_user': (
-            'delete_user', 
-            lambda x: {'user_id': x.user_id}
-        ),
-    }
-)
-```
-
-#### 5. Create the AgenTool
-
-```python
-from agentool import create_agentool
-
-def create_user_management_agent():
-    """Create user management AgenTool."""
-    return create_agentool(
-        name='user_management',
-        input_schema=UserManagementInput,
-        routing_config=routing,
-        tools=[create_user, get_user, update_user, delete_user],
-        system_prompt="Handle user management operations",
-        description="CRUD operations for user management",
-        version="1.0.0",
-        tags=["users", "management", "crud"],
-        examples=[
-            {
-                "input": {
-                    "operation": "create_user",
-                    "user_data": {"email": "alice@example.com", "name": "Alice"}
-                },
-                "output": {
-                    "user_id": "user_123",
-                    "created": True,
-                    "user": {"email": "alice@example.com", "name": "Alice"}
-                }
-            }
-        ]
-    )
-```
-
-### Best Practices
-
-**Complete Guide**: [`docs/CRAFTING_AGENTOOLS.md`](docs/CRAFTING_AGENTOOLS.md#best-practices-and-patterns)
-
-#### 1. Schema Design
-- Use `Literal` types for operations
-- Make fields `Optional` when not needed by all operations
-- Add clear descriptions to fields
-- Group related operations in one schema
-- **Schema Examples**: [`examples/schemas/`](examples/schemas/)
-
-#### 2. Error Handling
-```python
-# ✅ DO: Use exceptions for errors
-async def tool_function(ctx, param: str) -> dict:
-    if not param:
-        raise ValueError("Parameter cannot be empty")
-    
-    try:
-        result = await risky_operation(param)
-    except SpecificError as e:
-        raise RuntimeError(f"Operation failed: {e}") from e
-    
-    return {"result": result}
-
-# ❌ DON'T: Return error dictionaries
-async def bad_tool_function(ctx, param: str) -> dict:
-    if not param:
-        return {"error": "Parameter cannot be empty"}  # Bad!
-```
-
-**Error Handling Guide**: [`docs/CRAFTING_AGENTOOLS.md#error-handling-best-practices`](docs/CRAFTING_AGENTOOLS.md#error-handling-best-practices)
-
-#### 3. Output Types
-- Let AgenTools infer output types when possible
-- Use consistent BaseModel outputs across tools
-- Avoid mixing return types
-- **Type Patterns**: [`docs/api-reference.md`](docs/api-reference.md)
-
-#### 4. Testing
-```python
-import pytest
-from agentool.core.injector import get_injector
-
-@pytest.mark.asyncio
-async def test_user_creation():
-    injector = get_injector()
-    
-    # Test successful creation
-    result = await injector.run('user_management', {
-        "operation": "create_user",
-        "user_data": {"email": "test@example.com", "name": "Test"}
-    })
-    
-    # Parse JSON output
-    import json
-    data = json.loads(result.output)
-    assert data["created"] is True
-    assert data["user"]["email"] == "test@example.com"
-    
-    # Test duplicate user
-    with pytest.raises(ValueError, match="already exists"):
-        await injector.run('user_management', {
-            "operation": "create_user",
-            "user_data": {"email": "test@example.com", "name": "Test2"}
-        })
-```
-
-**Testing Guide**: [`docs/testing-guide.md`](docs/testing-guide.md)
-
-## Workflow System
-
-AgenTools includes a sophisticated LLM-powered workflow system for automating AgenTool creation. The workflow agents work together in a pipeline to analyze, design, implement, and evaluate new AgenTools.
-
-### Workflow Architecture
+#### State-Driven Node Chain Pattern
 
 ```mermaid
-graph TB
-    subgraph "Workflow Pipeline"
-        A[Requirements] --> B[Analyzer Agent]
-        B --> C[Analysis Report]
-        C --> D[Specifier Agent]
-        D --> E[Specification]
-        E --> F[Crafter Agent]
-        F --> G[Implementation]
-        G --> H[Evaluator Agent]
-        H --> I[Final AgenTool]
-    end
+stateDiagram-v2
+    [*] --> GenericPhaseNode
+    GenericPhaseNode --> DependencyCheck: Start Phase
     
-    subgraph "Supporting Components"
-        J[Catalog Analysis]
-        K[Template System]
-        L[Code Generation]
-        M[Quality Checks]
-    end
+    state AtomicExecution {
+        DependencyCheck --> LoadDependencies: deps exist
+        LoadDependencies --> TemplateRender: data loaded
+        TemplateRender --> LLMCall: prompt ready
+        LLMCall --> SchemaValidation: response received
+        SchemaValidation --> SaveOutput: valid schema
+        SaveOutput --> StateUpdate: saved
+        StateUpdate --> QualityGate: state updated
+    }
     
-    B -.-> J
-    D -.-> K
-    F -.-> L
-    H -.-> M
+    QualityGate --> NextPhase: quality passed
+    QualityGate --> Refinement: quality failed
+    Refinement --> TemplateRender: with feedback
     
-    style A fill:#e1f5fe
-    style I fill:#c8e6c9
-    style B fill:#fff3e0
-    style D fill:#fff3e0
-    style F fill:#fff3e0
-    style H fill:#fff3e0
-```
-
-### Workflow Agents
-
-Each workflow agent has a specific role in the AgenTool creation pipeline:
-
-#### 1. Analyzer Agent
-**Purpose**: Analyzes requirements and existing codebase to understand what needs to be built  
-**Source**: [`src/agentoolkit/workflows/workflow_analyzer.py`](src/agentoolkit/workflows/workflow_analyzer.py)  
-**Template**: [`src/templates/prompts/analyze_catalog.jinja`](src/templates/prompts/analyze_catalog.jinja)
-
-```python
-from agentoolkit.workflows.workflow_analyzer import create_workflow_analyzer_agent
-
-analyzer = create_workflow_analyzer_agent()
-analysis = await analyzer.run("""
-Analyze the codebase and create an AgenTool for managing 
-a task queue with priorities and scheduling.
-""")
-```
-
-The analyzer:
-- Examines existing AgenTool catalog
-- Identifies reusable patterns
-- Determines required operations
-- Suggests appropriate dependencies
-
-#### 2. Specifier Agent
-**Purpose**: Creates detailed technical specifications from analysis  
-**Source**: [`src/agentoolkit/workflows/workflow_specifier.py`](src/agentoolkit/workflows/workflow_specifier.py)  
-**Template**: [`src/templates/prompts/create_specification.jinja`](src/templates/prompts/create_specification.jinja)
-
-```python
-from agentoolkit.workflows.workflow_specifier import create_workflow_specifier_agent
-
-specifier = create_workflow_specifier_agent()
-spec = await specifier.run(analysis.output)
-```
-
-The specifier produces:
-- Input/output schemas
-- Operation definitions
-- Tool function signatures
-- Routing configuration
-
-#### 3. Crafter Agent
-**Purpose**: Generates complete implementation code  
-**Source**: [`src/agentoolkit/workflows/workflow_crafter.py`](src/agentoolkit/workflows/workflow_crafter.py)  
-**Template**: [`src/templates/prompts/craft_implementation.jinja`](src/templates/prompts/craft_implementation.jinja)
-
-```python
-from agentoolkit.workflows.workflow_crafter import create_workflow_crafter_agent
-
-crafter = create_workflow_crafter_agent()
-implementation = await crafter.run(spec.output)
-```
-
-The crafter generates:
-- Complete Python implementation
-- Proper error handling
-- Type annotations
-- Documentation
-
-#### 4. Evaluator Agent
-**Purpose**: Reviews and improves the generated code  
-**Source**: [`src/agentoolkit/workflows/workflow_evaluator.py`](src/agentoolkit/workflows/workflow_evaluator.py)  
-**Template**: [`src/templates/prompts/evaluate_code.jinja`](src/templates/prompts/evaluate_code.jinja)
-
-```python
-from agentoolkit.workflows.workflow_evaluator import create_workflow_evaluator_agent
-
-evaluator = create_workflow_evaluator_agent()
-evaluation = await evaluator.run(implementation.output)
-```
-
-The evaluator checks:
-- Code quality and style
-- Error handling completeness
-- Type safety
-- Best practices compliance
-
-### Complete Workflow Example
-
-**Source**: [`src/agents/workflow.py`](src/agents/workflow.py)
-
-```python
-from agents.workflow import run_agentool_workflow
-
-# Generate a complete AgenTool from requirements
-result = await run_agentool_workflow(
-    "Create an AgenTool for cryptocurrency price tracking with caching"
-)
-
-# Result includes:
-# - Complete AgenTool implementation
-# - Comprehensive tests
-# - Documentation
-# - Usage examples
-```
-
-### Workflow Data Flow
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant Analyzer
-    participant Specifier
-    participant Crafter
-    participant Evaluator
-    participant Registry
+    NextPhase --> GenericPhaseNode: more phases
+    NextPhase --> [*]: workflow complete
     
-    User->>Analyzer: Requirements
-    Analyzer->>Registry: Get existing catalog
-    Registry-->>Analyzer: Catalog data
-    Analyzer->>Analyzer: Analyze patterns
-    Analyzer->>Specifier: Analysis report
-    
-    Specifier->>Specifier: Create specification
-    Specifier->>Crafter: Detailed spec
-    
-    Crafter->>Crafter: Generate code
-    Crafter->>Evaluator: Implementation
-    
-    Evaluator->>Evaluator: Review & improve
-    Evaluator->>User: Final AgenTool
+    note right of LLMCall: Expensive operation<br/>isolated for retry
+    note right of SaveOutput: Storage separate<br/>from LLM calls
 ```
 
-### Related Documentation
+**Benefits:**
+- 📊 95% less code compared to traditional approaches
+- 🔄 Automatic retry handling for transient failures
+- 📈 Fine-grained observability and metrics
+- 🚀 Parallel execution support
 
-- **Architecture Guide**: [`docs/architecture.md`](docs/architecture.md) - Overall system design
-- **Crafting Guide**: [`docs/CRAFTING_AGENTOOLS.md`](docs/CRAFTING_AGENTOOLS.md) - Manual AgenTool creation
-- **Workflow Templates**: [`src/templates/`](src/templates/) - Jinja2 templates for agents
+📚 [Workflow System Guide](docs/workflow-graph-system.md) | [GraphToolkit Developer Guide](docs/GRAPHTOOLKIT_DEVELOPER_GUIDE.md) | [Node Catalog](docs/NODE_CATALOG.md)
 
-## API Reference
+### 4. UI Components
 
-### Core Functions
+Modern Streamlit interface for workflow visualization and control.
 
-#### create_agentool()
-```python
-def create_agentool(
-    name: str,
-    input_schema: Type[BaseModel],
-    routing_config: RoutingConfig,
-    tools: List[Callable],
-    output_type: Optional[Type[BaseModel]] = None,
-    system_prompt: Optional[str] = None,
-    description: Optional[str] = None,
-    version: str = "1.0.0",
-    tags: Optional[List[str]] = None,
-    examples: Optional[List[Dict[str, Any]]] = None,
-    dependencies: Optional[List[str]] = None,
-    deps_type: Optional[Type[Any]] = None,
-    **kwargs
-) -> Agent:
-    """Create a new AgenTool."""
+**Features:**
+- 📊 Real-time progress tracking
+- 📝 Streaming AI responses
+- 🎨 Artifact viewer with search
+- 📈 Metrics dashboard
+- 💾 Export functionality
+
+**Running the UI:**
+```bash
+PYTHONPATH=src streamlit run src/ui/workflow_ui.py
 ```
 
-#### RoutingConfig
-```python
-@dataclass
-class RoutingConfig:
-    operation_field: str  # Field containing operation
-    operation_map: Dict[str, Tuple[str, Callable]]  # Operation -> (tool_name, transformer)
-```
+📚 [UI Guide](src/ui/README.md)
 
-#### AgenToolInjector
-```python
-class AgenToolInjector:
-    async def run(self, agent_name: str, input_data: Any) -> Any:
-        """Run an agent with automatic JSON serialization."""
-    
-    def get(self, name: str) -> Agent:
-        """Get a registered agent."""
-    
-    def register(self, name: str, agent: Agent) -> None:
-        """Register an agent."""
-```
+## Installation
 
-### Key Classes
-
-- `BaseOperationInput`: Base class for all input schemas
-- `AgenToolModel`: Synthetic model for deterministic execution
-- `AgenToolManager`: Handles routing and execution
-- `AgenToolRegistry`: Global configuration storage
-- `AgenToolConfig`: Configuration metadata
-
-For detailed API documentation, see [API Reference](https://agentool.readthedocs.io/en/latest/api-reference.html).
-
-## Testing
-
-### Running Tests
+### Basic Installation
 
 ```bash
-# Run all tests
-pytest
-
-# Run specific test file
-pytest tests/test_agentool.py
-
-# Run with coverage
-pytest --cov=src --cov-report=html
-
-# Run specific test
-pytest tests/test_agentool.py::TestAgenTool::test_create_agentool
-
-# Run AgenToolkit tests
-pytest tests/agentoolkit/
+pip install agentools
 ```
 
-### Writing Tests
+### With Optional Dependencies
 
-#### Basic Test Structure for AgenTools
-
-```python
-import json
-import asyncio
-from agentool.core.injector import get_injector
-from agentool.core.registry import AgenToolRegistry
-
-class TestMyAgenTool:
-    """Test suite for my AgenTool."""
-    
-    def setup_method(self):
-        """Clear registry and injector before each test."""
-        AgenToolRegistry.clear()
-        get_injector().clear()
-        
-        # Import and create the agent
-        from my_module import create_my_agent, _global_storage
-        
-        # Clear any global state
-        _global_storage.clear()
-        
-        # Create the agent (auto-registers with injector)
-        agent = create_my_agent()
-    
-    def test_basic_operation(self):
-        """Test basic operation."""
-        
-        async def run_test():
-            injector = get_injector()
-            
-            # Run operation
-            result = await injector.run('my_agent', {
-                "operation": "test_op",
-                "param": "value"
-            })
-            
-            # Parse output - handle both direct and wrapped results
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result
-            
-            # Assert on the parsed data
-            assert data["operation"] == "test_op"
-            assert data["success"] is True
-            assert data["data"]["processed"] == "value"
-        
-        asyncio.run(run_test())
-```
-
-#### Testing Error Handling
-
-AgenTools use exceptions for error handling, not error dictionaries:
-
-```python
-def test_error_handling(self):
-    """Test error handling for edge cases."""
-    
-    async def run_test():
-        injector = get_injector()
-        
-        # Test missing required parameter - should raise ValueError
-        try:
-            result = await injector.run('my_agent', {
-                "operation": "requires_param",
-                # Missing required 'param' field
-            })
-            assert False, "Expected ValueError for missing parameter"
-        except ValueError as e:
-            assert "param" in str(e)
-            assert "required" in str(e).lower()
-        
-        # Test invalid operation - validation error in output
-        result = await injector.run('my_agent', {
-            "operation": "invalid_op",
-            "param": "test"
-        })
-        assert "Error creating input model" in result.output
-        assert "Input should be" in result.output
-    
-    asyncio.run(run_test())
-```
-
-#### Testing AgenToolkits with Dependencies
-
-Many AgenToolkits depend on other agents (e.g., auth depends on storage_kv):
-
-```python
-class TestAuthToolkit:
-    """Test suite for auth toolkit."""
-    
-    def setup_method(self):
-        """Setup with dependencies."""
-        AgenToolRegistry.clear()
-        get_injector().clear()
-        
-        # Import and create agents in dependency order
-        from agentoolkit.storage.kv import create_storage_kv_agent, _kv_storage, _kv_expiry
-        from agentoolkit.security.crypto import create_crypto_agent
-        from agentoolkit.auth.session import create_session_agent, _sessions
-        from agentoolkit.auth.auth import create_auth_agent, _users
-        
-        # Clear all global state
-        _kv_storage.clear()
-        _kv_expiry.clear()
-        _sessions.clear()
-        _users.clear()
-        
-        # Create agents in dependency order
-        storage_agent = create_storage_kv_agent()
-        crypto_agent = create_crypto_agent()
-        session_agent = create_session_agent()
-        auth_agent = create_auth_agent()
-    
-    def test_user_registration(self):
-        """Test user registration flow."""
-        
-        async def run_test():
-            injector = get_injector()
-            
-            # Register user
-            register_result = await injector.run('auth', {
-                "operation": "register",
-                "username": "testuser",
-                "password": "secure123",
-                "email": "test@example.com"
-            })
-            
-            if hasattr(register_result, 'output'):
-                data = json.loads(register_result.output)
-            else:
-                data = register_result
-            
-            assert data["operation"] == "register"
-            assert data["data"]["username"] == "testuser"
-            assert "user" in data["data"]["roles"]
-        
-        asyncio.run(run_test())
-```
-
-#### Testing with Async/Await Patterns
-
-```python
-def test_async_operations(self):
-    """Test multiple async operations."""
-    
-    async def run_test():
-        injector = get_injector()
-        
-        # Set multiple values concurrently
-        tasks = []
-        for i in range(5):
-            task = injector.run('storage_kv', {
-                "operation": "set",
-                "key": f"key_{i}",
-                "value": f"value_{i}",
-                "namespace": "test"
-            })
-            tasks.append(task)
-        
-        # Wait for all to complete
-        results = await asyncio.gather(*tasks)
-        
-        # Verify all succeeded
-        for result in results:
-            if hasattr(result, 'output'):
-                data = json.loads(result.output)
-            else:
-                data = result
-            assert data["data"]["stored"] is True
-    
-    asyncio.run(run_test())
-```
-
-#### Testing TTL and Expiration
-
-```python
-def test_ttl_functionality(self):
-    """Test TTL expiration."""
-    
-    async def run_test():
-        injector = get_injector()
-        
-        # Set with 1 second TTL
-        await injector.run('storage_kv', {
-            "operation": "set",
-            "key": "temp_key",
-            "value": "expires soon",
-            "ttl": 1
-        })
-        
-        # Should exist immediately
-        result = await injector.run('storage_kv', {
-            "operation": "get",
-            "key": "temp_key"
-        })
-        
-        if hasattr(result, 'output'):
-            data = json.loads(result.output)
-        else:
-            data = result
-        
-        assert data["data"]["exists"] is True
-        
-        # Wait for expiration
-        await asyncio.sleep(1.1)
-        
-        # Should now raise KeyError
-        try:
-            await injector.run('storage_kv', {
-                "operation": "get",
-                "key": "temp_key"
-            })
-            assert False, "Expected KeyError for expired key"
-        except KeyError as e:
-            assert "expired" in str(e)
-    
-    asyncio.run(run_test())
-```
-
-#### Testing Pattern Matching
-
-```python
-def test_pattern_operations(self):
-    """Test pattern-based operations."""
-    
-    async def run_test():
-        injector = get_injector()
-        
-        # Create test data
-        test_keys = {
-            "user:1": {"name": "Alice"},
-            "user:2": {"name": "Bob"},
-            "config:timeout": 30,
-            "config:retries": 3
-        }
-        
-        # Set all keys
-        for key, value in test_keys.items():
-            await injector.run('storage_kv', {
-                "operation": "set",
-                "key": key,
-                "value": value
-            })
-        
-        # Query by pattern
-        result = await injector.run('storage_kv', {
-            "operation": "keys",
-            "pattern": "user:*"
-        })
-        
-        if hasattr(result, 'output'):
-            data = json.loads(result.output)
-        else:
-            data = result
-        
-        assert data["data"]["count"] == 2
-        assert all(k.startswith("user:") for k in data["data"]["keys"])
-    
-    asyncio.run(run_test())
-```
-
-### Test Best Practices
-
-#### 1. Always Clear State
-```python
-def setup_method(self):
-    """Essential setup for every test."""
-    # 1. Clear registry and injector
-    AgenToolRegistry.clear()
-    get_injector().clear()
-    
-    # 2. Import modules and clear global state
-    from my_module import create_agent, _storage
-    _storage.clear()
-    
-    # 3. Create agents (auto-registers)
-    agent = create_agent()
-```
-
-#### 2. Handle Result Parsing Correctly
-```python
-# Always handle both direct and wrapped results
-if hasattr(result, 'output'):
-    data = json.loads(result.output)  # Wrapped result
-else:
-    data = result  # Direct result
-
-# Now work with parsed data
-assert data["operation"] == "expected"
-```
-
-#### 3. Test Exception vs Output Errors
-```python
-# Some errors raise exceptions (preferred pattern)
-try:
-    await injector.run('agent', invalid_input)
-    assert False, "Should have raised exception"
-except ValueError as e:
-    assert "expected error" in str(e)
-
-# Validation errors appear in output
-result = await injector.run('agent', bad_schema_input)
-assert "Error creating input model" in result.output
-```
-
-#### 4. Use asyncio.run() Pattern
-```python
-def test_something(self):
-    """Standard test pattern."""
-    
-    async def run_test():
-        injector = get_injector()
-        # Async test logic here
-        result = await injector.run(...)
-    
-    asyncio.run(run_test())
-```
-
-#### 5. Test Namespace Isolation
-```python
-# Different namespaces should be isolated
-await injector.run('storage_kv', {
-    "operation": "set",
-    "key": "test",
-    "value": "namespace1",
-    "namespace": "ns1"
-})
-
-await injector.run('storage_kv', {
-    "operation": "set", 
-    "key": "test",
-    "value": "namespace2",
-    "namespace": "ns2"
-})
-
-# Each namespace has its own value
-```
-
-### Test Coverage
-
-The project maintains high test coverage:
-- Core modules: >95% coverage
-- AgenToolkits: >90% coverage
-- Examples: 100% coverage
-
-Generate coverage reports:
 ```bash
-pytest --cov=src --cov-report=html
-open htmlcov/index.html
+# Install with specific toolkits
+pip install "agentools[storage,auth,http]"
+
+# Install with all toolkits
+pip install "agentools[all]"
+
+# Development installation
+git clone https://github.com/fblgit/agentools.git
+cd agentools
+pip install -e ".[dev,lint]"
 ```
+
+### Available Extras
+
+- `storage` - File system and key-value storage
+- `auth` - Authentication and session management
+- `crypto` - Cryptographic operations
+- `http` - HTTP client functionality
+- `templates` - Jinja2 template rendering
+- `ui` - Streamlit UI components
 
 ## Documentation
 
 ### 📚 Core Documentation
 
-- **[Architecture Guide](docs/architecture.md)** - System design and component details
-- **[Crafting AgenTools](docs/CRAFTING_AGENTOOLS.md)** - Complete guide to creating AgenTools
-- **[API Reference](docs/api-reference.md)** - Detailed API documentation
-- **[Integration Guide](docs/integration-guide.md)** - Integrating AgenTools into applications
+| Document | Description |
+|----------|-------------|
+| [Architecture Overview](docs/architecture.md) | System design and components |
+| [Creating AgenTools](docs/CRAFTING_AGENTOOLS.md) | Guide to building custom tools |
+| [API Reference](docs/api-reference.md) | Detailed API documentation |
+| [Integration Guide](docs/integration-guide.md) | Integration patterns |
+
+### 🔧 GraphToolkit Documentation
+
+| Document | Description |
+|----------|-------------|
+| [Workflow System](docs/workflow-graph-system.md) | Meta-framework overview |
+| [Developer Guide](docs/GRAPHTOOLKIT_DEVELOPER_GUIDE.md) | Building with GraphToolkit |
+| [Graph Architecture](docs/GRAPH_ARCHITECTURE.md) | Detailed architecture |
+| [Node Catalog](docs/NODE_CATALOG.md) | Available atomic nodes |
+| [Type Definitions](docs/GRAPH_TYPE_DEFINITIONS.md) | State and type system |
+| [State Mutations](docs/STATE_MUTATIONS.md) | State management patterns |
 
 ### 🛠️ AgenToolkit Documentation
 
-- **[Foundational AgenToolkits](docs/foundational-agentoolkits.md)** - Overview of all toolkits
-- **[AgenToolkit Docs](docs/agentoolkits/)** - Individual toolkit documentation
-  - [Storage](docs/agentoolkits/storage-fs.md) | [Key-Value](docs/agentoolkits/storage-kv.md)
-  - [Auth](docs/agentoolkits/auth.md) | [Session](docs/agentoolkits/session.md)
-  - [HTTP](docs/agentoolkits/http.md) | [Crypto](docs/agentoolkits/crypto.md)
-  - [Config](docs/agentoolkits/config.md) | [Logging](docs/agentoolkits/logging.md)
-  - [And more...](docs/agentoolkits/)
+| Document | Description |
+|----------|-------------|
+| [Toolkit Overview](docs/foundational-agentoolkits.md) | All available toolkits |
+| [Storage Toolkits](docs/agentoolkits/storage-fs.md) | File and KV storage |
+| [Auth Toolkit](docs/agentoolkits/auth.md) | Authentication system |
+| [HTTP Toolkit](docs/agentoolkits/http.md) | HTTP client |
+| [Metrics Toolkit](docs/agentoolkits/metrics.md) | Observability |
 
 ### 🧪 Development Documentation
 
-- **[Testing Guide](docs/testing-guide.md)** - Writing and running tests
-- **[Dependency Injection](docs/agentool_dependency_injection.md)** - DI system details
+| Document | Description |
+|----------|-------------|
+| [Testing Guide](docs/testing-guide.md) | Writing and running tests |
+| [Dependency Injection](docs/agentool_dependency_injection.md) | DI system details |
+| [UI Components](src/ui/README.md) | UI development guide |
 
-### 📂 Code Examples
+## Examples
 
-- **[Basic Examples](examples/basic_usage.py)** - Getting started
-- **[Advanced Examples](examples/advanced_examples.py)** - Complex patterns
-- **[Multi-Agent Examples](examples/multi_agentool_interop.py)** - Agent composition
-- **[Demo Applications](examples/demos/)** - Complete demo apps
+### Working Examples
 
-### 🎨 Templates
+```bash
+# Basic calculator example
+python examples/basic_usage.py
 
-- **[Workflow Templates](src/templates/)** - Jinja2 templates for agents
-- **[Prompt Templates](src/templates/prompts/)** - LLM prompts
-- **[Code Skeletons](src/templates/skeletons/)** - Code generation templates
+# Multi-agent workflow
+python examples/multi_agentool_interop.py
 
-## Contributing
+# GraphToolkit smoke test
+python examples/graphtoolkit_smoke.py
 
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+# Calculator demos
+python examples/demos/calculator_single_file.py
+```
 
-### Quick Start
+### Example Categories
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Make your changes
-4. Run tests (`pytest`)
-5. Run linting (`ruff check src tests`)
-6. Commit your changes (`git commit -m 'Add amazing feature'`)
-7. Push to the branch (`git push origin feature/amazing-feature`)
-8. Open a Pull Request
+- **Basic Examples** - [examples/basic_usage.py](examples/basic_usage.py)
+- **Advanced Patterns** - [examples/advanced_examples.py](examples/advanced_examples.py)
+- **Multi-Agent Systems** - [examples/multi_agentool_interop.py](examples/multi_agentool_interop.py)
+- **GraphToolkit Workflows** - [examples/graphtoolkit_smoke.py](examples/graphtoolkit_smoke.py)
+- **Demo Applications** - [examples/demos/](examples/demos/)
 
-### Development Guidelines
+## Development
 
-- Follow PEP 8 style guide
-- Add tests for new functionality
-- Update documentation as needed
-- Keep commits focused and atomic
-- Write clear commit messages
+### Setting Up Development Environment
 
-### Code Style
+```bash
+# Clone the repository
+git clone https://github.com/fblgit/agentools.git
+cd agentools
 
-We use:
-- `ruff` for linting and formatting
-- `mypy` for type checking
-- `pytest` for testing
-- Line length: 120 characters
+# Install in development mode
+pip install -e ".[dev,lint]"
+
+# Run tests
+pytest
+
+# Run specific test suite
+pytest tests/graphtoolkit/
+
+# Run with coverage
+pytest --cov=src --cov-report=html
+
+# Linting
+ruff check src tests
+mypy src
+```
+
+### Project Structure
+
+```
+agentools/
+├── src/
+│   ├── agentool/          # Core framework
+│   ├── agentoolkit/       # Pre-built toolkits
+│   ├── graphtoolkit/      # Meta-framework
+│   └── ui/                # Streamlit interface
+├── docs/                  # Documentation
+├── examples/              # Example implementations
+├── tests/                 # Test suites
+└── templates/             # Jinja2 templates
+```
+
+### Testing
+
+The project maintains high test coverage:
+- Core modules: >95% coverage
+- AgenToolkits: >90% coverage
+- GraphToolkit: >85% coverage
+
+```bash
+# Run all tests
+pytest
+
+# Run with coverage report
+pytest --cov=src --cov-report=html
+open htmlcov/index.html
+```
 
 ## License
 
@@ -1601,24 +564,23 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Credits
 
-### Core Team
-- AgenTool Framework Team
+### Built With
+- [pydantic-ai](https://github.com/pydantic/pydantic-ai) - AI agent framework
+- [pydantic](https://github.com/pydantic/pydantic) - Data validation
+- [streamlit](https://streamlit.io/) - UI framework
 
-### Acknowledgments
-- Built on top of [pydantic-ai](https://github.com/pydantic/pydantic-ai)
-- Inspired by the need for deterministic AI agents
-- Thanks to all contributors and users
+### Contributors
+- AgenTools Framework Team
+- Open source contributors
 
 ### Support
 
-- 📚 [Documentation](https://agentool.readthedocs.io)
-- 🐛 [Issue Tracker](https://github.com/agentool/agentool/issues)
-- 💬 [Discussions](https://github.com/agentool/agentool/discussions)
-- 📧 [Email](mailto:contact@agentool.dev)
+- 📖 [Documentation](docs/)
+- 🐛 [Issue Tracker](https://github.com/fblgit/agentools/issues)
+- 💬 [Discussions](https://github.com/fblgit/agentools/discussions)
 
 ---
 
 <p align="center">
-  Made with ❤️ by the AgenTool Team<br>
-  <i>Building the future of deterministic AI agents</i>
+  <i>Building the future of AI-powered workflows with type safety and composability</i>
 </p>
