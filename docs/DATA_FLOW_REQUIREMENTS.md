@@ -61,10 +61,7 @@ graph TB
     Store --> Storage[(Storage Layer)]
     
     subgraph domains[Domain Examples]
-        AgenTool[AgenTool Domain]
-        API[API Design Domain]  
-        Workflow[Workflow Domain]
-        Docs[Documentation Domain]
+        Smoke[Smoke Test Domain]
     end
     
     domains --> Registry
@@ -78,7 +75,7 @@ graph TB
 UniversalPhaseInput:
   # Core fields (all phases)
   workflow_id: str
-  domain: str  # 'agentool', 'api', 'workflow', etc.
+  domain: str  # 'smoke', etc.
   phase_name: str
   
   # Dependencies from previous phases
@@ -196,60 +193,36 @@ graph LR
 
 ### Domain-Specific Phase Examples
 
-#### AgenTool Domain Phases
+#### Smoke Domain Phases
 
 ```yaml
-AgenToolAnalyzer:
-  input_schema: AnalyzerInput
+IngredientAnalyzer:
+  input_schema: IngredientAnalyzerInput
   dependencies: []
-  template_variables: ['task_description', 'catalog']
-  output_schema: AnalyzerOutput
-  storage_pattern: '{domain}/{workflow_id}/analysis'
+  template_variables: ['task_description', 'available_ingredients']
+  output_schema: IngredientAnalyzerOutput
+  storage_pattern: '{domain}/{workflow_id}/ingredient_analysis'
 
-AgenToolSpecifier:
-  input_schema: SpecifierInput
-  dependencies: ['analyzer']
-  template_variables: ['analysis', 'missing_tools']
-  output_schema: SpecifierOutput
-  storage_pattern: '{domain}/{workflow_id}/specifications'
+RecipeDesigner:
+  input_schema: RecipeDesignerInput
+  dependencies: ['ingredient_analyzer']
+  template_variables: ['ingredient_analysis', 'recipe_requirements']
+  output_schema: RecipeDesignerOutput
+  storage_pattern: '{domain}/{workflow_id}/recipe_design'
 
-AgenToolCrafter:
-  input_schema: CrafterInput
-  dependencies: ['specifier']
-  template_variables: ['specifications', 'examples']
-  output_schema: CrafterOutput
-  storage_pattern: '{domain}/{workflow_id}/implementations'
+RecipeCrafter:
+  input_schema: RecipeCrafterInput
+  dependencies: ['recipe_designer']
+  template_variables: ['recipe_design', 'cooking_methods']
+  output_schema: RecipeCrafterOutput
+  storage_pattern: '{domain}/{workflow_id}/recipe_implementation'
 
-AgenToolEvaluator:
-  input_schema: EvaluatorInput
-  dependencies: ['crafter']
-  template_variables: ['code', 'specifications']
-  output_schema: EvaluatorOutput
-  storage_pattern: '{domain}/{workflow_id}/evaluations'
-```
-
-#### API Design Domain Phases
-```yaml
-APIAnalyzer:
-  input_schema: APIAnalysisInput
-  dependencies: []
-  template_variables: ['requirements', 'examples']
-  output_schema: APIAnalysisOutput
-  storage_pattern: '{domain}/{workflow_id}/api_analysis'
-
-APIDesigner:
-  input_schema: APIDesignInput
-  dependencies: ['analyzer']
-  template_variables: ['analysis', 'patterns']
-  output_schema: APIDesignOutput
-  storage_pattern: '{domain}/{workflow_id}/api_design'
-
-APIGenerator:
-  input_schema: APIGeneratorInput
-  dependencies: ['designer']
-  template_variables: ['design', 'openapi_spec']
-  output_schema: APIGeneratorOutput
-  storage_pattern: '{domain}/{workflow_id}/api_implementation'
+RecipeEvaluator:
+  input_schema: RecipeEvaluatorInput
+  dependencies: ['recipe_crafter']
+  template_variables: ['recipe', 'quality_criteria']
+  output_schema: RecipeEvaluatorOutput
+  storage_pattern: '{domain}/{workflow_id}/recipe_evaluation'
 ```
 
 ### Universal Data Transformation Pattern
@@ -314,7 +287,7 @@ sequenceDiagram
 WorkflowState:
   # Core Identity
   workflow_id: str
-  domain: str  # 'agentool', 'api', 'workflow', etc.
+  domain: str  # 'smoke', etc.
   created_at: datetime
   
   # Universal Phase Tracking
@@ -349,30 +322,30 @@ UniversalStoragePattern:
   phase_outputs:
     pattern: "{domain}/{workflow_id}/{phase_name}"
     examples:
-      - "agentool/abc123/analyzer"
-      - "api/xyz789/designer"
-      - "workflow/def456/orchestrator"
+      - "smoke/abc123/ingredient_analyzer"
+      - "smoke/xyz789/recipe_designer"
+      - "smoke/def456/recipe_evaluator"
   
   versioned_outputs:
     pattern: "{domain}/{workflow_id}/{phase_name}/v{version}"
     examples:
-      - "agentool/abc123/crafter/v0"  # Initial
-      - "agentool/abc123/crafter/v1"  # After refinement
+      - "smoke/abc123/recipe_crafter/v0"  # Initial
+      - "smoke/abc123/recipe_crafter/v1"  # After refinement
   
   # File Storage
   generated_artifacts:
     pattern: "{domain}/{workflow_id}/{phase_name}/*"
     examples:
-      - "agentool/abc123/crafter/auth_tool.py"
-      - "api/xyz789/generator/openapi.yaml"
-      - "workflow/def456/orchestrator/graph.json"
+      - "smoke/abc123/recipe_crafter/chocolate_cake.json"
+      - "smoke/xyz789/recipe_designer/pasta_recipe.json"
+      - "smoke/def456/recipe_evaluator/evaluation.json"
   
   # Templates (shared across domains)
   templates:
     pattern: "templates/{domain}/{phase_type}/*"
     examples:
-      - "templates/agentool/analyzer.jinja"
-      - "templates/api/designer.jinja"
+      - "templates/smoke/analyzer.jinja"
+      - "templates/smoke/designer.jinja"
       - "templates/shared/quality_criteria.jinja"
 ```
 
@@ -769,7 +742,7 @@ ParallelExecutionPattern:
     async with graph.iter(start_node, state=initial_state) as run:
       tasks = []
       async for node in run:
-        if isinstance(node, IterableNode) and node.iter_enabled:
+        if hasattr(node, 'iter_enabled') and node.iter_enabled:
           # Fork parallel tasks for items
           for item in state.iter_items:
             item_state = replace(state, iter_items=[item])

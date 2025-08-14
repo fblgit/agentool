@@ -44,9 +44,7 @@ from .core.factory import (
 # Main executor for running workflows
 from .core.executor import (
     WorkflowExecutor,
-    WorkflowResult,
-    execute_agentool_workflow,
-    execute_testsuite_workflow
+    WorkflowResult
 )
 
 # Registry for managing phases and domains
@@ -62,16 +60,15 @@ from .core.initialization import (
     InitializationConfig,
     default_config,
     test_config,
-    agentool_workflow_config,
     graphtoolkit_context
 )
 
 # Import all domains to trigger registration
-from .domains import agentool, testsuite, api, blockchain, documentation, workflow
+from .domains import smoke
 
 # Import all atomic nodes to trigger registration
 from .nodes.atomic import (
-    storage, templates, llm, validation, control, execution
+    storage, templates, llm, validation, control
 )
 
 __version__ = '0.1.0'
@@ -99,8 +96,6 @@ __all__ = [
     # Execution
     'WorkflowExecutor',
     'WorkflowResult',
-    'execute_agentool_workflow',
-    'execute_testsuite_workflow',
     
     # Registry
     'get_registry',
@@ -112,13 +107,10 @@ __all__ = [
     'InitializationConfig',
     'default_config',
     'test_config',
-    'agentool_workflow_config',
     'graphtoolkit_context',
     
     # High-level API
     'GraphToolkit',
-    'create_agentool_workflow',
-    'create_testsuite_workflow',
     'list_available_domains',
     'get_domain_phases'
 ]
@@ -157,7 +149,7 @@ class GraphToolkit:
         """Create a complete workflow definition and initial state.
         
         Args:
-            domain: Domain name (agentool, testsuite, etc.)
+            domain: Domain name (smoke, etc.)
             phases: List of phase names to include
             workflow_id: Optional workflow identifier
             initial_data: Optional initial domain data
@@ -348,9 +340,9 @@ result = await toolkit.execute_workflow(
     phases=['analyzer', 'specifier', 'crafter', 'evaluator'],
     initial_data={'task_description': 'Create TODO manager'},
     model_config={
-        'analyzer': 'openai:gpt-4o-mini',
+        'analyzer': 'openai:gpt-4o',
         'specifier': 'openai:gpt-4o',
-        'crafter': 'anthropic:claude-3-5-sonnet-latest',
+        'crafter': 'openai:gpt-4o',
         'evaluator': 'openai:gpt-4o'
     }
 )

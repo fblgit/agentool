@@ -82,85 +82,28 @@ def create_node_instance(node_id: str, **kwargs) -> BaseNode:
 
 def _try_import_node(node_id: str) -> None:
     """Try to import a node module to trigger registration."""
-    # Map node IDs to module paths
+    # Map node IDs to module paths - only include nodes that actually exist
     module_map = {
-        # Storage nodes
+        # Storage nodes (actually exist)
         'dependency_check': 'graphtoolkit.nodes.atomic.storage',
         'load_dependencies': 'graphtoolkit.nodes.atomic.storage',
-        'save_output': 'graphtoolkit.nodes.atomic.storage',
         'save_phase_output': 'graphtoolkit.nodes.atomic.storage',
-        'load_storage': 'graphtoolkit.nodes.atomic.storage',
         'save_storage': 'graphtoolkit.nodes.atomic.storage',
-        'batch_load': 'graphtoolkit.nodes.atomic.storage',
-        'batch_save': 'graphtoolkit.nodes.atomic.storage',
         
-        # Template nodes
+        # Template nodes (actually exist)
         'template_render': 'graphtoolkit.nodes.atomic.templates',
-        'template_validate': 'graphtoolkit.nodes.atomic.templates',
-        'template_save': 'graphtoolkit.nodes.atomic.templates',
-        'template_exec': 'graphtoolkit.nodes.atomic.templates',
         
-        # LLM nodes
+        # LLM nodes (actually exist)
         'llm_call': 'graphtoolkit.nodes.atomic.llm',
-        'prompt_builder': 'graphtoolkit.nodes.atomic.llm',
-        'response_parser': 'graphtoolkit.nodes.atomic.llm',
-        'batch_llm': 'graphtoolkit.nodes.atomic.llm',
         
-        # Validation nodes
+        # Validation nodes (actually exist)
         'schema_validation': 'graphtoolkit.nodes.atomic.validation',
         'quality_gate': 'graphtoolkit.nodes.atomic.validation',
-        'dependency_validation': 'graphtoolkit.nodes.atomic.validation',
-        'data_validation': 'graphtoolkit.nodes.atomic.validation',
-        'syntax_validation': 'graphtoolkit.nodes.atomic.validation',
-        'import_validation': 'graphtoolkit.nodes.atomic.validation',
         
-        # Control nodes
+        # Control nodes (actually exist)
         'state_update': 'graphtoolkit.nodes.atomic.control',
         'next_phase': 'graphtoolkit.nodes.atomic.control',
         'refinement': 'graphtoolkit.nodes.atomic.control',
-        'conditional': 'graphtoolkit.nodes.atomic.control',
-        'loop': 'graphtoolkit.nodes.atomic.control',
-        'branch': 'graphtoolkit.nodes.atomic.control',
-        'parallel': 'graphtoolkit.nodes.atomic.control',
-        'state_based_conditional': 'graphtoolkit.nodes.atomic.control',
-        'sequential_map': 'graphtoolkit.nodes.atomic.control',
-        
-        # Transform nodes
-        'json_parse': 'graphtoolkit.nodes.atomic.transform',
-        'json_serialize': 'graphtoolkit.nodes.atomic.transform',
-        'code_format': 'graphtoolkit.nodes.atomic.transform',
-        'data_merge': 'graphtoolkit.nodes.atomic.transform',
-        'data_filter': 'graphtoolkit.nodes.atomic.transform',
-        
-        # Execution nodes
-        'test_execution': 'graphtoolkit.nodes.atomic.execution',
-        'coverage_analysis': 'graphtoolkit.nodes.atomic.execution',
-        'code_execution': 'graphtoolkit.nodes.atomic.execution',
-        
-        # Generator nodes
-        'simple_generator': 'graphtoolkit.nodes.atomic.generators',
-        'advanced_generator': 'graphtoolkit.nodes.atomic.generators',
-        'generator_routing': 'graphtoolkit.nodes.atomic.generators',
-        
-        # Approval nodes
-        'approval': 'graphtoolkit.nodes.atomic.approval',
-        'refinement_loop': 'graphtoolkit.nodes.atomic.approval',
-        'quality_check': 'graphtoolkit.nodes.atomic.approval',
-        
-        # Iteration operation nodes
-        'process_tools': 'graphtoolkit.nodes.atomic.iteration_ops',
-        'process_endpoints': 'graphtoolkit.nodes.atomic.iteration_ops',
-        'process_steps': 'graphtoolkit.nodes.atomic.iteration_ops',
-        'process_contracts': 'graphtoolkit.nodes.atomic.iteration_ops',
-        'batch_validate': 'graphtoolkit.nodes.atomic.iteration_ops',
-        
-        # Iteration nodes
-        'iterate': 'graphtoolkit.nodes.iteration',
-        'batch_process': 'graphtoolkit.nodes.iteration',
-        'map': 'graphtoolkit.nodes.iteration',
-        'filter': 'graphtoolkit.nodes.iteration',
-        'aggregate': 'graphtoolkit.nodes.iteration',
-        'parallel_map': 'graphtoolkit.nodes.iteration',
         
         # Generic nodes
         'generic_phase': 'graphtoolkit.nodes.generic',
@@ -176,7 +119,9 @@ def _try_import_node(node_id: str) -> None:
             importlib.import_module(module_path)
             logger.debug(f'Imported module for node: {node_id}')
         except ImportError as e:
-            logger.debug(f'Could not import module for node {node_id}: {e}')
+            logger.error(f'Could not import module for node {node_id}: {e}')
+            from ..exceptions import NodeExecutionError
+            raise NodeExecutionError(f'Failed to import required module for node {node_id}: {e}') from e
 
 
 def create_workflow_state(
@@ -256,8 +201,9 @@ def create_workflow_graph(
         Configured graph ready for execution
     """
     if not HAS_PYDANTIC_GRAPH:
-        logger.warning('pydantic_graph not available, returning stub graph')
-        return Graph(nodes=[])
+        logger.error('pydantic_graph not available - this is a required dependency')
+        from ..exceptions import DependencyError
+        raise DependencyError('pydantic_graph is required but not available. Install with: pip install pydantic-graph')
     
     # Import GenericPhaseNode if not provided
     if start_node_class is None:
@@ -278,8 +224,10 @@ def create_workflow_graph(
                 create_node_instance(node_id)
                 if node_id in NODE_CLASSES:
                     node_classes.add(NODE_CLASSES[node_id])
-            except ValueError:
-                logger.warning(f'Could not load node class for: {node_id}')
+            except ValueError as e:
+                logger.error(f'Could not load node class for: {node_id}')
+                from ..exceptions import NodeExecutionError
+                raise NodeExecutionError(f'Failed to load required node class for: {node_id}') from e
     
     # Create graph with all node classes
     return Graph(nodes=list(node_classes))

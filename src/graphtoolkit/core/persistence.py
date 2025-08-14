@@ -99,7 +99,8 @@ class WorkflowPersistence:
             
         except Exception as e:
             logger.error(f"Failed to save state: {e}")
-            return False
+            from ..exceptions import StorageError
+            raise StorageError(f"Failed to save workflow state: {e}") from e
     
     async def load_state(self) -> Optional[WorkflowState]:
         """

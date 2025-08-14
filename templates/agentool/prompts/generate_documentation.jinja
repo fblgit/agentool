@@ -1,0 +1,143 @@
+# Generate Documentation for AgenTool
+
+## Tool Information
+**Name**: {{ tool_name }}
+**Description**: {{ agentool_to_document.description }}
+**Required Operations**: {{ agentool_to_document.required_operations | join(', ') }}
+**Dependencies**: {{ agentool_to_document.required_tools | join(', ') }}
+
+## Specification
+{% if specification %}
+**Operations**:
+{% for op in specification.tool_operations %}
+- **{{ op.name }}**: {{ op.description }}
+{% endfor %}
+
+**Input Schema**: 
+{{ specification.tool_input_schema | tojson(indent=2) }}
+
+**Output Schema**:
+{{ specification.tool_output_schema | tojson(indent=2) }}
+{% endif %}
+
+## Implementation Code
+```python
+{{ implementation_code }}
+```
+
+## Context from Analysis
+{{ analysis_output.system_design }}
+
+## Documentation Task
+
+Generate comprehensive Markdown documentation for this AgenTool using the following structure:
+
+```markdown
+# {{ tool_name }} AgenTool
+
+## Overview
+[Provide a clear, concise description of what this tool does and its primary use cases]
+
+## Features
+[List the key features and capabilities of this tool]
+- Feature 1
+- Feature 2
+- ...
+
+## Installation
+```python
+# How to create and initialize this AgenTool
+from agentool import create_agentool, BaseOperationInput
+# ... show the setup code
+```
+
+## Input Schema
+[Document the input schema with descriptions for each field]
+
+### Fields:
+- `operation`: [Describe the operation field and valid values]
+- `field_name`: [Type] - Description of what this field does
+- ...
+
+## Operations
+
+### Operation: [operation_name]
+[Description of what this operation does]
+
+**Parameters:**
+- `param1`: [Type] - Description
+- `param2`: [Type] - Description
+
+**Returns:**
+- [Describe the return value and format]
+
+**Example:**
+```python
+# Example usage of this operation
+result = await agent.run('[operation_name]', {
+    'param1': 'value1',
+    'param2': 'value2'
+})
+```
+
+[Repeat for each operation]
+
+## Usage Examples
+
+### Basic Usage
+```python
+# Complete working example showing basic usage
+from agentool import create_agentool
+# ... full example code
+```
+
+### Advanced Usage
+```python
+# Example showing advanced features or edge cases
+# ... full example code
+```
+
+## Error Handling
+[Document common errors and how to handle them]
+
+### Common Errors:
+- **ErrorType1**: Description and solution
+- **ErrorType2**: Description and solution
+
+## Best Practices
+[Provide recommendations for optimal usage]
+
+1. [Best practice 1]
+2. [Best practice 2]
+3. ...
+
+## Integration with Other Tools
+[If applicable, show how this tool integrates with the dependencies listed]
+
+## API Reference
+
+### Input Schema Reference
+```python
+class [InputSchemaName](BaseOperationInput):
+    \"\"\"[Schema description]\"\"\"
+    # Document all fields with their types and descriptions
+```
+
+### Output Schema Reference
+```python
+class [OutputSchemaName](BaseModel):
+    \"\"\"[Schema description]\"\"\"
+    # Document all fields with their types and descriptions
+```
+
+## Troubleshooting
+[Common issues and their solutions]
+
+### Issue: [Problem description]
+**Solution**: [How to fix it]
+
+## Notes
+[Any additional important information or caveats]
+```
+
+Generate the complete documentation following this structure. Output ONLY the markdown documentation without any explanations or additional formatting.

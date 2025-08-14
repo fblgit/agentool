@@ -82,13 +82,120 @@ class LoadDependenciesNode(AtomicNode[WorkflowState, Any, Dict[str, Any]]):
         
         loaded_data = {}
         
+        # Special case for analyzer phase: Load catalog from agentool_mgmt if no dependencies
+        if ctx.state.current_phase == 'analyzer' and not phase_def.dependencies:
+            logger.info("[LoadDependenciesNode] Analyzer phase: Loading catalog from agentool_mgmt")
+            
+            # Special handling for agentoolkit domain
+            if ctx.state.domain == 'agentoolkit':
+                logger.info("[LoadDependenciesNode] AgenToolkit domain: Loading catalog and storing in KV")
+                try:
+                    # Import and initialize
+                    from ...core.initialization import ensure_graphtoolkit_initialized
+                    from agentool.core.injector import get_injector
+                    ensure_graphtoolkit_initialized()
+                    injector = get_injector()
+                    
+                    # Load catalog from agentool_mgmt
+                    catalog_result = await injector.run('agentool_mgmt', {
+                        'operation': 'export_catalog',
+                        'format': 'json'
+                    })
+                    
+                    if catalog_result.success:
+                        catalog = catalog_result.data.get('catalog', {})
+                        loaded_data['catalog'] = catalog
+                        logger.info(f"[LoadDependenciesNode] Loaded catalog with {len(catalog.get('agentools', []))} tools")
+                        
+                        # Store catalog in KV at workflow/{workflow_id}/input/catalog
+                        if phase_def.additional_storage_patterns and 'catalog' in phase_def.additional_storage_patterns:
+                            catalog_key = phase_def.additional_storage_patterns['catalog'].format(
+                                workflow_id=ctx.state.workflow_id
+                            )
+                            logger.debug(f"[LoadDependenciesNode] Storing catalog at {catalog_key}")
+                            
+                            storage_client = ctx.deps.get_storage_client()
+                            storage_result = await storage_client.run('storage_kv', {
+                                'operation': 'set',
+                                'key': catalog_key,
+                                'value': catalog,
+                                'namespace': 'workflow'
+                            })
+                            
+                            if storage_result.success:
+                                logger.info(f"[LoadDependenciesNode] Stored catalog at {catalog_key}")
+                            else:
+                                logger.warning(f"[LoadDependenciesNode] Failed to store catalog: {storage_result.message}")
+                        
+                        # Store the task description (prompt) in KV at workflow/{workflow_id}/input/prompt
+                        if phase_def.additional_storage_patterns and 'prompt' in phase_def.additional_storage_patterns:
+                            # Get the task description from domain_data (should be set by workflow initialization)
+                            task_description = ctx.state.domain_data.get('task_description', '')
+                            if task_description:
+                                prompt_key = phase_def.additional_storage_patterns['prompt'].format(
+                                    workflow_id=ctx.state.workflow_id
+                                )
+                                logger.debug(f"[LoadDependenciesNode] Storing prompt at {prompt_key}")
+                                
+                                prompt_result = await storage_client.run('storage_kv', {
+                                    'operation': 'set',
+                                    'key': prompt_key,
+                                    'value': task_description,
+                                    'namespace': 'workflow'
+                                })
+                                
+                                if prompt_result.success:
+                                    logger.info(f"[LoadDependenciesNode] Stored prompt at {prompt_key}")
+                                    loaded_data['task_description'] = task_description
+                                else:
+                                    logger.warning(f"[LoadDependenciesNode] Failed to store prompt: {prompt_result.message}")
+                    else:
+                        logger.error(f"[LoadDependenciesNode] Failed to load catalog: {catalog_result.message}")
+                        from ...exceptions import CatalogError
+                        raise CatalogError(f"Failed to load catalog: {catalog_result.message}")
+                        
+                except Exception as e:
+                    logger.error(f"[LoadDependenciesNode] Could not load catalog from agentool_mgmt: {e}")
+                    from ...exceptions import CatalogError
+                    raise CatalogError(f"Failed to load catalog from agentool_mgmt: {e}") from e
+            else:
+                # Original smoke domain behavior
+                try:
+                    # Import and initialize
+                    from ...core.initialization import ensure_graphtoolkit_initialized
+                    from agentool.core.injector import get_injector
+                    ensure_graphtoolkit_initialized()
+                    injector = get_injector()
+                    
+                    # Load catalog from agentool_mgmt (V1 behavior)
+                    catalog_result = await injector.run('agentool_mgmt', {
+                        'operation': 'export_catalog',
+                        'format': 'json'
+                    })
+                    
+                    if catalog_result.success:
+                        catalog = catalog_result.data.get('catalog', {})
+                        loaded_data['catalog'] = catalog
+                        logger.info(f"[LoadDependenciesNode] Loaded catalog with {len(catalog.get('agentools', []))} tools")
+                    else:
+                        logger.error(f"[LoadDependenciesNode] Failed to load catalog: {catalog_result.message}")
+                        from ...exceptions import CatalogError
+                        raise CatalogError(f"Failed to load catalog: {catalog_result.message}")
+                        
+                except Exception as e:
+                    logger.error(f"[LoadDependenciesNode] Could not load catalog from agentool_mgmt: {e}")
+                    from ...exceptions import CatalogError
+                    raise CatalogError(f"Failed to load catalog from agentool_mgmt: {e}") from e
+        
+        # Standard dependency loading
         for dep in phase_def.dependencies:
             logger.debug(f"[LoadDependenciesNode] Processing dependency: {dep}")
             # Check if we have a storage reference for this dependency
             if dep not in ctx.state.phase_outputs:
-                logger.warning(f'[LoadDependenciesNode] No storage reference for dependency {dep}')
-                logger.debug(f"[LoadDependenciesNode] Available outputs: {list(ctx.state.phase_outputs.keys())}")
-                continue
+                logger.error(f'[LoadDependenciesNode] No storage reference for dependency {dep}')
+                logger.error(f"[LoadDependenciesNode] Available outputs: {list(ctx.state.phase_outputs.keys())}")
+                from ...exceptions import DependencyError
+                raise DependencyError(f"Missing storage reference for required dependency: {dep}")
             
             storage_ref = ctx.state.phase_outputs[dep]
             logger.debug(f"[LoadDependenciesNode] Storage ref for {dep}: {storage_ref}")
@@ -114,13 +221,15 @@ class LoadDependenciesNode(AtomicNode[WorkflowState, Any, Dict[str, Any]]):
                         else:
                             data = result.data
                     else:
-                        data = None
+                        raise StorageError(f'Failed to load dependency {dep} from KV storage: {result.message if hasattr(result, "message") else "No data available"}')
                 else:
                     result = await storage_client.run('storage_fs', {
                         'operation': 'read',
                         'path': storage_ref.key
                     })
-                    data = result.data if result.success else None
+                    if not result.success:
+                        raise StorageError(f'Failed to load dependency {dep} from FS storage: {result.message if hasattr(result, "message") else "File not found"}')
+                    data = result.data
                 
                 # Track storage operation
                 duration = time.time() - start_time
@@ -281,56 +390,6 @@ class SavePhaseOutputNode(AtomicNode[WorkflowState, Any, StorageRef]):
         logger.debug(f"[SavePhaseOutputNode] Phase outputs now: {list(state.phase_outputs.keys())}")
 
 
-@dataclass
-class LoadStorageNode(BaseNode[WorkflowState, Any, Any]):
-    """Generic storage load node.
-    Can load from KV or FS based on configuration.
-    """
-    storage_key: str
-    storage_type: StorageType = StorageType.KV
-    required: bool = True
-    
-    async def execute(self, ctx: GraphRunContext[WorkflowState, Any]) -> BaseNode:
-        """Load data from agentoolkit storage."""
-        try:
-            storage_client = ctx.deps.get_storage_client()
-            
-            if self.storage_type == StorageType.KV:
-                result = await storage_client.run('storage_kv', {
-                    'operation': 'load',
-                    'key': self.storage_key
-                })
-                data = result.data if result.success else None
-            else:
-                result = await storage_client.run('storage_fs', {
-                    'operation': 'load',
-                    'path': self.storage_key
-                })
-                data = result.data if result.success else None
-            
-            if data is None and self.required:
-                raise NonRetryableError(f'Required key not found: {self.storage_key}')
-            
-            # Store in domain_data
-            new_state = replace(
-                ctx.state,
-                domain_data={
-                    **ctx.state.domain_data,
-                    f'loaded_{self.storage_key}': data
-                }
-            )
-            
-            # Chain to next node
-            next_node_id = self.get_next_node(new_state)
-            if next_node_id:
-                new_state = replace(new_state, current_node=next_node_id)
-                return create_node_instance(next_node_id)
-            
-            return End(new_state)
-            
-        except Exception as e:
-            raise StorageError(f'Failed to load {self.storage_key}: {e}')
-
 
 @dataclass
 class SaveStorageNode(BaseNode[WorkflowState, Any, StorageRef]):
@@ -392,137 +451,14 @@ class SaveStorageNode(BaseNode[WorkflowState, Any, StorageRef]):
             raise StorageError(f'Failed to save to {self.storage_key}: {e}')
 
 
-@dataclass
-class BatchLoadNode(BaseNode[WorkflowState, Any, Dict[str, Any]]):
-    """Load multiple items in parallel.
-    """
-    storage_keys: List[str]
-    storage_type: StorageType = StorageType.KV
-    
-    async def execute(self, ctx: GraphRunContext[WorkflowState, Any]) -> BaseNode:
-        """Load multiple items from storage."""
-        import asyncio
-        
-        async def load_item(key: str) -> tuple[str, Any]:
-            try:
-                storage_client = ctx.deps.get_storage_client()
-                
-                if self.storage_type == StorageType.KV:
-                    result = await storage_client.run('storage_kv', {
-                        'operation': 'load',
-                        'key': key
-                    })
-                    data = result.data if result.success else None
-                else:
-                    result = await storage_client.run('storage_fs', {
-                        'operation': 'load',
-                        'path': key
-                    })
-                    data = result.data if result.success else None
-                    
-                return key, data
-            except Exception as e:
-                logger.error(f'Failed to load {key}: {e}')
-                return key, None
-        
-        # Load all items in parallel
-        tasks = [load_item(key) for key in self.storage_keys]
-        results = await asyncio.gather(*tasks)
-        
-        # Convert to dict
-        loaded_data = dict(results)
-        
-        # Update state
-        new_state = replace(
-            ctx.state,
-            domain_data={
-                **ctx.state.domain_data,
-                'batch_loaded': loaded_data
-            }
-        )
-        
-        # Chain to next node
-        next_node_id = self.get_next_node(new_state)
-        if next_node_id:
-            new_state = replace(new_state, current_node=next_node_id)
-            return create_node_instance(next_node_id)
-        
-        return End(new_state)
 
 
-@dataclass
-class BatchSaveNode(BaseNode[WorkflowState, Any, List[StorageRef]]):
-    """Save multiple items in batch.
-    """
-    storage_prefix: str
-    storage_type: StorageType = StorageType.KV
-    
-    async def execute(self, ctx: GraphRunContext[WorkflowState, Any]) -> BaseNode:
-        """Save multiple items to storage."""
-        import asyncio
-        
-        # Get items from iteration results or domain data
-        items = ctx.state.iter_results if ctx.state.iter_results else []
-        
-        if not items:
-            logger.warning('No items to save in batch')
-            return self._continue_chain(ctx.state, [])
-        
-        async def save_item(idx: int, item: Any) -> StorageRef:
-            key = f'{self.storage_prefix}/{idx}'
-            try:
-                storage_client = ctx.deps.get_storage_client()
-                
-                if self.storage_type == StorageType.KV:
-                    await storage_client.run('storage_kv', {
-                        'operation': 'save',
-                        'key': key,
-                        'data': item
-                    })
-                else:
-                    await storage_client.run('storage_fs', {
-                        'operation': 'save',
-                        'path': key,
-                        'data': item
-                    })
-                
-                return StorageRef(
-                    storage_type=self.storage_type,
-                    key=key,
-                    created_at=datetime.now()
-                )
-            except Exception as e:
-                logger.error(f'Failed to save item {idx}: {e}')
-                return None
-        
-        # Save all items in parallel
-        tasks = [save_item(i, item) for i, item in enumerate(items)]
-        refs = await asyncio.gather(*tasks)
-        
-        # Filter out failed saves
-        valid_refs = [ref for ref in refs if ref is not None]
-        
-        logger.info(f'Batch saved {len(valid_refs)}/{len(items)} items')
-        
-        return self._continue_chain(ctx.state, valid_refs)
-    
-    def _continue_chain(self, state: WorkflowState, refs: List[StorageRef]) -> BaseNode:
-        """Continue to next node with updated state."""
-        new_state = replace(
-            state,
-            domain_data={
-                **state.domain_data,
-                f'{state.current_phase}_batch_refs': refs,
-                f'{state.current_phase}_batch_count': len(refs)
-            }
-        )
-        
-        next_node_id = self.get_next_node(new_state)
-        if next_node_id:
-            new_state = replace(new_state, current_node=next_node_id)
-            return create_node_instance(next_node_id)
-        
-        return End(new_state)
+
+
+
+
+
+
 
 
 # Register all storage nodes
@@ -530,7 +466,4 @@ register_node_class('dependency_check', DependencyCheckNode)
 register_node_class('load_dependencies', LoadDependenciesNode)
 register_node_class('save_output', SavePhaseOutputNode)
 register_node_class('save_phase_output', SavePhaseOutputNode)
-register_node_class('load_storage', LoadStorageNode)
-register_node_class('save_storage', SaveStorageNode)
-register_node_class('batch_load', BatchLoadNode)
-register_node_class('batch_save', BatchSaveNode)
+ 

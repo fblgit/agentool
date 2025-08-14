@@ -1,0 +1,68 @@
+# Refine AgenTool Implementation
+
+## Tool to Refine
+**Name**: {{ agentool_to_implement.name }}
+**Description**: {{ agentool_to_implement.description }}
+**Required Operations**: {{ agentool_to_implement.required_operations | join(', ') }}
+**Required Tools**: {{ agentool_to_implement.required_tools | join(', ') }}
+
+## Specification
+{% if spec_output %}
+**Tool Operations**:
+{% for op in spec_output.tool_operations %}
+- **{{ op.name }}**: {{ op.description }}
+  - Required: {{ op.required }}
+  - Error Handling: {{ op.error_handling | join(', ') }}
+{% endfor %}
+
+**Input Schema**: 
+{{ spec_output.tool_input_schema | tojson(indent=2) }}
+
+**Output Schema**:
+{{ spec_output.tool_output_schema | tojson(indent=2) }}
+
+**Dependencies**: {{ spec_output.dependencies | join(', ') }}
+{% endif %}
+
+## Previous Implementation
+```python
+{{ previous_code }}
+```
+
+## Evaluation Feedback
+
+### Issues Found (MUST FIX ALL):
+{% for issue in evaluation_feedback.issues %}
+- {{ issue }}
+{% endfor %}
+
+### Deployment Blockers (CRITICAL - FIX FIRST):
+{% for blocker in evaluation_feedback.deployment_blockers %}
+- **BLOCKER**: {{ blocker }}
+{% endfor %}
+
+### Suggested Improvements (IMPLEMENT IF APPLICABLE):
+{% for improvement in evaluation_feedback.improvements %}
+- {{ improvement }}
+{% endfor %}
+
+### Evaluation Scores:
+- Syntax Valid: {{ evaluation_feedback.syntax_valid }}
+- Imports Valid: {{ evaluation_feedback.imports_valid }}
+- Schema Compliance: {{ evaluation_feedback.schema_compliance }}
+- Routing Complete: {{ evaluation_feedback.routing_complete }}
+- Functions Implemented: {{ evaluation_feedback.functions_implemented }}
+- Overall Score: {{ evaluation_feedback.overall_score }}
+- **Ready for Deployment**: {{ evaluation_feedback.ready_for_deployment }}
+
+## Context from Analysis
+{{ analysis_output.system_design }}
+
+## Task
+Refine the implementation above by:
+1. Fixing ALL deployment blockers first
+2. Addressing ALL issues identified in the evaluation
+3. Implementing applicable improvements
+4. Ensuring the code meets AgenTool standards
+
+Output ONLY the complete refined Python code. Do not include any explanations or markdown formatting.

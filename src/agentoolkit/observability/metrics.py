@@ -291,7 +291,7 @@ async def metrics_increment(ctx: RunContext[Any], name: str, value: float,
         # Check if metric exists (data is None when not found)
         if meta_result.data is None:
             # Auto-create metrics for automatic tracking
-            if name.startswith("agentool."):
+            if name.startswith("agentool.") or name.startswith("graphtoolkit."):
                 # Determine metric type and unit based on naming patterns
                 if name == "agentool.templates.count":
                     # Special case: templates count uses gauge (can go up/down)
@@ -520,7 +520,7 @@ async def metrics_set(ctx: RunContext[Any], name: str, value: float,
         # Check if metric exists (data is None when not found)
         if meta_result.data is None:
             # Auto-create gauge metrics for automatic tracking
-            if name.startswith("agentool."):
+            if name.startswith("agentool.") or name.startswith("graphtoolkit."):
                 # Only specific metrics can be set (gauges)
                 if ".active" in name or ".current" in name or ".level" in name:
                     # Other gauge-like metrics (active connections, current state, etc.)
@@ -631,7 +631,7 @@ async def metrics_observe(ctx: RunContext[Any], name: str, value: float,
         # Check if metric exists (data is None when not found)
         if meta_result.data is None:
             # Auto-create timer/histogram metrics for automatic tracking
-            if name.startswith("agentool."):
+            if name.startswith("agentool.") or name.startswith("graphtoolkit."):
                 metric_type = None
                 unit = None
                 
@@ -766,7 +766,7 @@ async def metrics_get(ctx: RunContext[Any], name: str) -> MetricsOutput:
         # Check if metric exists (data is None when not found)
         if meta_result.data is None:
             # Auto-create standard metrics if they don't exist
-            if name.startswith("agentool."):
+            if name.startswith("agentool.") or name.startswith("graphtoolkit."):
                 # Determine metric type based on name pattern
                 if name.endswith(".total") or name.endswith(".count"):
                     metric_type = MetricType.COUNTER

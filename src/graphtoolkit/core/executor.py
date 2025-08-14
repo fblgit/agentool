@@ -11,7 +11,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 # Real pydantic_graph imports - no more mocks
-from pydantic_graph import BaseNode, SimpleStatePersistence, Graph, GraphRunContext
+from pydantic_graph import BaseNode, Graph, GraphRunContext
+from pydantic_graph.persistence.file import FileStatePersistence
 
 from ..core.deps import WorkflowDeps
 from ..core.factory import create_node_instance
@@ -89,12 +90,8 @@ class WorkflowExecutor:
             
         except Exception as e:
             logger.error(f'Workflow execution failed: {e}')
-            return WorkflowResult(
-                state=initial_state,
-                outputs={},
-                success=False,
-                error=str(e)
-            )
+            from ..exceptions import WorkflowError
+            raise WorkflowError(f'Workflow execution failed: {e}') from e
         finally:
             # Clean up resources
             if self.deps:
@@ -111,12 +108,25 @@ class WorkflowExecutor:
         """
         # Import all node modules to ensure registration
         from ..nodes import generic, atomic
+        from ..core.factory import get_node_registry, create_node_instance
         
         # Get all unique node types from workflow definition
         all_node_types = set()
         
         for phase_def in initial_state.workflow_def.phases.values():
             all_node_types.update(phase_def.atomic_nodes)
+        
+        logger.debug(f"[WorkflowExecutor] Required node types from workflow: {all_node_types}")
+        
+        # Ensure all required nodes are available by trying to import them
+        for node_type in all_node_types:
+            try:
+                # This will trigger import if needed
+                create_node_instance(node_type)
+            except Exception as e:
+                logger.error(f"[WorkflowExecutor] Failed to load required node {node_type}: {e}")
+                from ..exceptions import NodeExecutionError
+                raise NodeExecutionError(f"Failed to load required node {node_type}: {e}") from e
         
         # Collect node CLASSES (not instances)
         node_classes = set()
@@ -157,6 +167,18 @@ class WorkflowExecutor:
         node_classes.add(RefinementNode)
         node_classes.add(WorkflowEndNode)
         node_classes.add(ErrorNode)
+        
+        # Get all registered node classes dynamically
+        registry = get_node_registry()
+        logger.debug(f"[WorkflowExecutor] Node registry has {len(registry)} registered nodes")
+        
+        # Add any additional registered node classes that are in the workflow
+        for node_type in all_node_types:
+            if node_type in registry:
+                node_classes.add(registry[node_type])
+                logger.debug(f"[WorkflowExecutor] Added registered node class for: {node_type}")
+        
+        logger.debug(f"[WorkflowExecutor] Total node classes in graph: {len(node_classes)}")
         
         # Create and return graph with node CLASSES
         return Graph(nodes=list(node_classes))
@@ -275,7 +297,7 @@ class WorkflowExecutor:
             graph = self._build_graph(initial_state)
             
             # Set up file persistence
-            persistence = SimpleStatePersistence(Path(persistence_path))
+            persistence = FileStatePersistence(Path(persistence_path))
             
             # Execute using pydantic_graph with persistence
             final_state = await graph.run(
@@ -298,12 +320,8 @@ class WorkflowExecutor:
             
         except Exception as e:
             logger.error(f'Workflow execution with persistence failed: {e}')
-            return WorkflowResult(
-                state=initial_state,
-                outputs={},
-                success=False,
-                error=str(e)
-            )
+            from ..exceptions import WorkflowError
+            raise WorkflowError(f'Workflow execution with persistence failed: {e}') from e
         finally:
             # Clean up resources
             if self.deps:
@@ -353,7 +371,7 @@ class WorkflowExecutor:
             # Set up persistence if requested
             persistence = None
             if persistence_path:
-                persistence = SimpleStatePersistence(Path(persistence_path))
+                persistence = FileStatePersistence(Path(persistence_path))
             
             # Execute with parallel control using Graph.iter()
             final_state = initial_state
@@ -416,12 +434,8 @@ class WorkflowExecutor:
             
         except Exception as e:
             logger.error(f'Parallel-controlled workflow failed: {e}')
-            return WorkflowResult(
-                state=initial_state,
-                outputs={},
-                success=False,
-                error=str(e)
-            )
+            from ..exceptions import WorkflowError
+            raise WorkflowError(f'Parallel-controlled workflow failed: {e}') from e
         finally:
             # Clean up resources
             if self.deps:
@@ -460,7 +474,8 @@ class WorkflowExecutor:
             
         except Exception as e:
             logger.error(f'Parallel item processing failed: {e}')
-            return e
+            from ..exceptions import NodeExecutionError
+            raise NodeExecutionError(f'Parallel item processing failed: {e}') from e
 
 
 @dataclass
@@ -490,104 +505,6 @@ class PhaseResult:
 
 
 # Production-ready workflow functions with agentoolkit integration
-
-async def execute_agentool_workflow(
-    task_description: str,
-    model: str = 'openai:gpt-4o',
-    workflow_id: Optional[str] = None,
-    enable_persistence: bool = True
-) -> Dict[str, Any]:
-    """Execute an AgenTool generation workflow using GraphToolkit.
-    
-    Args:
-        task_description: Description of the AgenTool to create
-        model: LLM model to use
-        workflow_id: Optional workflow identifier
-        enable_persistence: Whether to enable state persistence
-        
-    Returns:
-        Workflow execution results
-    """
-    from agentool.core.injector import get_injector
-    from ..core.deps import WorkflowDeps
-    from ..core.factory import create_workflow_state, build_domain_workflow
-    from .initialization import ensure_graphtoolkit_initialized, agentool_workflow_config
-    
-    # Ensure initialization for AgenTool workflow
-    ensure_graphtoolkit_initialized(agentool_workflow_config())
-    
-    # Generate workflow ID if not provided
-    if not workflow_id:
-        import uuid
-        workflow_id = str(uuid.uuid4())
-    
-    # Create workflow dependencies
-    deps = WorkflowDeps(
-        injector=get_injector(),
-        model_config={
-            'analyzer': model,
-            'specifier': model, 
-            'crafter': model,
-            'evaluator': model
-        },
-        enable_metrics=True,
-        enable_logging=True
-    )
-    
-    # Build workflow definition for AgenTool domain
-    workflow_def = build_domain_workflow(
-        domain='agentool',
-        phases=['analyzer', 'specifier', 'crafter', 'evaluator'],
-        enable_refinement=True,
-        enable_parallel=False
-    )
-    
-    # Create initial state
-    initial_state = create_workflow_state(
-        workflow_def=workflow_def,
-        workflow_id=workflow_id,
-        initial_data={
-            'task_description': task_description,
-            'model': model,
-            'domain': 'agentool'
-        }
-    )
-    
-    # Create executor
-    executor = WorkflowExecutor(deps)
-    
-    try:
-        # Execute with or without persistence
-        if enable_persistence:
-            persistence_path = f'workflows/{workflow_id}/state.json'
-            result = await executor.run_with_persistence(initial_state, persistence_path)
-        else:
-            result = await executor.run(initial_state)
-        
-        # Convert to standard format
-        return {
-            'workflow_id': workflow_id,
-            'success': result.success,
-            'error': result.error,
-            'execution_time': result.execution_time,
-            'completed_phases': list(result.state.completed_phases),
-            'quality_scores': result.state.quality_scores,
-            'outputs': result.outputs,
-            'domain_data': result.state.domain_data
-        }
-        
-    except Exception as e:
-        logger.error(f'AgenTool workflow execution failed: {e}')
-        return {
-            'workflow_id': workflow_id,
-            'success': False,
-            'error': str(e),
-            'execution_time': 0,
-            'completed_phases': [],
-            'quality_scores': {},
-            'outputs': {},
-            'domain_data': {}
-        }
 
 
 async def execute_smoke_workflow(
@@ -653,110 +570,3 @@ async def execute_smoke_workflow(
     return result
 
 
-async def execute_testsuite_workflow(
-    code_to_test: str,
-    framework: str = 'pytest',
-    coverage_target: float = 0.85,
-    workflow_id: Optional[str] = None,
-    enable_persistence: bool = True
-) -> Dict[str, Any]:
-    """Execute a test suite generation workflow using GraphToolkit.
-    
-    Args:
-        code_to_test: Code that needs test coverage
-        framework: Testing framework to use
-        coverage_target: Target coverage percentage
-        workflow_id: Optional workflow identifier
-        enable_persistence: Whether to enable state persistence
-        
-    Returns:
-        Workflow execution results
-    """
-    from agentool.core.injector import get_injector
-    from ..core.deps import WorkflowDeps
-    from ..core.factory import create_workflow_state, build_domain_workflow
-    from .initialization import ensure_graphtoolkit_initialized, default_config
-    
-    # Ensure initialization for TestSuite workflow  
-    ensure_graphtoolkit_initialized(default_config())
-    
-    # Generate workflow ID if not provided
-    if not workflow_id:
-        import uuid
-        workflow_id = str(uuid.uuid4())
-    
-    # Create workflow dependencies
-    deps = WorkflowDeps(
-        injector=get_injector(),
-        model_config={
-            'test_analyzer': 'openai:gpt-4o',
-            'test_designer': 'openai:gpt-4o',
-            'test_generator': 'anthropic:claude-3-5-sonnet-latest',
-            'test_executor': 'openai:gpt-4o-mini'
-        },
-        enable_metrics=True,
-        enable_logging=True
-    )
-    
-    # Build workflow definition for TestSuite domain
-    workflow_def = build_domain_workflow(
-        domain='testsuite',
-        phases=['test_analyzer', 'test_designer', 'test_generator', 'test_executor'],
-        enable_refinement=True,
-        enable_parallel=False
-    )
-    
-    # Create initial state
-    initial_state = create_workflow_state(
-        workflow_def=workflow_def,
-        workflow_id=workflow_id,
-        initial_data={
-            'code_to_test': code_to_test,
-            'framework': framework,
-            'coverage_target': coverage_target,
-            'domain': 'testsuite'
-        }
-    )
-    
-    # Create executor
-    executor = WorkflowExecutor(deps)
-    
-    try:
-        # Execute with or without persistence
-        if enable_persistence:
-            persistence_path = f'workflows/{workflow_id}/state.json'
-            result = await executor.run_with_persistence(initial_state, persistence_path)
-        else:
-            result = await executor.run(initial_state)
-        
-        # Convert to standard format
-        return {
-            'workflow_id': workflow_id,
-            'success': result.success,
-            'error': result.error,
-            'execution_time': result.execution_time,
-            'completed_phases': list(result.state.completed_phases),
-            'quality_scores': result.state.quality_scores,
-            'outputs': result.outputs,
-            'domain_data': result.state.domain_data,
-            # TestSuite-specific results
-            'test_files': result.state.domain_data.get('test_files', {}),
-            'coverage_report': result.state.domain_data.get('coverage_report', {}),
-            'test_results': result.state.domain_data.get('test_results', {})
-        }
-        
-    except Exception as e:
-        logger.error(f'TestSuite workflow execution failed: {e}')
-        return {
-            'workflow_id': workflow_id,
-            'success': False,
-            'error': str(e),
-            'execution_time': 0,
-            'completed_phases': [],
-            'quality_scores': {},
-            'outputs': {},
-            'domain_data': {},
-            'test_files': {},
-            'coverage_report': {},
-            'test_results': {}
-        }

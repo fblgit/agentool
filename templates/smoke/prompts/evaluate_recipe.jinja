@@ -1,0 +1,37 @@
+Evaluate the following recipe for quality and completeness:
+
+**Recipe: {{ recipe_crafter_output['name'] }}**
+
+**Ingredients with Amounts:**
+{% for item in recipe_crafter_output['ingredients_with_amounts'] %}
+- {{ item['ingredient'] }}: {{ item['amount'] }}
+{% endfor %}
+
+**Instructions:**
+{% for step in recipe_crafter_output['instructions'] %}
+{{ loop.index }}. {{ step }}
+{% endfor %}
+
+**Tips:**
+{% for tip in recipe_crafter_output['tips'] %}
+- {{ tip }}
+{% endfor %}
+
+**Original Requirements:**
+- Ingredients available: {{ ingredients | join(', ') }}
+- Difficulty level: {{ recipe_designer_output['difficulty'] }}
+- Total time: {{ recipe_designer_output['prep_time_minutes'] + recipe_designer_output['cook_time_minutes'] }} minutes
+{% if dietary_restrictions %}
+- Dietary restrictions: {{ dietary_restrictions | join(', ') }}
+{% endif %}
+
+Evaluate this recipe on:
+1. **Completeness** (0-1): Are all details present? Are amounts clear?
+2. **Clarity** (0-1): Are instructions easy to follow? Any ambiguity?
+3. **Practicality** (0-1): Is it realistic to make? Are techniques appropriate?
+4. **Overall Quality** (0-1): Would this produce a good dish?
+
+Provide specific improvements if any scores are below 0.8.
+Determine if the recipe is ready to cook or needs refinement.
+
+Output your evaluation in the required JSON format.

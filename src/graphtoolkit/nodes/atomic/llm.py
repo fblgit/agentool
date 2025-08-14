@@ -148,20 +148,71 @@ class LLMCallNode(AtomicNode[WorkflowState, Any, Any]):
                 pydantic_ai.models.ALLOW_MODEL_REQUESTS = True
                 model_instance = model
             
-            # Create agent with appropriate model
-            agent = Agent(
-                model_instance,
-                system_prompt=system_prompt,
-                output_type=output_schema if output_schema else str
-            )
+            # Special handling for crafter phase - always use str output
+            if ctx.state.current_phase == 'crafter':
+                logger.info("[LLMCallNode] Crafter phase detected - using raw string output")
+                agent = Agent(
+                    model_instance,
+                    system_prompt=system_prompt,
+                    output_type=str  # Always use str for crafter
+                )
+            else:
+                # Create agent with appropriate model
+                agent = Agent(
+                    model_instance,
+                    system_prompt=system_prompt,
+                    output_type=output_schema if output_schema else str
+                )
             
             logger.info(f"Running agent with prompt: {user_prompt[:100]}...")
             # Run the agent
             result = await agent.run(user_prompt)
             
             logger.info(f"Agent result type: {type(result)}, has output: {hasattr(result, 'output')}")
-            # Return the output
-            return result.output if hasattr(result, 'output') else result
+            
+            # Get the output
+            raw_output = result.output if hasattr(result, 'output') else result
+            
+            # For crafter phase, extract code from markdown blocks and create CodeOutput
+            if ctx.state.current_phase == 'crafter':
+                # Extract code from markdown code block
+                import re
+                code_match = re.search(r'```python\n(.*?)```', str(raw_output), re.DOTALL)
+                if code_match:
+                    generated_code = code_match.group(1).strip()
+                    logger.info(f"[LLMCallNode] Extracted {len(generated_code)} chars of code from markdown block")
+                else:
+                    # Fallback if no code block found
+                    generated_code = str(raw_output).strip()
+                    logger.warning("[LLMCallNode] No markdown code block found, using raw output")
+                
+                # Get tool name for file path
+                iter_key = f"{ctx.state.current_phase}_iteration"
+                current_item = ctx.state.domain_data.get(f"{iter_key}_current")
+                if current_item:
+                    if hasattr(current_item, 'name'):
+                        tool_name = current_item.name
+                    elif isinstance(current_item, dict) and 'name' in current_item:
+                        tool_name = current_item['name']
+                    else:
+                        tool_name = 'generated_tool'
+                else:
+                    tool_name = 'generated_tool'
+                
+                # Import CodeOutput if not already imported
+                from agents.models import CodeOutput
+                
+                # Create CodeOutput object
+                code_output = CodeOutput(
+                    code=generated_code,
+                    file_path=f"{tool_name}.py"
+                )
+                
+                logger.info(f"[LLMCallNode] Created CodeOutput for {tool_name} with {len(generated_code)} chars")
+                return code_output
+            
+            # Return the output for other phases
+            return raw_output
             
         except ImportError as e:
             logger.error(f"Import error: {e}")
@@ -195,116 +246,5 @@ class LLMCallNode(AtomicNode[WorkflowState, Any, Any]):
         state.total_token_usage[phase_name] = token_usage
 
 
-@dataclass
-class PromptBuilderNode(AtomicNode[WorkflowState, Any, Dict[str, str]]):
-    """Build prompts from components without templates.
-    """
-    system_components: List[str]
-    user_components: List[str]
-    
-    async def perform_operation(self, ctx: GraphRunContext[WorkflowState, Any]) -> Dict[str, str]:
-        """Build prompts from components."""
-        # Build system prompt
-        system_prompt = '\n\n'.join(self.system_components)
-        
-        # Build user prompt with data from state
-        user_parts = []
-        for component in self.user_components:
-            # Replace placeholders with state data
-            formatted = component.format(**ctx.state.domain_data)
-            user_parts.append(formatted)
-        
-        user_prompt = '\n\n'.join(user_parts)
-        
-        return {
-            'system_prompt': system_prompt,
-            'user_prompt': user_prompt
-        }
-
-
-@dataclass
-class ResponseParserNode(AtomicNode[WorkflowState, Any, Any]):
-    """Parse structured LLM responses.
-    """
-    output_schema: Optional[type] = None
-    
-    async def perform_operation(self, ctx: GraphRunContext[WorkflowState, Any]) -> Any:
-        """Parse LLM response from state."""
-        phase_name = ctx.state.current_phase
-        response_key = f'{phase_name}_llm_response'
-        
-        response = ctx.state.domain_data.get(response_key)
-        if response is None:
-            raise NonRetryableError(f'No LLM response found for {phase_name}')
-        
-        if not self.output_schema:
-            # No schema, return as-is
-            return response
-        
-        # Parse response according to schema
-        if isinstance(response, str):
-            try:
-                # Try to parse as JSON
-                data = json.loads(response)
-                return self.output_schema(**data)
-            except (json.JSONDecodeError, ValueError) as e:
-                raise NonRetryableError(f'Failed to parse response: {e}')
-        
-        # Response might already be parsed
-        if isinstance(response, self.output_schema):
-            return response
-        
-        # Try to coerce to schema
-        try:
-            return self.output_schema(**response)
-        except Exception as e:
-            raise NonRetryableError(f'Failed to validate response: {e}')
-
-
-@dataclass
-class BatchLLMNode(AtomicNode[WorkflowState, Any, List[Any]]):
-    """Execute multiple LLM calls in parallel.
-    """
-    prompts: List[Dict[str, str]]  # List of {system, user} prompts
-    
-    async def perform_operation(self, ctx: GraphRunContext[WorkflowState, Any]) -> List[Any]:
-        """Execute parallel LLM calls."""
-        import asyncio
-        
-        async def call_single(prompt: Dict[str, str]) -> Any:
-            try:
-                # Create a temporary LLMCallNode for each prompt
-                node = LLMCallNode()
-                
-                # Inject prompts into state for this call
-                temp_state = replace(
-                    ctx.state,
-                    domain_data={
-                        **ctx.state.domain_data,
-                        'rendered_prompts': prompt
-                    }
-                )
-                
-                # Create temporary context
-                temp_ctx = GraphRunContext(state=temp_state, deps=ctx.deps)
-                
-                # Execute the call
-                return await node.perform_operation(temp_ctx)
-                
-            except Exception as e:
-                logger.error(f'Batch LLM call failed: {e}')
-                return None
-        
-        # Execute all calls in parallel
-        tasks = [call_single(prompt) for prompt in self.prompts]
-        results = await asyncio.gather(*tasks)
-        
-        # Filter out None results
-        return [r for r in results if r is not None]
-
-
 # Register LLM nodes
 register_node_class('llm_call', LLMCallNode)
-register_node_class('prompt_builder', PromptBuilderNode)
-register_node_class('response_parser', ResponseParserNode)
-register_node_class('batch_llm', BatchLLMNode)
