@@ -144,6 +144,22 @@ class AgenToolkitTestAnalyzerInput(BaseModel):
     specification: Dict[str, Any] = Field(
         description="Tool specification with operations and schemas"
     )
+
+
+class AgenToolkitTestStubberInput(BaseModel):
+    """Input for the test stubber phase - creates test skeleton with setup/teardown."""
+    tool_name: str = Field(
+        description="Name of the tool to create test stub for"
+    )
+    test_analysis: Dict[str, Any] = Field(
+        description="Test analysis from the test analyzer phase"
+    )
+    implementation_code: str = Field(
+        description="The implementation code being tested"
+    )
+    specification: Dict[str, Any] = Field(
+        description="Tool specification with operations and schemas"
+    )
     analyzer_context: Dict[str, Any] = Field(
         description="System design and context from analyzer phase"
     )
@@ -463,6 +479,52 @@ test_analyzer_phase = PhaseDefinition(
     )
 )
 
+# Import TestStubOutput from agents.models
+from agents.models import TestStubOutput
+
+test_stubber_phase = PhaseDefinition(
+    phase_name='test_stubber',
+    domain='agentoolkit',
+    atomic_nodes=[
+        'dependency_check',
+        'load_dependencies',     # Loads test analyses and best code
+        'iteration_control',     # Start iteration over missing_tools
+        'template_render',       # Renders test stubber template for current tool
+        'llm_call',             # Calls LLM for test stub generation
+        'schema_validation',     # Validates against TestStubOutput
+        'save_iteration_output', # Saves individual test stub
+        'aggregation',          # Aggregate all test stubs
+        'save_phase_output',    # Saves aggregated output
+        'state_update',
+        'quality_gate'
+    ],
+    input_schema=AgenToolkitTestStubberInput,
+    output_schema=TestStubOutput,  # From agents.models
+    dependencies=['analyzer', 'specifier', 'crafter', 'test_analyzer'],  # Need test analysis
+    templates=TemplateConfig(
+        system_template='agentool/system/test_stubber.jinja',
+        user_template='agentool/prompts/create_test_stub.jinja',
+        variables={'schema_json': TestStubOutput.model_json_schema()}
+    ),
+    storage_pattern='workflow/{workflow_id}/output/test_stubber',
+    storage_type=StorageType.KV,
+    additional_storage_patterns={
+        'rendered': 'workflow/{workflow_id}/render/test_stubber'
+    },
+    iteration_config={
+        'enabled': True,
+        'items_source': 'analyzer_output.missing_tools',  # From analyzer phase
+        'item_storage_pattern': 'workflow/{workflow_id}/test_stub/{item_name}'
+    },
+    quality_threshold=0.8,
+    allow_refinement=False,  # No refinement for test stubs
+    max_refinements=0,
+    model_config=ModelParameters(
+        temperature=0.5,  # Lower temperature for more structured output
+        max_tokens=3000   # More tokens for complete test file
+    )
+)
+
 # Register all phases
 register_phase('agentoolkit.analyzer', analyzer_phase)
 register_phase('agentoolkit.specifier', specifier_phase)
@@ -471,6 +533,7 @@ register_phase('agentoolkit.evaluator', evaluator_phase)
 register_phase('agentoolkit.refiner', refiner_phase)
 register_phase('agentoolkit.documenter', documenter_phase)
 register_phase('agentoolkit.test_analyzer', test_analyzer_phase)
+register_phase('agentoolkit.test_stubber', test_stubber_phase)
 
 # Workflow configuration for convenience
 AGENTOOLKIT_WORKFLOW_PHASES = [
@@ -480,7 +543,8 @@ AGENTOOLKIT_WORKFLOW_PHASES = [
     'evaluator',
     'refiner',  # Optional - only run if tools need refinement
     'documenter',  # Generate documentation for all tools
-    'test_analyzer'  # Analyze test requirements for all tools
+    'test_analyzer',  # Analyze test requirements for all tools
+    'test_stubber'  # Create test skeletons for all tools
 ]
 
 # Export key components
@@ -492,11 +556,13 @@ __all__ = [
     'AgenToolkitRefinerInput',
     'AgenToolkitDocumenterInput',
     'AgenToolkitTestAnalyzerInput',
+    'AgenToolkitTestStubberInput',
     'AnalyzerOutput',
     'ToolSpecification',
     'CodeOutput',
     'EvaluationOutput',
     'TestAnalysisOutput',
+    'TestStubOutput',
     'analyzer_phase',
     'specifier_phase',
     'crafter_phase',
@@ -504,5 +570,6 @@ __all__ = [
     'refiner_phase',
     'documenter_phase',
     'test_analyzer_phase',
+    'test_stubber_phase',
     'AGENTOOLKIT_WORKFLOW_PHASES'
 ]

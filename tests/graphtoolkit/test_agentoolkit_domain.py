@@ -1505,6 +1505,117 @@ class TestAgenToolkitAnalyzer:
             print(f"\n   ✓ Aggregated Test Analyses: {len(test_analyses)} total")
             print(f"     - Tools analyzed: {', '.join([a.get('tool_name', 'unknown') for a in test_analyses])}")
         
+        # Phase 8: TestStubber - Create test skeletons for all tools
+        print("\n📝 PHASE 8: TEST STUBBER")
+        print("-" * 40)
+        print("   Creating test skeletons for all tools...")
+        
+        # Import test_stubber_phase
+        from src.graphtoolkit.domains.agentoolkit import test_stubber_phase
+        
+        # Update workflow def for test_stubber phase
+        workflow_def = WorkflowDefinition(
+            domain='agentoolkit',
+            phases={
+                'analyzer': analyzer_phase,
+                'specifier': specifier_phase,
+                'crafter': crafter_phase,
+                'evaluator': evaluator_phase,
+                'refiner': refiner_phase,
+                'documenter': documenter_phase,
+                'test_analyzer': test_analyzer_phase,
+                'test_stubber': test_stubber_phase
+            },
+            phase_sequence=['test_stubber'],  # Only run test_stubber
+            node_configs={
+                'dependency_check': NodeConfig(node_type='storage_check'),
+                'load_dependencies': NodeConfig(node_type='storage_load'),
+                'iteration_control': NodeConfig(node_type='iteration'),
+                'template_render': NodeConfig(node_type='template'),
+                'llm_call': NodeConfig(node_type='llm', retryable=True, max_retries=2),
+                'schema_validation': NodeConfig(node_type='validation'),
+                'save_iteration_output': NodeConfig(node_type='iteration_save'),
+                'aggregation': NodeConfig(node_type='aggregation'),
+                'save_phase_output': NodeConfig(node_type='storage_save'),
+                'state_update': NodeConfig(node_type='state'),
+                'quality_gate': NodeConfig(node_type='validation')
+            }
+        )
+        
+        # Extract the final state from test_analyzer result
+        if hasattr(final_test_analyzer_state, 'output'):
+            final_test_analyzer_state = final_test_analyzer_state.output
+        
+        # Update state for test_stubber
+        test_stubber_state = WorkflowState(
+            workflow_def=workflow_def,
+            workflow_id=workflow_id,
+            domain='agentoolkit',
+            current_phase='test_stubber',
+            current_node='dependency_check',
+            completed_phases={'analyzer', 'specifier', 'crafter', 'evaluator', 'refiner', 'documenter', 'test_analyzer'},
+            domain_data=final_test_analyzer_state.domain_data,
+            phase_outputs=final_test_analyzer_state.phase_outputs
+        )
+        
+        # Use same nodes
+        graph = Graph(nodes=nodes)
+        
+        # Run test_stubber phase
+        test_stubber_result = await graph.run(GenericPhaseNode(), deps=deps, state=test_stubber_state)
+        
+        # Report on TestStubber
+        print("\n📝 TEST STUBBER PHASE RESULTS")
+        print("-" * 40)
+        
+        # Check individual test stubs
+        test_stub_count = 0
+        total_placeholders = 0
+        for tool in missing_tools:
+            tool_name = tool.name if hasattr(tool, 'name') else tool.get('name', 'unknown')
+            stub_key = f'workflow/{workflow_id}/test_stub/{tool_name}'
+            
+            stub_result = await injector.run('storage_kv', {
+                'operation': 'get',
+                'key': stub_key,
+                'namespace': 'workflow'
+            })
+            
+            if stub_result.success:
+                test_stub_count += 1
+                stub_data = stub_result.data.get('value', {})
+                print(f"   ✓ Test stub for {tool_name}:")
+                file_path = stub_data.get('file_path', 'unknown')
+                placeholders = stub_data.get('placeholders_count', 0)
+                total_placeholders += placeholders
+                print(f"     - File: {file_path}")
+                print(f"     - Placeholders: {placeholders} test methods to implement")
+                
+                # Show first few lines of the stub code
+                code = stub_data.get('code', '')
+                if code:
+                    lines = code.split('\n')[:5]
+                    print(f"     - Preview:")
+                    for line in lines:
+                        if line.strip():
+                            print(f"       {line[:60]}...")
+                            break
+        
+        # Check aggregated test stubs
+        stubs_key = f'workflow/{workflow_id}/test_stubs'
+        stubs_result = await injector.run('storage_kv', {
+            'operation': 'get',
+            'key': stubs_key,
+            'namespace': 'workflow'
+        })
+        
+        if stubs_result.success:
+            stubs_data = stubs_result.data.get('value', {})
+            test_stubs = stubs_data.get('test_stubs', [])
+            print(f"\n   ✓ Aggregated Test Stubs: {len(test_stubs)} total")
+            print(f"     - Tools stubbed: {', '.join([s.get('tool_name', 'unknown') for s in test_stubs])}")
+            print(f"     - Total placeholders: {stubs_data.get('total_placeholders', 0)}")
+        
         # Summary
         print(f"\n{'='*80}")
         print("📊 WORKFLOW SUMMARY")
@@ -1528,6 +1639,8 @@ class TestAgenToolkitAnalyzer:
             print(f"   5. Refiner: ⏭️ Skipped (all tools ready for deployment)")
         print(f"   6. Documenter: ✅ Generated {doc_count} documentations")
         print(f"   7. TestAnalyzer: ✅ Analyzed {test_analysis_count} test requirements")
+        print(f"   8. TestStubber: ✅ Created {test_stub_count} test skeletons")
+        print(f"      - Total placeholders: {total_placeholders} test methods")
         print(f"   ")
         print(f"   Storage Footprint:")
         print(f"   - Analyzer: 4 artifacts stored")
@@ -1539,14 +1652,16 @@ class TestAgenToolkitAnalyzer:
             print(f"   - Refiner: {refine_count * 2 + 1} artifacts stored")
             print(f"   - Documenter: {doc_count * 2 + 1} artifacts stored")
             print(f"   - TestAnalyzer: {test_analysis_count * 2 + 1} artifacts stored")
-            total_artifacts = 4 + spec_count * 2 + 1 + impl_count * 2 + 1 + eval_count * 2 + 1 + refine_count * 2 + 1 + doc_count * 2 + 1 + test_analysis_count * 2 + 1
+            print(f"   - TestStubber: {test_stub_count * 2 + 1} artifacts stored")
+            total_artifacts = 4 + spec_count * 2 + 1 + impl_count * 2 + 1 + eval_count * 2 + 1 + refine_count * 2 + 1 + doc_count * 2 + 1 + test_analysis_count * 2 + 1 + test_stub_count * 2 + 1
         else:
             print(f"   - Documenter: {doc_count * 2 + 1} artifacts stored")
             print(f"   - TestAnalyzer: {test_analysis_count * 2 + 1} artifacts stored")
-            total_artifacts = 4 + spec_count * 2 + 1 + impl_count * 2 + 1 + eval_count * 2 + 1 + doc_count * 2 + 1 + test_analysis_count * 2 + 1
+            print(f"   - TestStubber: {test_stub_count * 2 + 1} artifacts stored")
+            total_artifacts = 4 + spec_count * 2 + 1 + impl_count * 2 + 1 + eval_count * 2 + 1 + doc_count * 2 + 1 + test_analysis_count * 2 + 1 + test_stub_count * 2 + 1
         print(f"   - Total: {total_artifacts} artifacts")
         
-        phases_run = 7
+        phases_run = 8
         print(f"\n✅ COMPLETE {phases_run}-PHASE WORKFLOW TEST SUCCESSFUL!")
         print(f"{'='*80}\n")
 
