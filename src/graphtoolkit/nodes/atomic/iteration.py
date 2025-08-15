@@ -367,6 +367,31 @@ class AggregationNode(AtomicNode[WorkflowState, Any, Dict[str, Any]]):
                 'documentations': documentations,
                 'count': len(documentations)
             }
+        # For test_analyzer phase, aggregate test analyses
+        elif phase_name == 'test_analyzer':
+            test_analyses = []
+            for result in results:
+                output = result.get('output', {})
+                item = result.get('item', {})
+                # Extract tool name
+                if hasattr(item, 'name'):
+                    tool_name = item.name
+                elif isinstance(item, dict) and 'name' in item:
+                    tool_name = item['name']
+                else:
+                    tool_name = f'tool_{results.index(result)}'
+                
+                # Add tool name to the analysis
+                analysis = {
+                    'tool_name': tool_name,
+                    **output
+                }
+                test_analyses.append(analysis)
+            
+            aggregated = {
+                'test_analyses': test_analyses,
+                'count': len(test_analyses)
+            }
         else:
             # Generic aggregation
             aggregated = {
@@ -385,6 +410,8 @@ class AggregationNode(AtomicNode[WorkflowState, Any, Dict[str, Any]]):
             aggregated_key = f"workflow/{ctx.state.workflow_id}/refines"
         elif phase_name == 'documenter':
             aggregated_key = f"workflow/{ctx.state.workflow_id}/documentations"
+        elif phase_name == 'test_analyzer':
+            aggregated_key = f"workflow/{ctx.state.workflow_id}/test_analyses"
         else:
             aggregated_key = f"workflow/{ctx.state.workflow_id}/{phase_name}_aggregated"
         

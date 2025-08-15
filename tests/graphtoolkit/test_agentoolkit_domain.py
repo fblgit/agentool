@@ -19,7 +19,8 @@ from graphtoolkit.domains.agentoolkit import (
     crafter_phase,
     evaluator_phase,
     refiner_phase,
-    documenter_phase
+    documenter_phase,
+    test_analyzer_phase
 )
 from graphtoolkit.core.types import WorkflowState, WorkflowDefinition, NodeConfig
 from graphtoolkit.core.deps import WorkflowDeps
@@ -504,7 +505,6 @@ class TestAgenToolkitAnalyzer:
         print(f"\n✅ Analyzer complete! Found {len(analyzer_output.missing_tools if hasattr(analyzer_output, 'missing_tools') else [])} missing tools")
         
         # Now run specifier phase with the analyzer output
-        from graphtoolkit.domains.agentoolkit import specifier_phase
         from graphtoolkit.nodes.atomic.iteration import (
             IterationControlNode,
             SaveIterationOutputNode,
@@ -654,8 +654,9 @@ class TestAgenToolkitAnalyzer:
         """Test all phases: analyzer, specifier, crafter, evaluator, and refiner (if needed) with detailed report."""
         # Setup
         workflow_id = f"test_{uuid.uuid4().hex[:8]}"
-        #task_description = "Create a notification service that sends alerts via email and SMS"
-        task_description = "Create a vehicle insurance and claims comprehensive system"
+        task_description = "Create a simple notification service that sends alerts via email"
+        #task_description = "Create a vehicle insurance and claims comprehensive system"
+        #task_description = "Create a fully fleshed Docker container lifecycle manager"
         
         print(f"\n{'='*80}")
         print(f"COMPLETE AGENTOOLKIT WORKFLOW TEST")
@@ -763,7 +764,6 @@ class TestAgenToolkitAnalyzer:
         print("\n📊 PHASE 2: SPECIFIER")
         print("-" * 40)
         
-        from graphtoolkit.domains.agentoolkit import specifier_phase
         from graphtoolkit.nodes.atomic.iteration import (
             IterationControlNode,
             SaveIterationOutputNode,
@@ -829,8 +829,6 @@ class TestAgenToolkitAnalyzer:
         print("\n📊 PHASE 3: CRAFTER")
         print("-" * 40)
         
-        from graphtoolkit.domains.agentoolkit import crafter_phase
-        
         crafter_def = WorkflowDefinition(
             domain='agentoolkit',
             phases={'crafter': crafter_phase},
@@ -892,8 +890,6 @@ class TestAgenToolkitAnalyzer:
         # ========================================
         print("\n📊 PHASE 4: EVALUATOR")
         print("-" * 40)
-        
-        from graphtoolkit.domains.agentoolkit import evaluator_phase
         
         evaluator_def = WorkflowDefinition(
             domain='agentoolkit',
@@ -982,8 +978,6 @@ class TestAgenToolkitAnalyzer:
             print("\n📊 PHASE 5: REFINER")
             print("-" * 40)
             print(f"   → Refining {len(tools_to_refine)} tools that need improvement...")
-            
-            from graphtoolkit.domains.agentoolkit import refiner_phase
             
             refiner_def = WorkflowDefinition(
                 domain='agentoolkit',
@@ -1331,6 +1325,7 @@ class TestAgenToolkitAnalyzer:
         
         # Update state for documenter
         # We need to carry over the phase_outputs from the previous states
+        # final_refiner_state is already a state (not GraphRunResult), final_evaluator_state too
         prev_state = final_refiner_state if final_refiner_state else final_evaluator_state
         documenter_state = WorkflowState(
             workflow_def=workflow_def,
@@ -1366,7 +1361,8 @@ class TestAgenToolkitAnalyzer:
         graph = Graph(nodes=nodes)
         
         # Run documenter phase
-        final_documenter_state = await graph.run(GenericPhaseNode(), deps=deps, state=documenter_state)
+        documenter_result = await graph.run(GenericPhaseNode(), deps=deps, state=documenter_state)
+        final_documenter_state = documenter_result.output if hasattr(documenter_result, 'output') else documenter_state
         
         # Report on Documenter
         print("\n📝 DOCUMENTER PHASE RESULTS")
@@ -1412,6 +1408,103 @@ class TestAgenToolkitAnalyzer:
             print(f"\n   ✓ Aggregated Documentation: {len(documentations)} total")
             print(f"     - Tools documented: {', '.join([d.get('tool_name', 'unknown') for d in documentations])}")
         
+        # Phase 7: TestAnalyzer - Analyze test requirements for all tools
+        print("\n🧪 PHASE 7: TEST ANALYZER")
+        print("-" * 40)
+        print("   Analyzing test requirements for all tools...")
+        
+        # Update workflow def for test_analyzer phase
+        workflow_def = WorkflowDefinition(
+            domain='agentoolkit',
+            phases={
+                'analyzer': analyzer_phase,
+                'specifier': specifier_phase,
+                'crafter': crafter_phase,
+                'evaluator': evaluator_phase,
+                'refiner': refiner_phase,
+                'documenter': documenter_phase,
+                'test_analyzer': test_analyzer_phase
+            },
+            phase_sequence=['test_analyzer'],  # Only run test_analyzer
+            node_configs={
+                'dependency_check': NodeConfig(node_type='storage_check'),
+                'load_dependencies': NodeConfig(node_type='storage_load'),
+                'iteration_control': NodeConfig(node_type='iteration'),
+                'template_render': NodeConfig(node_type='template'),
+                'llm_call': NodeConfig(node_type='llm', retryable=True, max_retries=2),
+                'schema_validation': NodeConfig(node_type='validation'),
+                'save_iteration_output': NodeConfig(node_type='iteration_save'),
+                'aggregation': NodeConfig(node_type='aggregation'),
+                'save_phase_output': NodeConfig(node_type='storage_save'),
+                'state_update': NodeConfig(node_type='state'),
+                'quality_gate': NodeConfig(node_type='validation')
+            }
+        )
+        
+        # Update state for test_analyzer
+        # We need to carry over the phase_outputs from the previous states
+        # final_documenter_state is already extracted from the result
+        test_analyzer_state = WorkflowState(
+            workflow_def=workflow_def,
+            workflow_id=workflow_id,
+            domain='agentoolkit',
+            current_phase='test_analyzer',
+            current_node='dependency_check',
+            completed_phases={'analyzer', 'specifier', 'crafter', 'evaluator', 'refiner', 'documenter'},
+            domain_data=final_documenter_state.domain_data,
+            phase_outputs=final_documenter_state.phase_outputs  # Important: carry over phase outputs
+        )
+        
+        # Use same nodes
+        graph = Graph(nodes=nodes)
+        
+        # Run test_analyzer phase
+        final_test_analyzer_state = await graph.run(GenericPhaseNode(), deps=deps, state=test_analyzer_state)
+        
+        # Report on TestAnalyzer
+        print("\n🧪 TEST ANALYZER PHASE RESULTS")
+        print("-" * 40)
+        
+        # Check individual test analyses
+        test_analysis_count = 0
+        for tool in missing_tools:
+            tool_name = tool.name if hasattr(tool, 'name') else tool.get('name', 'unknown')
+            analysis_key = f'workflow/{workflow_id}/test_analysis/{tool_name}'
+            
+            analysis_result = await injector.run('storage_kv', {
+                'operation': 'get',
+                'key': analysis_key,
+                'namespace': 'workflow'
+            })
+            
+            if analysis_result.success:
+                test_analysis_count += 1
+                analysis_data = analysis_result.data.get('value', {})
+                print(f"   ✓ Test analysis for {tool_name}:")
+                test_cases = analysis_data.get('test_cases', [])
+                print(f"     - Test cases: {len(test_cases)} tests")
+                if test_cases:
+                    # Show first few test case names
+                    test_names = [tc.get('name', 'unnamed') for tc in test_cases[:3]]
+                    for test_name in test_names:
+                        print(f"       • {test_name}")
+                    if len(test_cases) > 3:
+                        print(f"       ... and {len(test_cases) - 3} more")
+        
+        # Check aggregated test analyses
+        analyses_key = f'workflow/{workflow_id}/test_analyses'
+        analyses_result = await injector.run('storage_kv', {
+            'operation': 'get',
+            'key': analyses_key,
+            'namespace': 'workflow'
+        })
+        
+        if analyses_result.success:
+            analyses_data = analyses_result.data.get('value', {})
+            test_analyses = analyses_data.get('test_analyses', [])
+            print(f"\n   ✓ Aggregated Test Analyses: {len(test_analyses)} total")
+            print(f"     - Tools analyzed: {', '.join([a.get('tool_name', 'unknown') for a in test_analyses])}")
+        
         # Summary
         print(f"\n{'='*80}")
         print("📊 WORKFLOW SUMMARY")
@@ -1434,6 +1527,7 @@ class TestAgenToolkitAnalyzer:
         else:
             print(f"   5. Refiner: ⏭️ Skipped (all tools ready for deployment)")
         print(f"   6. Documenter: ✅ Generated {doc_count} documentations")
+        print(f"   7. TestAnalyzer: ✅ Analyzed {test_analysis_count} test requirements")
         print(f"   ")
         print(f"   Storage Footprint:")
         print(f"   - Analyzer: 4 artifacts stored")
@@ -1444,13 +1538,15 @@ class TestAgenToolkitAnalyzer:
             refine_count = len(tools_to_refine)
             print(f"   - Refiner: {refine_count * 2 + 1} artifacts stored")
             print(f"   - Documenter: {doc_count * 2 + 1} artifacts stored")
-            total_artifacts = 4 + spec_count * 2 + 1 + impl_count * 2 + 1 + eval_count * 2 + 1 + refine_count * 2 + 1 + doc_count * 2 + 1
+            print(f"   - TestAnalyzer: {test_analysis_count * 2 + 1} artifacts stored")
+            total_artifacts = 4 + spec_count * 2 + 1 + impl_count * 2 + 1 + eval_count * 2 + 1 + refine_count * 2 + 1 + doc_count * 2 + 1 + test_analysis_count * 2 + 1
         else:
             print(f"   - Documenter: {doc_count * 2 + 1} artifacts stored")
-            total_artifacts = 4 + spec_count * 2 + 1 + impl_count * 2 + 1 + eval_count * 2 + 1 + doc_count * 2 + 1
+            print(f"   - TestAnalyzer: {test_analysis_count * 2 + 1} artifacts stored")
+            total_artifacts = 4 + spec_count * 2 + 1 + impl_count * 2 + 1 + eval_count * 2 + 1 + doc_count * 2 + 1 + test_analysis_count * 2 + 1
         print(f"   - Total: {total_artifacts} artifacts")
         
-        phases_run = 6
+        phases_run = 7
         print(f"\n✅ COMPLETE {phases_run}-PHASE WORKFLOW TEST SUCCESSFUL!")
         print(f"{'='*80}\n")
 

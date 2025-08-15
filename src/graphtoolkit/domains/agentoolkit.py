@@ -48,8 +48,14 @@ from pydantic import BaseModel, Field
 from ..core.types import PhaseDefinition, StorageType, TemplateConfig, ModelParameters
 from ..core.registry import register_phase
 
-# Import the AnalyzerOutput, CodeOutput, and EvaluationOutput from agents.models
-from agents.models import AnalyzerOutput, ToolSpecification, CodeOutput, EvaluationOutput
+# Import the AnalyzerOutput, CodeOutput, EvaluationOutput, and Test models from agents.models
+from agents.models import (
+    AnalyzerOutput, 
+    ToolSpecification, 
+    CodeOutput, 
+    EvaluationOutput,
+    TestAnalysisOutput
+)
 
 
 # Input schemas for each phase
@@ -118,6 +124,22 @@ class AgenToolkitDocumenterInput(BaseModel):
     """Input for the documenter phase - uses best available implementation."""
     implementation_code: str = Field(
         description="The implementation code (refined if available, otherwise crafted)"
+    )
+    specification: Dict[str, Any] = Field(
+        description="Tool specification with operations and schemas"
+    )
+    analyzer_context: Dict[str, Any] = Field(
+        description="System design and context from analyzer phase"
+    )
+
+
+class AgenToolkitTestAnalyzerInput(BaseModel):
+    """Input for the test analyzer phase - analyzes testing requirements."""
+    tool_name: str = Field(
+        description="Name of the tool to analyze for testing"
+    )
+    implementation_code: str = Field(
+        description="The implementation code to test (refined if available, otherwise crafted)"
     )
     specification: Dict[str, Any] = Field(
         description="Tool specification with operations and schemas"
@@ -397,6 +419,50 @@ documenter_phase = PhaseDefinition(
     )
 )
 
+# Phase 7: TestAnalyzer - Analyze testing requirements for each tool
+test_analyzer_phase = PhaseDefinition(
+    phase_name='test_analyzer',
+    domain='agentoolkit',
+    atomic_nodes=[
+        'dependency_check',
+        'load_dependencies',     # Loads best code (refined or crafted) and specs
+        'iteration_control',     # Start iteration over missing_tools
+        'template_render',       # Renders test analyzer template for current tool
+        'llm_call',             # Calls LLM for test analysis
+        'schema_validation',     # Validates against TestAnalysisOutput
+        'save_iteration_output', # Saves individual test analysis
+        'aggregation',          # Aggregate all test analyses
+        'save_phase_output',    # Saves aggregated output
+        'state_update',
+        'quality_gate'
+    ],
+    input_schema=AgenToolkitTestAnalyzerInput,
+    output_schema=TestAnalysisOutput,  # From agents.models
+    dependencies=['analyzer', 'specifier', 'crafter'],  # evaluator/refiner optional but used if available
+    templates=TemplateConfig(
+        system_template='agentool/system/test_analyzer.jinja',
+        user_template='agentool/prompts/analyze_tests.jinja',
+        variables={'schema_json': TestAnalysisOutput.model_json_schema()}
+    ),
+    storage_pattern='workflow/{workflow_id}/output/test_analyzer',
+    storage_type=StorageType.KV,
+    additional_storage_patterns={
+        'rendered': 'workflow/{workflow_id}/render/test_analyzer'
+    },
+    iteration_config={
+        'enabled': True,
+        'items_source': 'analyzer_output.missing_tools',  # Test all missing tools
+        'item_storage_pattern': 'workflow/{workflow_id}/test_analysis/{item_name}'
+    },
+    quality_threshold=0.8,
+    allow_refinement=False,  # No refinement for test analysis
+    max_refinements=0,
+    model_config=ModelParameters(
+        temperature=0.3,  # Low temperature for consistent test planning
+        max_tokens=3000
+    )
+)
+
 # Register all phases
 register_phase('agentoolkit.analyzer', analyzer_phase)
 register_phase('agentoolkit.specifier', specifier_phase)
@@ -404,6 +470,7 @@ register_phase('agentoolkit.crafter', crafter_phase)
 register_phase('agentoolkit.evaluator', evaluator_phase)
 register_phase('agentoolkit.refiner', refiner_phase)
 register_phase('agentoolkit.documenter', documenter_phase)
+register_phase('agentoolkit.test_analyzer', test_analyzer_phase)
 
 # Workflow configuration for convenience
 AGENTOOLKIT_WORKFLOW_PHASES = [
@@ -412,7 +479,8 @@ AGENTOOLKIT_WORKFLOW_PHASES = [
     'crafter',
     'evaluator',
     'refiner',  # Optional - only run if tools need refinement
-    'documenter'  # Generate documentation for all tools
+    'documenter',  # Generate documentation for all tools
+    'test_analyzer'  # Analyze test requirements for all tools
 ]
 
 # Export key components
@@ -423,15 +491,18 @@ __all__ = [
     'AgenToolkitEvaluatorInput',
     'AgenToolkitRefinerInput',
     'AgenToolkitDocumenterInput',
+    'AgenToolkitTestAnalyzerInput',
     'AnalyzerOutput',
     'ToolSpecification',
     'CodeOutput',
     'EvaluationOutput',
+    'TestAnalysisOutput',
     'analyzer_phase',
     'specifier_phase',
     'crafter_phase',
     'evaluator_phase',
     'refiner_phase',
     'documenter_phase',
+    'test_analyzer_phase',
     'AGENTOOLKIT_WORKFLOW_PHASES'
 ]
