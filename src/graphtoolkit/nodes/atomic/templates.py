@@ -638,119 +638,102 @@ class TemplateRenderNode(AtomicNode[WorkflowState, Any, Dict[str, str]]):
                 tool_name = current_item.name if hasattr(current_item, 'name') else current_item.get('name', 'unknown')
                 variables['tool_name'] = tool_name
                 
-                # Get the test analysis for this tool
-                analysis_key = f"workflow/{ctx.state.workflow_id}/test_analysis/{tool_name}"
-                storage_client = ctx.deps.get_storage_client()
-                analysis_result = await storage_client.run('storage_kv', {
-                    'operation': 'get',
-                    'key': analysis_key,
-                    'namespace': 'workflow'
-                })
+                # Get the test analysis for this tool from domain_data (created by test_analyzer phase)
+                # This ensures we get the data from the current workflow run
+                test_analysis = {}
+                test_analyzer_results = ctx.state.domain_data.get('test_analyzer_iteration_results', [])
+                for result in test_analyzer_results:
+                    item = result.get('item', {})
+                    item_name = item.get('name', '') if isinstance(item, dict) else getattr(item, 'name', '')
+                    if item_name == tool_name:
+                        test_analysis = result.get('output', {})
+                        logger.debug(f"[TemplateRenderNode] Found test analysis for {tool_name} in domain_data")
+                        break
                 
-                if analysis_result.success:
-                    test_analysis = analysis_result.data.get('value', {})
-                    variables['test_analysis'] = make_serializable(test_analysis)
-                    logger.debug(f"[TemplateRenderNode] Loaded test analysis for {tool_name}")
+                if not test_analysis:
+                    logger.warning(f"[TemplateRenderNode] Could not find test analysis for {tool_name} in domain_data")
+                
+                variables['test_analysis'] = make_serializable(test_analysis)
+                
+                # Get the specification for this tool from domain_data
+                specification = {}
+                specifier_results = ctx.state.domain_data.get('specifier_iteration_results', [])
+                for result in specifier_results:
+                    item = result.get('item', {})
+                    item_name = item.get('name', '') if isinstance(item, dict) else getattr(item, 'name', '')
+                    if item_name == tool_name:
+                        specification = result.get('output', {})
+                        logger.debug(f"[TemplateRenderNode] Found specification for {tool_name} in domain_data")
+                        break
+                
+                if not specification:
+                    logger.warning(f"[TemplateRenderNode] Could not find specification for {tool_name} in domain_data")
+                
+                variables['specification'] = make_serializable(specification)
+                
+                # Get all specifications from domain_data
+                all_specifications = []
+                specifier_output = ctx.state.domain_data.get('specifier_output', {})
+                if isinstance(specifier_output, dict) and 'specifications' in specifier_output:
+                    all_specifications = specifier_output['specifications']
                 else:
-                    logger.warning(f"[TemplateRenderNode] Could not load test analysis for {tool_name}")
-                    variables['test_analysis'] = {}
+                    # Try from iteration results
+                    all_specifications = [r.get('output', {}) for r in specifier_results]
                 
-                # Get the specification for this tool
-                spec_key = f"workflow/{ctx.state.workflow_id}/specification/{tool_name}"
-                spec_result = await storage_client.run('storage_kv', {
-                    'operation': 'get',
-                    'key': spec_key,
-                    'namespace': 'workflow'
-                })
+                variables['all_specifications'] = make_serializable(all_specifications)
                 
-                if spec_result.success:
-                    spec_output = spec_result.data.get('value', {})
-                    variables['specification'] = make_serializable(spec_output)
-                    logger.debug(f"[TemplateRenderNode] Loaded specification for {tool_name}")
-                else:
-                    logger.warning(f"[TemplateRenderNode] Could not load specification for {tool_name}")
-                    variables['specification'] = {}
-                
-                # Get all specifications for reference
-                all_specs_key = f"workflow/{ctx.state.workflow_id}/output/specifier"
-                all_specs_result = await storage_client.run('storage_kv', {
-                    'operation': 'get',
-                    'key': all_specs_key,
-                    'namespace': 'workflow'
-                })
-                
-                if all_specs_result.success:
-                    all_specs = all_specs_result.data.get('value', {})
-                    if isinstance(all_specs, dict) and 'specifications' in all_specs:
-                        variables['all_specifications'] = make_serializable(all_specs['specifications'])
-                    else:
-                        variables['all_specifications'] = []
-                else:
-                    variables['all_specifications'] = []
-                
-                # Get the BEST implementation code - try refined first, then crafted
-                # First try refined version
-                refine_key = f"workflow/{ctx.state.workflow_id}/refine/{tool_name}"
-                refine_result = await storage_client.run('storage_kv', {
-                    'operation': 'get',
-                    'key': refine_key,
-                    'namespace': 'workflow'
-                })
-                
+                # Get the BEST implementation code from domain_data - try refined first, then crafted
                 final_code = ""
                 code_source = "unknown"
                 
-                if refine_result.success:
-                    refine_output = refine_result.data.get('value', {})
-                    # Extract the code from CodeOutput if it's stored as such
-                    if isinstance(refine_output, dict) and 'code' in refine_output:
-                        final_code = refine_output['code']
-                    elif isinstance(refine_output, str):
-                        final_code = refine_output
-                    else:
-                        final_code = str(refine_output)
-                    code_source = "refined"
-                    logger.debug(f"[TemplateRenderNode] Using refined code for {tool_name} ({len(final_code)} chars)")
-                else:
-                    # Fallback to crafted version
-                    craft_key = f"workflow/{ctx.state.workflow_id}/crafter/{tool_name}"
-                    craft_result = await storage_client.run('storage_kv', {
-                        'operation': 'get',
-                        'key': craft_key,
-                        'namespace': 'workflow'
-                    })
-                    
-                    if craft_result.success:
-                        craft_output = craft_result.data.get('value', {})
-                        # Extract the code from CodeOutput if it's stored as such
-                        if isinstance(craft_output, dict) and 'code' in craft_output:
-                            final_code = craft_output['code']
-                        elif isinstance(craft_output, str):
-                            final_code = craft_output
+                # First try refined version from domain_data
+                refiner_results = ctx.state.domain_data.get('refiner_iteration_results', [])
+                for result in refiner_results:
+                    item = result.get('item', {})
+                    item_name = item.get('name', '') if isinstance(item, dict) else getattr(item, 'name', '')
+                    if item_name == tool_name:
+                        refine_output = result.get('output', {})
+                        if isinstance(refine_output, dict) and 'code' in refine_output:
+                            final_code = refine_output['code']
+                        elif isinstance(refine_output, str):
+                            final_code = refine_output
                         else:
-                            final_code = str(craft_output)
-                        code_source = "crafted"
-                        logger.debug(f"[TemplateRenderNode] Using crafted code for {tool_name} ({len(final_code)} chars)")
-                    else:
-                        logger.warning(f"[TemplateRenderNode] Could not load any implementation for {tool_name}")
-                        final_code = ""
+                            final_code = str(refine_output)
+                        code_source = "refined"
+                        logger.debug(f"[TemplateRenderNode] Using refined code for {tool_name} from domain_data")
+                        break
+                
+                # Fallback to crafted version from domain_data
+                if not final_code:
+                    crafter_results = ctx.state.domain_data.get('crafter_iteration_results', [])
+                    for result in crafter_results:
+                        item = result.get('item', {})
+                        item_name = item.get('name', '') if isinstance(item, dict) else getattr(item, 'name', '')
+                        if item_name == tool_name:
+                            craft_output = result.get('output', {})
+                            if isinstance(craft_output, dict) and 'code' in craft_output:
+                                final_code = craft_output['code']
+                            elif isinstance(craft_output, str):
+                                final_code = craft_output
+                            else:
+                                final_code = str(craft_output)
+                            code_source = "crafted"
+                            logger.debug(f"[TemplateRenderNode] Using crafted code for {tool_name} from domain_data")
+                            break
+                
+                if not final_code:
+                    logger.warning(f"[TemplateRenderNode] Could not find implementation for {tool_name} in domain_data")
                 
                 variables['final_code'] = final_code
                 variables['code_source'] = code_source  # For debugging
                 
-                # Get existing tools from catalog
-                catalog_key = f"workflow/{ctx.state.workflow_id}/input/catalog"
-                catalog_result = await storage_client.run('storage_kv', {
-                    'operation': 'get',
-                    'key': catalog_key,
-                    'namespace': 'workflow'
-                })
+                # Get existing tools from domain_data (should be stable from initial input)
+                analyzer_output = ctx.state.domain_data.get('analyzer_output', {})
+                existing_tools = []
+                if isinstance(analyzer_output, dict):
+                    existing_tools = analyzer_output.get('existing_tools', [])
                 
-                if catalog_result.success:
-                    catalog = catalog_result.data.get('value', [])
-                    variables['existing_tools'] = make_serializable(catalog)
-                else:
-                    variables['existing_tools'] = []
+                variables['existing_tools'] = make_serializable(existing_tools)
                 
                 # Store tool name to render skeleton later (following crafter pattern)
                 variables['_tool_name_for_skeleton'] = tool_name
@@ -771,40 +754,48 @@ class TemplateRenderNode(AtomicNode[WorkflowState, Any, Dict[str, str]]):
                 tool_name = current_item.name if hasattr(current_item, 'name') else current_item.get('name', 'unknown')
                 variables['tool_name'] = tool_name
                 
-                # Get the test stub for this tool
-                stub_key = f"workflow/{ctx.state.workflow_id}/test_stub/{tool_name}"
-                storage_client = ctx.deps.get_storage_client()
-                stub_result = await storage_client.run('storage_kv', {
-                    'operation': 'get',
-                    'key': stub_key,
-                    'namespace': 'workflow'
-                })
-                
+                # Get the test stub for this tool from domain_data (created by test_stubber phase)
+                # This ensures we get the data from the current workflow run
                 test_stub = ""
-                if stub_result.success:
-                    stub_data = stub_result.data.get('value', {})
-                    test_stub = stub_data.get('code', '')
-                    logger.debug(f"[TemplateRenderNode] Loaded test stub for {tool_name}")
-                else:
-                    logger.warning(f"[TemplateRenderNode] Could not load test stub for {tool_name}")
+                test_stubber_results = ctx.state.domain_data.get('test_stubber_iteration_results', [])
+                for result in test_stubber_results:
+                    item = result.get('item', {})
+                    # Get the item name, handling both dict and object types
+                    item_name = item.get('name', '') if isinstance(item, dict) else getattr(item, 'name', '')
+                    if item_name == tool_name:
+                        stub_output = result.get('output', {})
+                        # Extract the code from the stub output
+                        if isinstance(stub_output, dict) and 'code' in stub_output:
+                            test_stub = stub_output['code']
+                        elif isinstance(stub_output, str):
+                            test_stub = stub_output
+                        else:
+                            test_stub = str(stub_output)
+                        logger.debug(f"[TemplateRenderNode] Loaded test stub for {tool_name} from domain_data ({len(test_stub)} chars)")
+                        break
+                
+                if not test_stub:
+                    logger.warning(f"[TemplateRenderNode] Could not find test stub for {tool_name} in domain_data")
                 
                 variables['test_stub'] = test_stub
                 
-                # Get the test analysis for this tool
-                analysis_key = f"workflow/{ctx.state.workflow_id}/test_analysis/{tool_name}"
-                analysis_result = await storage_client.run('storage_kv', {
-                    'operation': 'get',
-                    'key': analysis_key,
-                    'namespace': 'workflow'
-                })
+                # Get the test analysis for this tool from domain_data (created by test_analyzer phase)
+                # This ensures we get the data from the current workflow run
+                test_analysis = {}
+                test_analyzer_results = ctx.state.domain_data.get('test_analyzer_iteration_results', [])
+                for result in test_analyzer_results:
+                    item = result.get('item', {})
+                    # Get the item name, handling both dict and object types
+                    item_name = item.get('name', '') if isinstance(item, dict) else getattr(item, 'name', '')
+                    if item_name == tool_name:
+                        test_analysis = result.get('output', {})
+                        logger.debug(f"[TemplateRenderNode] Loaded test analysis for {tool_name} from domain_data")
+                        break
                 
-                if analysis_result.success:
-                    test_analysis = analysis_result.data.get('value', {})
-                    variables['test_analysis'] = make_serializable(test_analysis)
-                    logger.debug(f"[TemplateRenderNode] Loaded test analysis for {tool_name}")
-                else:
-                    logger.warning(f"[TemplateRenderNode] Could not load test analysis for {tool_name}")
-                    variables['test_analysis'] = {}
+                if not test_analysis:
+                    logger.warning(f"[TemplateRenderNode] Could not find test analysis for {tool_name} in domain_data")
+                
+                variables['test_analysis'] = make_serializable(test_analysis)
                 
                 # Get the BEST implementation code - try refined first, then crafted
                 # First try refined version
