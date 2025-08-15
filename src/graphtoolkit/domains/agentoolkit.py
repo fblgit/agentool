@@ -160,6 +160,25 @@ class AgenToolkitTestStubberInput(BaseModel):
     specification: Dict[str, Any] = Field(
         description="Tool specification with operations and schemas"
     )
+
+
+class AgenToolkitTestCrafterInput(BaseModel):
+    """Input for the test crafter phase - implements complete tests from stubs."""
+    tool_name: str = Field(
+        description="Name of the tool to implement tests for"
+    )
+    test_stub: str = Field(
+        description="Test stub code from the test stubber phase"
+    )
+    test_analysis: Dict[str, Any] = Field(
+        description="Test analysis from the test analyzer phase"
+    )
+    implementation_code: str = Field(
+        description="The final implementation code being tested"
+    )
+    specification: Dict[str, Any] = Field(
+        description="Tool specification with operations and schemas"
+    )
     analyzer_context: Dict[str, Any] = Field(
         description="System design and context from analyzer phase"
     )
@@ -479,8 +498,8 @@ test_analyzer_phase = PhaseDefinition(
     )
 )
 
-# Import TestStubOutput from agents.models
-from agents.models import TestStubOutput
+# Import TestStubOutput and TestImplementationOutput from agents.models
+from agents.models import TestStubOutput, TestImplementationOutput
 
 test_stubber_phase = PhaseDefinition(
     phase_name='test_stubber',
@@ -525,6 +544,49 @@ test_stubber_phase = PhaseDefinition(
     )
 )
 
+test_crafter_phase = PhaseDefinition(
+    phase_name='test_crafter',
+    domain='agentoolkit',
+    atomic_nodes=[
+        'dependency_check',
+        'load_dependencies',     # Loads test stubs, analyses, and best code
+        'iteration_control',     # Start iteration over missing_tools
+        'template_render',       # Renders test crafter template for current tool
+        'llm_call',             # Calls LLM for test implementation
+        'schema_validation',     # Validates against TestImplementationOutput
+        'save_iteration_output', # Saves individual test implementation
+        'aggregation',          # Aggregate all test implementations
+        'save_phase_output',    # Saves aggregated output
+        'state_update',
+        'quality_gate'
+    ],
+    input_schema=AgenToolkitTestCrafterInput,
+    output_schema=TestImplementationOutput,  # From agents.models
+    dependencies=['analyzer', 'specifier', 'crafter', 'test_analyzer', 'test_stubber'],  # Need stub and analysis
+    templates=TemplateConfig(
+        system_template='agentool/system/test_crafter.jinja',
+        user_template='agentool/prompts/implement_tests.jinja',
+        variables={'schema_json': TestImplementationOutput.model_json_schema()}
+    ),
+    storage_pattern='workflow/{workflow_id}/output/test_crafter',
+    storage_type=StorageType.KV,
+    additional_storage_patterns={
+        'rendered': 'workflow/{workflow_id}/render/test_crafter'
+    },
+    iteration_config={
+        'enabled': True,
+        'items_source': 'analyzer_output.missing_tools',  # From analyzer phase
+        'item_storage_pattern': 'workflow/{workflow_id}/test_impl/{item_name}'
+    },
+    quality_threshold=0.9,  # High threshold for test quality
+    allow_refinement=False,  # No refinement for test implementation
+    max_refinements=0,
+    model_config=ModelParameters(
+        temperature=0.3,  # Low temperature for precise test implementation
+        max_tokens=4000   # More tokens for complete test implementation
+    )
+)
+
 # Register all phases
 register_phase('agentoolkit.analyzer', analyzer_phase)
 register_phase('agentoolkit.specifier', specifier_phase)
@@ -534,6 +596,7 @@ register_phase('agentoolkit.refiner', refiner_phase)
 register_phase('agentoolkit.documenter', documenter_phase)
 register_phase('agentoolkit.test_analyzer', test_analyzer_phase)
 register_phase('agentoolkit.test_stubber', test_stubber_phase)
+register_phase('agentoolkit.test_crafter', test_crafter_phase)
 
 # Workflow configuration for convenience
 AGENTOOLKIT_WORKFLOW_PHASES = [
@@ -544,7 +607,8 @@ AGENTOOLKIT_WORKFLOW_PHASES = [
     'refiner',  # Optional - only run if tools need refinement
     'documenter',  # Generate documentation for all tools
     'test_analyzer',  # Analyze test requirements for all tools
-    'test_stubber'  # Create test skeletons for all tools
+    'test_stubber',  # Create test skeletons for all tools
+    'test_crafter'  # Implement complete tests for all tools
 ]
 
 # Export key components
@@ -557,12 +621,14 @@ __all__ = [
     'AgenToolkitDocumenterInput',
     'AgenToolkitTestAnalyzerInput',
     'AgenToolkitTestStubberInput',
+    'AgenToolkitTestCrafterInput',
     'AnalyzerOutput',
     'ToolSpecification',
     'CodeOutput',
     'EvaluationOutput',
     'TestAnalysisOutput',
     'TestStubOutput',
+    'TestImplementationOutput',
     'analyzer_phase',
     'specifier_phase',
     'crafter_phase',
@@ -571,5 +637,6 @@ __all__ = [
     'documenter_phase',
     'test_analyzer_phase',
     'test_stubber_phase',
+    'test_crafter_phase',
     'AGENTOOLKIT_WORKFLOW_PHASES'
 ]

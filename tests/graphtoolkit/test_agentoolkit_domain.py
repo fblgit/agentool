@@ -6,6 +6,7 @@ ensuring proper storage patterns and workflow execution.
 """
 
 import json
+import os
 import uuid
 import pytest
 from pydantic import BaseModel, Field
@@ -1616,6 +1617,120 @@ class TestAgenToolkitAnalyzer:
             print(f"     - Tools stubbed: {', '.join([s.get('tool_name', 'unknown') for s in test_stubs])}")
             print(f"     - Total placeholders: {stubs_data.get('total_placeholders', 0)}")
         
+        # Phase 9: TestCrafter - Implement complete tests for all tools
+        print("\n🔨 PHASE 9: TEST CRAFTER")
+        print("-" * 40)
+        print("   Implementing complete tests for all tools...")
+        
+        # Import test_crafter_phase
+        from src.graphtoolkit.domains.agentoolkit import test_crafter_phase
+        
+        # Update workflow def for test_crafter phase
+        workflow_def = WorkflowDefinition(
+            domain='agentoolkit',
+            phases={
+                'analyzer': analyzer_phase,
+                'specifier': specifier_phase,
+                'crafter': crafter_phase,
+                'evaluator': evaluator_phase,
+                'refiner': refiner_phase,
+                'documenter': documenter_phase,
+                'test_analyzer': test_analyzer_phase,
+                'test_stubber': test_stubber_phase,
+                'test_crafter': test_crafter_phase
+            },
+            phase_sequence=['test_crafter'],  # Only run test_crafter
+            node_configs={
+                'dependency_check': NodeConfig(node_type='storage_check'),
+                'load_dependencies': NodeConfig(node_type='storage_load'),
+                'iteration_control': NodeConfig(node_type='iteration'),
+                'template_render': NodeConfig(node_type='template'),
+                'llm_call': NodeConfig(node_type='llm', retryable=True, max_retries=2),
+                'schema_validation': NodeConfig(node_type='validation'),
+                'save_iteration_output': NodeConfig(node_type='iteration_save'),
+                'aggregation': NodeConfig(node_type='aggregation'),
+                'save_phase_output': NodeConfig(node_type='storage_save'),
+                'state_update': NodeConfig(node_type='state'),
+                'quality_gate': NodeConfig(node_type='validation')
+            }
+        )
+        
+        # Extract the final state from test_stubber result
+        if hasattr(test_stubber_result, 'output'):
+            final_test_stubber_state = test_stubber_result.output
+        else:
+            final_test_stubber_state = test_stubber_state
+        
+        # Update state for test_crafter
+        test_crafter_state = WorkflowState(
+            workflow_def=workflow_def,
+            workflow_id=workflow_id,
+            domain='agentoolkit',
+            current_phase='test_crafter',
+            current_node='dependency_check',
+            completed_phases={'analyzer', 'specifier', 'crafter', 'evaluator', 'refiner', 'documenter', 'test_analyzer', 'test_stubber'},
+            domain_data=final_test_stubber_state.domain_data,
+            phase_outputs=final_test_stubber_state.phase_outputs
+        )
+        
+        # Use same nodes
+        graph = Graph(nodes=nodes)
+        
+        # Run test_crafter phase
+        test_crafter_result = await graph.run(GenericPhaseNode(), deps=deps, state=test_crafter_state)
+        
+        # Report on TestCrafter
+        print("\n🔨 TEST CRAFTER PHASE RESULTS")
+        print("-" * 40)
+        
+        # Check individual test implementations
+        test_impl_count = 0
+        total_test_methods = 0
+        for tool in missing_tools:
+            tool_name = tool.name if hasattr(tool, 'name') else tool.get('name', 'unknown')
+            impl_key = f'workflow/{workflow_id}/test_impl/{tool_name}'
+            
+            impl_result = await injector.run('storage_kv', {
+                'operation': 'get',
+                'key': impl_key,
+                'namespace': 'workflow'
+            })
+            
+            if impl_result.success:
+                test_impl_count += 1
+                impl_data = impl_result.data.get('value', {})
+                print(f"   ✓ Test implementation for {tool_name}:")
+                file_path = impl_data.get('file_path', 'unknown')
+                test_count = impl_data.get('test_count', 0)
+                total_test_methods += test_count
+                print(f"     - File: {file_path}")
+                print(f"     - Test methods: {test_count} implemented")
+                
+                # Show first few lines of the test code
+                code = impl_data.get('code', '')
+                if code:
+                    # Find first test method
+                    lines = code.split('\n')
+                    for i, line in enumerate(lines):
+                        if line.strip().startswith('def test_'):
+                            print(f"     - First test: {line.strip()[:60]}...")
+                            break
+        
+        # Check aggregated test implementations
+        impls_key = f'workflow/{workflow_id}/test_implementations'
+        impls_result = await injector.run('storage_kv', {
+            'operation': 'get',
+            'key': impls_key,
+            'namespace': 'workflow'
+        })
+        
+        if impls_result.success:
+            impls_data = impls_result.data.get('value', {})
+            test_implementations = impls_data.get('test_implementations', [])
+            print(f"\n   ✓ Aggregated Test Implementations: {len(test_implementations)} total")
+            print(f"     - Tools tested: {', '.join([impl.get('tool_name', 'unknown') for impl in test_implementations])}")
+            print(f"     - Total test methods: {impls_data.get('total_tests', 0)}")
+        
         # Summary
         print(f"\n{'='*80}")
         print("📊 WORKFLOW SUMMARY")
@@ -1641,6 +1756,8 @@ class TestAgenToolkitAnalyzer:
         print(f"   7. TestAnalyzer: ✅ Analyzed {test_analysis_count} test requirements")
         print(f"   8. TestStubber: ✅ Created {test_stub_count} test skeletons")
         print(f"      - Total placeholders: {total_placeholders} test methods")
+        print(f"   9. TestCrafter: ✅ Implemented {test_impl_count} test suites")
+        print(f"      - Total test methods: {total_test_methods} tests")
         print(f"   ")
         print(f"   Storage Footprint:")
         print(f"   - Analyzer: 4 artifacts stored")
@@ -1653,15 +1770,79 @@ class TestAgenToolkitAnalyzer:
             print(f"   - Documenter: {doc_count * 2 + 1} artifacts stored")
             print(f"   - TestAnalyzer: {test_analysis_count * 2 + 1} artifacts stored")
             print(f"   - TestStubber: {test_stub_count * 2 + 1} artifacts stored")
-            total_artifacts = 4 + spec_count * 2 + 1 + impl_count * 2 + 1 + eval_count * 2 + 1 + refine_count * 2 + 1 + doc_count * 2 + 1 + test_analysis_count * 2 + 1 + test_stub_count * 2 + 1
+            print(f"   - TestCrafter: {test_impl_count * 2 + 1} artifacts stored")
+            total_artifacts = 4 + spec_count * 2 + 1 + impl_count * 2 + 1 + eval_count * 2 + 1 + refine_count * 2 + 1 + doc_count * 2 + 1 + test_analysis_count * 2 + 1 + test_stub_count * 2 + 1 + test_impl_count * 2 + 1
         else:
             print(f"   - Documenter: {doc_count * 2 + 1} artifacts stored")
             print(f"   - TestAnalyzer: {test_analysis_count * 2 + 1} artifacts stored")
             print(f"   - TestStubber: {test_stub_count * 2 + 1} artifacts stored")
-            total_artifacts = 4 + spec_count * 2 + 1 + impl_count * 2 + 1 + eval_count * 2 + 1 + doc_count * 2 + 1 + test_analysis_count * 2 + 1 + test_stub_count * 2 + 1
+            print(f"   - TestCrafter: {test_impl_count * 2 + 1} artifacts stored")
+            total_artifacts = 4 + spec_count * 2 + 1 + impl_count * 2 + 1 + eval_count * 2 + 1 + doc_count * 2 + 1 + test_analysis_count * 2 + 1 + test_stub_count * 2 + 1 + test_impl_count * 2 + 1
         print(f"   - Total: {total_artifacts} artifacts")
         
-        phases_run = 8
+        # Dump KV storage to file for inspection
+        print(f"\n📦 Dumping KV Storage to File...")
+        import json
+        import tempfile
+        from datetime import datetime
+        
+        # Get all keys from storage
+        storage_client = deps.get_storage_client()
+        
+        # Get all keys with prefix for this workflow
+        workflow_prefix = f"workflow/{workflow_id}"
+        all_keys_result = await storage_client.run('storage_kv', {
+            'operation': 'keys',
+            'namespace': 'workflow',
+            'pattern': f'{workflow_prefix}*'
+        })
+        
+        # Handle the StorageKvOutput result
+        try:
+            if hasattr(all_keys_result, 'success') and all_keys_result.success:
+                # Pattern already filtered for this workflow
+                workflow_keys = all_keys_result.data if all_keys_result.data else []
+                
+                # Collect all key-value pairs
+                storage_dump = {
+                    'workflow_id': workflow_id,
+                    'timestamp': datetime.now().isoformat(),
+                    'total_keys': len(workflow_keys),
+                    'data': {}
+                }
+                
+                for key in sorted(workflow_keys):
+                    get_result = await storage_client.run('storage_kv', {
+                        'operation': 'get',
+                        'key': key,
+                        'namespace': 'workflow'
+                    })
+                    # Handle the StorageKvOutput for get operation
+                    if hasattr(get_result, 'success') and get_result.success:
+                        storage_dump['data'][key] = get_result.data
+                
+                # Write to temp file
+                with tempfile.NamedTemporaryFile(
+                    mode='w',
+                    prefix=f'agentoolkit_storage_{workflow_id}_',
+                    suffix='.json',
+                    dir='/tmp',
+                    delete=False
+                ) as f:
+                    json.dump(storage_dump, f, indent=2, default=str)
+                    dump_file = f.name
+                
+                print(f"   📁 Storage dump saved to: {dump_file}")
+                print(f"   📊 Total keys: {len(workflow_keys)}")
+                print(f"   💾 File size: {os.path.getsize(dump_file):,} bytes")
+                print(f"\n   View with: cat {dump_file} | jq '.'")
+            else:
+                error_msg = all_keys_result.message if hasattr(all_keys_result, 'message') else 'Unknown error'
+                print(f"   ⚠️ Could not list storage keys: {error_msg}")
+        except Exception as e:
+            print(f"   ⚠️ Error dumping storage: {e}")
+        
+        phases_run = 9
         print(f"\n✅ COMPLETE {phases_run}-PHASE WORKFLOW TEST SUCCESSFUL!")
         print(f"{'='*80}\n")
 

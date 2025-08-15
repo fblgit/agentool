@@ -418,6 +418,32 @@ class AggregationNode(AtomicNode[WorkflowState, Any, Dict[str, Any]]):
                 'count': len(test_stubs),
                 'total_placeholders': sum(s.get('placeholders_count', 0) for s in test_stubs)
             }
+        # For test_crafter phase, aggregate test implementations
+        elif phase_name == 'test_crafter':
+            test_implementations = []
+            for result in results:
+                output = result.get('output', {})
+                item = result.get('item', {})
+                # Extract tool name
+                if hasattr(item, 'name'):
+                    tool_name = item.name
+                elif isinstance(item, dict) and 'name' in item:
+                    tool_name = item['name']
+                else:
+                    tool_name = f'tool_{results.index(result)}'
+                
+                # Add tool name to the implementation
+                impl = {
+                    'tool_name': tool_name,
+                    **output
+                }
+                test_implementations.append(impl)
+            
+            aggregated = {
+                'test_implementations': test_implementations,
+                'count': len(test_implementations),
+                'total_tests': sum(impl.get('test_count', 0) for impl in test_implementations)
+            }
         else:
             # Generic aggregation
             aggregated = {
@@ -440,6 +466,8 @@ class AggregationNode(AtomicNode[WorkflowState, Any, Dict[str, Any]]):
             aggregated_key = f"workflow/{ctx.state.workflow_id}/test_analyses"
         elif phase_name == 'test_stubber':
             aggregated_key = f"workflow/{ctx.state.workflow_id}/test_stubs"
+        elif phase_name == 'test_crafter':
+            aggregated_key = f"workflow/{ctx.state.workflow_id}/test_implementations"
         else:
             aggregated_key = f"workflow/{ctx.state.workflow_id}/{phase_name}_aggregated"
         

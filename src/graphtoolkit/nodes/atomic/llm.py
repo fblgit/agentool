@@ -123,6 +123,13 @@ class LLMCallNode(AtomicNode[WorkflowState, Any, Any]):
         # Serialize to JSON for consistent hashing
         cache_str = json.dumps(cache_data, sort_keys=True)
         
+        # Log cache data for debugging (only for test phases)
+        if 'test_stubber' in str(cache_data.get('user_prompt', ''))[:1000] or 'test_crafter' in str(cache_data.get('user_prompt', ''))[:1000]:
+            # Hash the user prompt to see if it changes
+            import hashlib as hl
+            user_prompt_hash = hl.md5(cache_data.get('user_prompt', '').encode()).hexdigest()[:8]
+            logger.info(f"[LLMCallNode] Cache key debug - user_prompt hash: {user_prompt_hash}, length: {len(cache_data.get('user_prompt', ''))}")
+        
         # Compute SHA-256 hash
         return hashlib.sha256(cache_str.encode()).hexdigest()
     
