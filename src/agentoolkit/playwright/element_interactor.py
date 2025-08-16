@@ -171,13 +171,11 @@ async def element_interactor_find_element(
     injector = get_injector()
     
     try:
-        # Get browser instance from browser_manager
-        browser_result = await injector.run('browser_manager', {
-            'operation': 'get_browser',
-            'browser_id': browser_id
-        })
+        # Get browser instance directly from browser_manager's _browsers dict
+        from agentoolkit.playwright.browser_manager import _browsers
+        browser_instance = _browsers.get(browser_id)
         
-        if not browser_result.success:
+        if not browser_instance:
             await injector.run('logging', {
                 'operation': 'log',
                 'level': 'ERROR',
@@ -197,12 +195,16 @@ async def element_interactor_find_element(
                 data={"element_found": False, "selector": selector, "timeout_ms": timeout}
             )
         
-        # Get page instance from browser data
-        browser_data = browser_result.data
-        page = browser_data.get('page')
+        # Get page from browser context
+        contexts = browser_instance['browser'].contexts
+        if not contexts:
+            raise RuntimeError(f"No context found for browser {browser_id}")
         
-        if not page:
+        pages = contexts[0].pages
+        if not pages:
             raise RuntimeError(f"No active page found for browser {browser_id}")
+        
+        page = pages[0]  # Get the first page
         
         # Normalize selector based on prefix
         playwright_selector = selector
@@ -216,7 +218,7 @@ async def element_interactor_find_element(
         
         # Find the element with timeout
         try:
-            element = await page.locator(playwright_selector).first
+            element = page.locator(playwright_selector).first
             
             # Wait for element to be attached within timeout
             await element.wait_for(state="attached", timeout=timeout)
@@ -344,22 +346,27 @@ async def element_interactor_click_element(
     injector = get_injector()
     
     try:
-        # Get browser instance
-        browser_result = await injector.run('browser_manager', {
-            'operation': 'get_browser',
-            'browser_id': browser_id
-        })
+        # Get browser instance directly from browser_manager's _browsers dict
+        from agentoolkit.playwright.browser_manager import _browsers
+        browser_instance = _browsers.get(browser_id)
         
-        if not browser_result.success:
+        if not browser_instance:
             return ElementInteractorOutput(
                 success=False,
                 message=f"Browser instance '{browser_id}' not found",
                 data={"clicked": False, "selector": selector, "click_count": click_count}
             )
         
-        page = browser_result.data.get('page')
-        if not page:
+        # Get page from browser context
+        contexts = browser_instance['browser'].contexts
+        if not contexts:
+            raise RuntimeError(f"No context found for browser {browser_id}")
+        
+        pages = contexts[0].pages
+        if not pages:
             raise RuntimeError(f"No active page found for browser {browser_id}")
+        
+        page = pages[0]
         
         # Normalize selector
         playwright_selector = selector
@@ -461,22 +468,27 @@ async def element_interactor_type_text(
     injector = get_injector()
     
     try:
-        # Get browser instance
-        browser_result = await injector.run('browser_manager', {
-            'operation': 'get_browser',
-            'browser_id': browser_id
-        })
+        # Get browser instance directly from browser_manager's _browsers dict
+        from agentoolkit.playwright.browser_manager import _browsers
+        browser_instance = _browsers.get(browser_id)
         
-        if not browser_result.success:
+        if not browser_instance:
             return ElementInteractorOutput(
                 success=False,
                 message=f"Browser instance '{browser_id}' not found",
                 data={"text_entered": text, "selector": selector, "cleared_first": clear_first}
             )
         
-        page = browser_result.data.get('page')
-        if not page:
+        # Get page from browser context
+        contexts = browser_instance['browser'].contexts
+        if not contexts:
+            raise RuntimeError(f"No context found for browser {browser_id}")
+        
+        pages = contexts[0].pages
+        if not pages:
             raise RuntimeError(f"No active page found for browser {browser_id}")
+        
+        page = pages[0]
         
         element = page.locator(selector).first
         
@@ -574,22 +586,27 @@ async def element_interactor_select_option(
     injector = get_injector()
     
     try:
-        # Get browser instance
-        browser_result = await injector.run('browser_manager', {
-            'operation': 'get_browser',
-            'browser_id': browser_id
-        })
+        # Get browser instance directly from browser_manager's _browsers dict
+        from agentoolkit.playwright.browser_manager import _browsers
+        browser_instance = _browsers.get(browser_id)
         
-        if not browser_result.success:
+        if not browser_instance:
             return ElementInteractorOutput(
                 success=False,
                 message=f"Browser instance '{browser_id}' not found",
                 data={"selected": False, "selector": selector, "value": value}
             )
         
-        page = browser_result.data.get('page')
-        if not page:
+        # Get page from browser context
+        contexts = browser_instance['browser'].contexts
+        if not contexts:
+            raise RuntimeError(f"No context found for browser {browser_id}")
+        
+        pages = contexts[0].pages
+        if not pages:
             raise RuntimeError(f"No active page found for browser {browser_id}")
+        
+        page = pages[0]
         
         element = page.locator(selector).first
         
@@ -691,22 +708,27 @@ async def element_interactor_get_element_text(
     injector = get_injector()
     
     try:
-        # Get browser instance
-        browser_result = await injector.run('browser_manager', {
-            'operation': 'get_browser',
-            'browser_id': browser_id
-        })
+        # Get browser instance directly from browser_manager's _browsers dict
+        from agentoolkit.playwright.browser_manager import _browsers
+        browser_instance = _browsers.get(browser_id)
         
-        if not browser_result.success:
+        if not browser_instance:
             return ElementInteractorOutput(
                 success=False,
                 message=f"Browser instance '{browser_id}' not found",
                 data={"text": None, "selector": selector}
             )
         
-        page = browser_result.data.get('page')
-        if not page:
+        # Get page from browser context
+        contexts = browser_instance['browser'].contexts
+        if not contexts:
+            raise RuntimeError(f"No context found for browser {browser_id}")
+        
+        pages = contexts[0].pages
+        if not pages:
             raise RuntimeError(f"No active page found for browser {browser_id}")
+        
+        page = pages[0]
         
         element = page.locator(selector).first
         
@@ -796,22 +818,27 @@ async def element_interactor_get_element_attribute(
     injector = get_injector()
     
     try:
-        # Get browser instance
-        browser_result = await injector.run('browser_manager', {
-            'operation': 'get_browser',
-            'browser_id': browser_id
-        })
+        # Get browser instance directly from browser_manager's _browsers dict
+        from agentoolkit.playwright.browser_manager import _browsers
+        browser_instance = _browsers.get(browser_id)
         
-        if not browser_result.success:
+        if not browser_instance:
             return ElementInteractorOutput(
                 success=False,
                 message=f"Browser instance '{browser_id}' not found",
                 data={"attribute": attribute, "value": None, "selector": selector}
             )
         
-        page = browser_result.data.get('page')
-        if not page:
+        # Get page from browser context
+        contexts = browser_instance['browser'].contexts
+        if not contexts:
+            raise RuntimeError(f"No context found for browser {browser_id}")
+        
+        pages = contexts[0].pages
+        if not pages:
             raise RuntimeError(f"No active page found for browser {browser_id}")
+        
+        page = pages[0]
         
         element = page.locator(selector).first
         
@@ -906,22 +933,27 @@ async def element_interactor_wait_for_element(
     start_time = time.time()
     
     try:
-        # Get browser instance
-        browser_result = await injector.run('browser_manager', {
-            'operation': 'get_browser',
-            'browser_id': browser_id
-        })
+        # Get browser instance directly from browser_manager's _browsers dict
+        from agentoolkit.playwright.browser_manager import _browsers
+        browser_instance = _browsers.get(browser_id)
         
-        if not browser_result.success:
+        if not browser_instance:
             return ElementInteractorOutput(
                 success=False,
                 message=f"Browser instance '{browser_id}' not found",
                 data={"condition_met": False, "selector": selector, "wait_condition": wait_condition}
             )
         
-        page = browser_result.data.get('page')
-        if not page:
+        # Get page from browser context
+        contexts = browser_instance['browser'].contexts
+        if not contexts:
+            raise RuntimeError(f"No context found for browser {browser_id}")
+        
+        pages = contexts[0].pages
+        if not pages:
             raise RuntimeError(f"No active page found for browser {browser_id}")
+        
+        page = pages[0]
         
         element = page.locator(selector).first
         
@@ -1049,22 +1081,27 @@ async def element_interactor_upload_file(
                 data={"file_uploaded": False, "file_path": file_path, "selector": selector}
             )
         
-        # Get browser instance
-        browser_result = await injector.run('browser_manager', {
-            'operation': 'get_browser',
-            'browser_id': browser_id
-        })
+        # Get browser instance directly from browser_manager's _browsers dict
+        from agentoolkit.playwright.browser_manager import _browsers
+        browser_instance = _browsers.get(browser_id)
         
-        if not browser_result.success:
+        if not browser_instance:
             return ElementInteractorOutput(
                 success=False,
                 message=f"Browser instance '{browser_id}' not found",
                 data={"file_uploaded": False, "file_path": file_path, "selector": selector}
             )
         
-        page = browser_result.data.get('page')
-        if not page:
+        # Get page from browser context
+        contexts = browser_instance['browser'].contexts
+        if not contexts:
+            raise RuntimeError(f"No context found for browser {browser_id}")
+        
+        pages = contexts[0].pages
+        if not pages:
             raise RuntimeError(f"No active page found for browser {browser_id}")
+        
+        page = pages[0]
         
         element = page.locator(selector).first
         
@@ -1155,22 +1192,27 @@ async def element_interactor_hover_element(
     injector = get_injector()
     
     try:
-        # Get browser instance
-        browser_result = await injector.run('browser_manager', {
-            'operation': 'get_browser',
-            'browser_id': browser_id
-        })
+        # Get browser instance directly from browser_manager's _browsers dict
+        from agentoolkit.playwright.browser_manager import _browsers
+        browser_instance = _browsers.get(browser_id)
         
-        if not browser_result.success:
+        if not browser_instance:
             return ElementInteractorOutput(
                 success=False,
                 message=f"Browser instance '{browser_id}' not found",
                 data={"hovered": False, "selector": selector}
             )
         
-        page = browser_result.data.get('page')
-        if not page:
+        # Get page from browser context
+        contexts = browser_instance['browser'].contexts
+        if not contexts:
+            raise RuntimeError(f"No context found for browser {browser_id}")
+        
+        pages = contexts[0].pages
+        if not pages:
             raise RuntimeError(f"No active page found for browser {browser_id}")
+        
+        page = pages[0]
         
         element = page.locator(selector).first
         
@@ -1260,22 +1302,27 @@ async def element_interactor_drag_element(
     injector = get_injector()
     
     try:
-        # Get browser instance
-        browser_result = await injector.run('browser_manager', {
-            'operation': 'get_browser',
-            'browser_id': browser_id
-        })
+        # Get browser instance directly from browser_manager's _browsers dict
+        from agentoolkit.playwright.browser_manager import _browsers
+        browser_instance = _browsers.get(browser_id)
         
-        if not browser_result.success:
+        if not browser_instance:
             return ElementInteractorOutput(
                 success=False,
                 message=f"Browser instance '{browser_id}' not found",
                 data={"dragged": False, "selector": selector, "target_selector": target_selector}
             )
         
-        page = browser_result.data.get('page')
-        if not page:
+        # Get page from browser context
+        contexts = browser_instance['browser'].contexts
+        if not contexts:
+            raise RuntimeError(f"No context found for browser {browser_id}")
+        
+        pages = contexts[0].pages
+        if not pages:
             raise RuntimeError(f"No active page found for browser {browser_id}")
+        
+        page = pages[0]
         
         source_element = page.locator(selector).first
         target_element = page.locator(target_selector).first
@@ -1371,22 +1418,27 @@ async def element_interactor_keyboard_shortcut(
     injector = get_injector()
     
     try:
-        # Get browser instance
-        browser_result = await injector.run('browser_manager', {
-            'operation': 'get_browser',
-            'browser_id': browser_id
-        })
+        # Get browser instance directly from browser_manager's _browsers dict
+        from agentoolkit.playwright.browser_manager import _browsers
+        browser_instance = _browsers.get(browser_id)
         
-        if not browser_result.success:
+        if not browser_instance:
             return ElementInteractorOutput(
                 success=False,
                 message=f"Browser instance '{browser_id}' not found",
                 data={"keys_sent": False, "selector": selector, "keys": keys}
             )
         
-        page = browser_result.data.get('page')
-        if not page:
+        # Get page from browser context
+        contexts = browser_instance['browser'].contexts
+        if not contexts:
+            raise RuntimeError(f"No context found for browser {browser_id}")
+        
+        pages = contexts[0].pages
+        if not pages:
             raise RuntimeError(f"No active page found for browser {browser_id}")
+        
+        page = pages[0]
         
         element = page.locator(selector).first
         
@@ -1478,22 +1530,27 @@ async def element_interactor_element_screenshot(
     injector = get_injector()
     
     try:
-        # Get browser instance
-        browser_result = await injector.run('browser_manager', {
-            'operation': 'get_browser',
-            'browser_id': browser_id
-        })
+        # Get browser instance directly from browser_manager's _browsers dict
+        from agentoolkit.playwright.browser_manager import _browsers
+        browser_instance = _browsers.get(browser_id)
         
-        if not browser_result.success:
+        if not browser_instance:
             return ElementInteractorOutput(
                 success=False,
                 message=f"Browser instance '{browser_id}' not found",
                 data={"screenshot_taken": False, "selector": selector}
             )
         
-        page = browser_result.data.get('page')
-        if not page:
+        # Get page from browser context
+        contexts = browser_instance['browser'].contexts
+        if not contexts:
+            raise RuntimeError(f"No context found for browser {browser_id}")
+        
+        pages = contexts[0].pages
+        if not pages:
             raise RuntimeError(f"No active page found for browser {browser_id}")
+        
+        page = pages[0]
         
         element = page.locator(selector).first
         

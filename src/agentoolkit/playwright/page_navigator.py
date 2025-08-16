@@ -539,7 +539,7 @@ async def page_navigator_capture_screenshot(
         
         # Get file size and dimensions (approximate)
         file_size = len(screenshot_bytes) if screenshot_bytes else 0
-        viewport = await page.viewport_size()
+        viewport = page.viewport_size  # This is a property, not a method
         
         await injector.run('logging', {
             'operation': 'log',
@@ -722,12 +722,26 @@ async def page_navigator_manage_cookies(
                 
             cookie_data = {
                 'name': cookie_name,
-                'value': cookie_value,
-                'url': page.url
+                'value': cookie_value
             }
             
-            if cookie_options:
-                cookie_data.update(cookie_options)
+            # Either use URL or domain+path, not both
+            if cookie_options and 'domain' in cookie_options:
+                # If domain is specified, use domain+path approach
+                cookie_data['domain'] = cookie_options['domain']
+                cookie_data['path'] = cookie_options.get('path', '/')
+                # Add other options except url
+                for key, value in cookie_options.items():
+                    if key not in ['domain', 'path', 'url']:
+                        cookie_data[key] = value
+            else:
+                # Otherwise use URL approach
+                cookie_data['url'] = page.url
+                # Add other options except domain/path
+                if cookie_options:
+                    for key, value in cookie_options.items():
+                        if key not in ['domain', 'path', 'url']:
+                            cookie_data[key] = value
                 
             await context.add_cookies([cookie_data])
             data = {'name': cookie_name, 'value': cookie_value}
