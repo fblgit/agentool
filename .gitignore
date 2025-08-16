@@ -26,3 +26,4 @@ src/agentool.egg-info
 src/*.egg-info/
 tmp/**
 **/draft/**
+screenshots/**
