@@ -11,6 +11,8 @@ import os
 from pathlib import Path
 from agentool.core.injector import get_injector
 from agentool.core.registry import AgenToolRegistry
+from pydantic_ai import models, capture_run_messages
+models.ALLOW_MODEL_REQUESTS = True
 
 
 class TestLLMAgent:
@@ -21,11 +23,18 @@ class TestLLMAgent:
         AgenToolRegistry.clear()
         get_injector().clear()
         
+        # Enable model requests for testing
+        os.environ['ALLOW_MODEL_REQUESTS'] = 'true'
+        
         # Create required dependency agents
         # Templates agent is required for prompt rendering
         # Point to the actual templates directory in src
         from agentoolkit.system.templates import create_templates_agent
         templates_agent = create_templates_agent(templates_dir="src/templates")
+        
+        # Storage FS agent (required by templates for file operations)
+        from agentoolkit.storage.fs import create_storage_fs_agent
+        fs_agent = create_storage_fs_agent()
         
         # Storage KV agent for caching functionality
         from agentoolkit.storage.kv import create_storage_kv_agent, _kv_storage, _kv_expiry
@@ -44,16 +53,12 @@ class TestLLMAgent:
         # Import and create the LLM agent
         from agentoolkit.llm import create_llm_agent
         agent = create_llm_agent()
-        
-        # Set environment variable for testing if needed
-        # This uses a mock model to avoid real API calls
-        os.environ['LLM_TEST_MODE'] = 'true'
     
     def teardown_method(self):
         """Clean up after tests."""
-        # Remove test environment variable
-        if 'LLM_TEST_MODE' in os.environ:
-            del os.environ['LLM_TEST_MODE']
+        # Remove test environment variables
+        if 'ALLOW_MODEL_REQUESTS' in os.environ:
+            del os.environ['ALLOW_MODEL_REQUESTS']
     
     def test_summary_operation(self):
         """Test text summarization."""
