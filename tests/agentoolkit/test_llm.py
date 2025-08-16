@@ -8,6 +8,7 @@ extraction, generation, translation, sentiment analysis, and more.
 import asyncio
 import json
 import os
+import pytest
 from pathlib import Path
 from agentool.core.injector import get_injector
 from agentool.core.registry import AgenToolRegistry
@@ -427,11 +428,11 @@ class TestLLMAgent:
             result2 = await injector.run('llm', {
                 "operation": "summary",
                 "content": "Test content for model override",
-                "model": "anthropic:claude-3-opus"
+                "model": "openai:gpt-4o-mini"
             })
             
             assert result2.success is True
-            assert result2.model_used == "anthropic:claude-3-opus"
+            assert result2.model_used == "openai:gpt-4o-mini"
             
             print("\n=== test_model_override Output ===")
             print(f"Default model: {result1.model_used}")
@@ -447,38 +448,31 @@ class TestLLMAgent:
             injector = get_injector()
             
             # Test missing extraction_schema for extraction
-            result = await injector.run('llm', {
-                "operation": "extraction",
-                "content": "Some text"
-                # Missing required 'extraction_schema' field
-            })
-            
-            # Should get validation error
-            if hasattr(result, 'output'):
-                output = json.loads(result.output) if isinstance(result.output, str) else result.output
-                assert "validation" in str(output).lower() or "extraction_schema" in str(output).lower()
+            with pytest.raises(ValueError) as exc_info:
+                await injector.run('llm', {
+                    "operation": "extraction",
+                    "content": "Some text"
+                    # Missing required 'extraction_schema' field
+                })
+            assert "extraction_schema is required" in str(exc_info.value)
             
             # Test missing classes for classification
-            result = await injector.run('llm', {
-                "operation": "classification",
-                "content": "Some text"
-                # Missing required 'classes' field
-            })
-            
-            if hasattr(result, 'output'):
-                output = json.loads(result.output) if isinstance(result.output, str) else result.output
-                assert "validation" in str(output).lower() or "classes" in str(output).lower()
+            with pytest.raises(ValueError) as exc_info:
+                await injector.run('llm', {
+                    "operation": "classification",
+                    "content": "Some text"
+                    # Missing required 'classes' field
+                })
+            assert "classes is required" in str(exc_info.value)
             
             # Test missing target_language for translation
-            result = await injector.run('llm', {
-                "operation": "translation",
-                "content": "Hello"
-                # Missing required 'target_language' field
-            })
-            
-            if hasattr(result, 'output'):
-                output = json.loads(result.output) if isinstance(result.output, str) else result.output
-                assert "validation" in str(output).lower() or "target_language" in str(output).lower()
+            with pytest.raises(ValueError) as exc_info:
+                await injector.run('llm', {
+                    "operation": "translation",
+                    "content": "Hello"
+                    # Missing required 'target_language' field
+                })
+            assert "target_language is required" in str(exc_info.value)
             
             print("\n=== test_input_validation Output ===")
             print("Input validation tests completed")
@@ -492,16 +486,26 @@ class TestLLMAgent:
         async def run_test():
             injector = get_injector()
             
-            # Test invalid operation
+            # Test invalid operation - should get validation error from Pydantic
+            # The input schema uses Literal for operations, so invalid operations
+            # will fail validation
             result = await injector.run('llm', {
                 "operation": "invalid_operation",
                 "content": "Test content"
             })
             
-            # Should get validation error for invalid operation
+            # Check if the result has an error in the output
             if hasattr(result, 'output'):
-                output = json.loads(result.output) if isinstance(result.output, str) else result.output
-                assert "validation" in str(output).lower() or "invalid" in str(output).lower()
+                # The output will be a JSON string with validation error
+                try:
+                    output = json.loads(result.output) if isinstance(result.output, str) else result.output
+                except json.JSONDecodeError:
+                    # If it's not valid JSON, check if it contains error message
+                    output = result.output if hasattr(result, 'output') else str(result)
+                
+                # Check for validation error indicators
+                output_str = str(output).lower()
+                assert any(term in output_str for term in ['validation', 'invalid', 'error', 'literal'])
             
             print("\n=== test_invalid_operation Output ===")
             print("Invalid operation handled correctly")

@@ -643,13 +643,16 @@ async def llm_extraction(
         'dict': dict
     }
     
-    # Create fields for dynamic model
+    # Create fields for dynamic model with proper annotations
     fields = {}
+    annotations = {}
     for field_name, field_type in extraction_schema.items():
         python_type = type_mapping.get(field_type, str)
-        fields[field_name] = (python_type, Field(description=f"Extracted {field_name}"))
+        fields[field_name] = Field(description=f"Extracted {field_name}")
+        annotations[field_name] = python_type
     
-    # Create dynamic model class
+    # Create dynamic model class with annotations
+    fields['__annotations__'] = annotations
     DynamicExtraction = type('DynamicExtraction', (BaseModel,), fields)
     
     # Create agent with dynamic output type
