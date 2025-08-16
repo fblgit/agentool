@@ -1790,57 +1790,29 @@ class TestAgenToolkitAnalyzer:
         storage_client = deps.get_storage_client()
         
         # Get all keys with prefix for this workflow
-        workflow_prefix = f"workflow/{workflow_id}"
         all_keys_result = await storage_client.run('storage_kv', {
             'operation': 'keys',
             'namespace': 'workflow',
-            'pattern': f'{workflow_prefix}*'
+            'pattern': '*'
         })
-        
-        # Handle the StorageKvOutput result
-        try:
-            if hasattr(all_keys_result, 'success') and all_keys_result.success:
-                # Pattern already filtered for this workflow
-                workflow_keys = all_keys_result.data if all_keys_result.data else []
-                
-                # Collect all key-value pairs
-                storage_dump = {
-                    'workflow_id': workflow_id,
-                    'timestamp': datetime.now().isoformat(),
-                    'total_keys': len(workflow_keys),
-                    'data': {}
-                }
-                
-                for key in sorted(workflow_keys):
-                    get_result = await storage_client.run('storage_kv', {
-                        'operation': 'get',
-                        'key': key,
-                        'namespace': 'workflow'
-                    })
-                    # Handle the StorageKvOutput for get operation
-                    if hasattr(get_result, 'success') and get_result.success:
-                        storage_dump['data'][key] = get_result.data
-                
-                # Write to temp file
-                with tempfile.NamedTemporaryFile(
-                    mode='w',
-                    prefix=f'agentoolkit_storage_{workflow_id}_',
-                    suffix='.json',
-                    dir='/tmp',
-                    delete=False
-                ) as f:
-                    json.dump(storage_dump, f, indent=2, default=str)
-                    dump_file = f.name
-                
-                print(f"   📁 Storage dump saved to: {dump_file}")
-                print(f"   📊 Total keys: {len(workflow_keys)}")
-                print(f"   💾 File size: {os.path.getsize(dump_file):,} bytes")
-                print(f"\n   View with: cat {dump_file} | jq '.'")
-            else:
-                error_msg = all_keys_result.message if hasattr(all_keys_result, 'message') else 'Unknown error'
-                print(f"   ⚠️ Could not list storage keys: {error_msg}")
-        except Exception as e:
-            print(f"   ⚠️ Error dumping storage: {e}")
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as temp:
+            json.dump(all_keys_result.data, temp)
+            print(f"   - Dumped {len(all_keys_result.data)} keys to {temp.name}")
+        # the data has { keys: [] }
+        all_keys = all_keys_result.data.get('keys', [])
+        all_results = []
+        for key in all_keys:
+            print(f"   - Key: {key}")
+            get_result = await storage_client.run('storage_kv', {
+                'operation': 'get',
+                'key': key,
+                'namespace': 'workflow'
+            })
+            all_results.append(get_result.data)
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as temp:
+            json.dump(all_results, temp)
+            print(f"   - Dumped {len(all_results)} results to {temp.name}")
+
         
         phases_run = 9
         print(f"\n✅ COMPLETE {phases_run}-PHASE WORKFLOW TEST SUCCESSFUL!")
