@@ -10,6 +10,7 @@ import json
 from typing import Dict, Any, List, Literal, Optional
 from pydantic import BaseModel, Field, field_validator
 from pydantic_ai import RunContext, Agent
+from pydantic_ai.settings import ModelSettings
 
 from agentool import create_agentool, BaseOperationInput
 from agentool.core.registry import RoutingConfig
@@ -147,7 +148,8 @@ async def analyze_task(
         agent = Agent(
             model,
             output_type=AnalyzerOutput,
-            system_prompt=system_prompt
+            system_prompt=system_prompt,
+            model_settings=ModelSettings(max_tokens=8192)
         )
         
         # Store complete catalog in storage_kv

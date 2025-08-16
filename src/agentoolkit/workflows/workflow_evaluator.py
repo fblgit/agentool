@@ -11,6 +11,7 @@ from typing import Dict, Any, List, Literal
 from pydantic import BaseModel, Field
 from pydantic_ai import RunContext, Agent
 from pydantic_ai.exceptions import ModelRetry
+from pydantic_ai.settings import ModelSettings
 
 from agentool import create_agentool, BaseOperationInput
 from agentool.core.registry import RoutingConfig
@@ -258,7 +259,8 @@ async def evaluate_code(
                     agent = Agent(
                         model,
                         output_type=ValidationOutput,
-                        system_prompt=system_prompt
+                        system_prompt=system_prompt,
+                        model_settings = ModelSettings(max_tokens=8192*3, timeout=300.0)
                     )
                     
                     # Store implementation code for template reference

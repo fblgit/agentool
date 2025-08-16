@@ -216,7 +216,7 @@ class WorkflowUIV2:
             )
             
             # Model selection
-            model_options = ["openai:gpt-5-nano", "openai:gpt-5-mini", "openai:gpt-5-chat-latest", "openai:gpt-5", "openai:gpt-4o", "openai:gpt-4o-mini", "anthropic:claude-3-5-sonnet-latest"]
+            model_options = ["openai:gpt-5-nano", "openai:gpt-5-mini", "openai:gpt-5-chat-latest", "openai:gpt-5", "openai:gpt-4o", "openai:gpt-4o-mini", "anthropic:claude-sonnet-4-20250514", "anthropic:claude-opus-4-1-20250805"]
             model = st.selectbox(
                 "Main Model (Default for all phases)",
                 model_options,

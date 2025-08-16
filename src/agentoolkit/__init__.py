@@ -57,6 +57,9 @@ from .management.agentool import create_agentool_management_agent
 # LLM agents
 from .llm.llm import create_llm_agent
 
+# Playwright agents
+from .playwright import create_browser_manager_agent, create_page_navigator_agent, create_element_interactor_agent
+
 __all__ = [
     # Storage
     'create_storage_fs_agent',
@@ -80,5 +83,9 @@ __all__ = [
     # Management
     'create_agentool_management_agent',
     # LLM
-    'create_llm_agent'
+    'create_llm_agent',
+    # Playwright
+    'create_browser_manager_agent',
+    'create_page_navigator_agent',
+    'create_element_interactor_agent'
 ]
