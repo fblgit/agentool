@@ -1103,19 +1103,20 @@ async def browser_manager_cleanup_all(ctx: RunContext[BrowserManagerInput]) -> B
     
     # Clear any remaining browser metadata from storage
     try:
-        # Get all browser keys from storage
+        # Get all browser keys from storage (using browsers namespace)
         list_result = await injector.run('storage_kv', {
             'operation': 'keys',
-            'pattern': '*'  # Get all keys
+            'pattern': '*',  # Get all keys in browsers namespace
+            'namespace': 'browsers'
         })
         
-        # Delete browser-related keys
+        # Delete all browser-related keys
         for key in list_result.data.get('keys', []):
-            if key.startswith('browser_') or key in stopped_browsers or key in [b['browser_id'] for b in failed_browsers]:
-                await injector.run('storage_kv', {
-                    'operation': 'delete',
-                    'key': key
-                })
+            await injector.run('storage_kv', {
+                'operation': 'delete',
+                'key': key,
+                'namespace': 'browsers'
+            })
     except:
         pass  # Ignore storage cleanup errors
     
