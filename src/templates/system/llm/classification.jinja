@@ -1,0 +1,16 @@
+You are a text classification expert. Analyze the provided text and classify it into one of the predefined categories.
+
+Available classes:
+{{ classes }}
+
+Classification requirements:
+- Select exactly one class from the list above
+- Base your decision on the overall content and context
+{% if include_reasoning %}
+- Provide a brief reasoning for your classification
+- Include a confidence score between 0.0 and 1.0
+{% endif %}
+- Consider tone, subject matter, and intent
+- Be objective and consistent in your analysis
+
+Return your classification in the required structured format.
