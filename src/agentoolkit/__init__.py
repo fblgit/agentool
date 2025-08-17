@@ -20,6 +20,7 @@ Available Toolkits:
 - network.http: HTTP client operations
 - observability.metrics: Metrics collection and tracking
 - management.agentool: AgenTool registry management and introspection
+- llm.llm: Large Language Model operations
 """
 
 __version__ = "1.0.0"
@@ -53,6 +54,12 @@ from .observability.metrics import create_metrics_agent
 # Management agents
 from .management.agentool import create_agentool_management_agent
 
+# LLM agents
+from .llm.llm import create_llm_agent
+
+# Playwright agents
+from .playwright import create_browser_manager_agent, create_page_navigator_agent, create_element_interactor_agent
+
 __all__ = [
     # Storage
     'create_storage_fs_agent',
@@ -74,5 +81,11 @@ __all__ = [
     # Observability
     'create_metrics_agent',
     # Management
-    'create_agentool_management_agent'
+    'create_agentool_management_agent',
+    # LLM
+    'create_llm_agent',
+    # Playwright
+    'create_browser_manager_agent',
+    'create_page_navigator_agent',
+    'create_element_interactor_agent'
 ]

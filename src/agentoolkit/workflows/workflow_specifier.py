@@ -9,6 +9,7 @@ import json
 from typing import Dict, Any, List, Literal, Optional
 from pydantic import BaseModel, Field
 from pydantic_ai import RunContext, Agent
+from pydantic_ai.settings import ModelSettings
 
 from agentool import create_agentool, BaseOperationInput
 from agentool.core.registry import RoutingConfig
@@ -140,6 +141,7 @@ async def create_specifications(
             model,
             output_type=ToolSpecificationLLM,
             system_prompt=system_prompt,
+            model_settings = ModelSettings(max_tokens=8192),
             retries=3  # Increased retries for better reliability with structured output
         )
         

@@ -1,11 +1,15 @@
 """GraphToolkit LLM Atomic Nodes.
 
-LLM interaction nodes with state-driven retry configuration.
+LLM interaction nodes with state-driven retry configuration and caching support.
 """
 
+import hashlib
 import json
 import logging
+import os
 from dataclasses import dataclass, replace
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from ...core.factory import register_node_class
@@ -89,6 +93,176 @@ class LLMCallNode(AtomicNode[WorkflowState, Any, Any]):
         # Default model
         return 'openai:gpt-4o'
     
+    def _should_use_cache(self) -> bool:
+        """Check if LLM caching is enabled via environment variable."""
+        return os.environ.get('LLM_REPLAY', '').lower() in ('1', 'true', 'yes')
+    
+    def _compute_cache_key(
+        self,
+        model: str,
+        system_prompt: str,
+        user_prompt: str,
+        params: ModelParameters,
+        output_schema: Optional[type] = None
+    ) -> str:
+        """Compute a deterministic cache key from LLM call parameters."""
+        # Create a stable representation of all inputs
+        cache_data = {
+            'model': model,
+            'system_prompt': system_prompt,
+            'user_prompt': user_prompt,
+            'temperature': params.temperature,
+            'max_tokens': params.max_tokens,
+            'top_p': params.top_p,
+            'frequency_penalty': params.frequency_penalty,
+            'presence_penalty': params.presence_penalty,
+            'stop_sequences': params.stop_sequences,
+            'output_schema': output_schema.__name__ if output_schema else None
+        }
+        
+        # Serialize to JSON for consistent hashing
+        cache_str = json.dumps(cache_data, sort_keys=True)
+        
+        # Log cache data for debugging (only for test phases)
+        if 'test_stubber' in str(cache_data.get('user_prompt', ''))[:1000] or 'test_crafter' in str(cache_data.get('user_prompt', ''))[:1000]:
+            # Hash the user prompt to see if it changes
+            import hashlib as hl
+            user_prompt_hash = hl.md5(cache_data.get('user_prompt', '').encode()).hexdigest()[:8]
+            logger.info(f"[LLMCallNode] Cache key debug - user_prompt hash: {user_prompt_hash}, length: {len(cache_data.get('user_prompt', ''))}")
+        
+        # Compute SHA-256 hash
+        return hashlib.sha256(cache_str.encode()).hexdigest()
+    
+    def _get_cache_path(self, cache_key: str) -> Path:
+        """Get the path to the cache file for a given key."""
+        cache_dir = Path('/tmp/llm_cache')
+        cache_dir.mkdir(exist_ok=True)
+        return cache_dir / f"{cache_key}.json"
+    
+    def _load_cached_response(self, cache_key: str) -> Optional[Any]:
+        """Try to load a cached response from disk."""
+        cache_path = self._get_cache_path(cache_key)
+        
+        if not cache_path.exists():
+            return None
+        
+        try:
+            with open(cache_path, 'r') as f:
+                cache_data = json.load(f)
+            
+            # Verify cache version compatibility
+            if cache_data.get('cache_version') != '1.0':
+                logger.warning(f"Cache version mismatch, ignoring cache: {cache_path}")
+                return None
+            
+            # Extract and reconstruct the response
+            response_data = cache_data.get('response', {})
+            response_type = response_data.get('type')
+            response_value = response_data.get('data')
+            
+            # Handle different response types
+            if response_type == 'CodeOutput':
+                # Reconstruct CodeOutput object
+                from agents.models import CodeOutput
+                return CodeOutput(**response_value)
+            elif response_type == 'dict':
+                # Return as dict, will be converted to schema if needed
+                return response_value
+            elif response_type == 'str':
+                return response_value
+            else:
+                # Try to reconstruct from type name if we have it
+                if response_type and '.' in response_type:
+                    # It's a qualified type name, try to import and construct
+                    try:
+                        module_name, class_name = response_type.rsplit('.', 1)
+                        module = __import__(module_name, fromlist=[class_name])
+                        cls = getattr(module, class_name)
+                        return cls(**response_value) if isinstance(response_value, dict) else response_value
+                    except Exception as e:
+                        logger.warning(f"Failed to reconstruct type {response_type}: {e}")
+                        return response_value
+                else:
+                    return response_value
+                    
+        except Exception as e:
+            logger.warning(f"Failed to load cache from {cache_path}: {e}")
+            return None
+    
+    def _save_cached_response(
+        self,
+        cache_key: str,
+        model: str,
+        system_prompt: str,
+        user_prompt: str,
+        params: ModelParameters,
+        response: Any,
+        phase: str,
+        workflow_id: str
+    ) -> None:
+        """Save a response to the cache."""
+        cache_path = self._get_cache_path(cache_key)
+        
+        try:
+            # Determine response type and serialize appropriately
+            if hasattr(response, '__class__'):
+                response_type = f"{response.__class__.__module__}.{response.__class__.__name__}"
+                if hasattr(response, 'model_dump'):
+                    # Pydantic model
+                    response_data = response.model_dump()
+                elif hasattr(response, '__dict__'):
+                    # Regular object with __dict__
+                    response_data = response.__dict__
+                else:
+                    # Fallback to string representation
+                    response_data = str(response)
+            elif isinstance(response, dict):
+                response_type = 'dict'
+                response_data = response
+            elif isinstance(response, str):
+                response_type = 'str'
+                response_data = response
+            else:
+                response_type = type(response).__name__
+                response_data = response
+            
+            # Create cache entry
+            cache_data = {
+                'cache_version': '1.0',
+                'created_at': datetime.now(timezone.utc).isoformat(),
+                'model': model,
+                'prompts': {
+                    'system': system_prompt,
+                    'user': user_prompt
+                },
+                'params': {
+                    'temperature': params.temperature,
+                    'max_tokens': params.max_tokens,
+                    'top_p': params.top_p,
+                    'frequency_penalty': params.frequency_penalty,
+                    'presence_penalty': params.presence_penalty,
+                    'stop_sequences': params.stop_sequences
+                },
+                'response': {
+                    'type': response_type,
+                    'data': response_data
+                },
+                'metadata': {
+                    'phase': phase,
+                    'workflow_id': workflow_id
+                }
+            }
+            
+            # Save to disk
+            with open(cache_path, 'w') as f:
+                json.dump(cache_data, f, indent=2)
+            
+            logger.info(f"[LLMCallNode] Cached response to {cache_path}")
+            
+        except Exception as e:
+            # Don't fail the operation if caching fails
+            logger.warning(f"Failed to save cache to {cache_path}: {e}")
+    
     async def _call_llm(
         self,
         ctx: GraphRunContext[WorkflowState, Any],
@@ -98,7 +272,44 @@ class LLMCallNode(AtomicNode[WorkflowState, Any, Any]):
         params: ModelParameters,
         output_schema: Optional[type] = None
     ) -> Any:
-        """Make the actual LLM call."""
+        """Make the actual LLM call with optional caching."""
+        # Check if caching is enabled
+        if self._should_use_cache():
+            # Compute cache key
+            cache_key = self._compute_cache_key(
+                model, system_prompt, user_prompt, params, output_schema
+            )
+            
+            # Try to load cached response
+            cached_response = self._load_cached_response(cache_key)
+            if cached_response is not None:
+                logger.info(f"[LLMCallNode] Cache hit for {ctx.state.current_phase}, using cached response")
+                return cached_response
+            else:
+                logger.info(f"[LLMCallNode] Cache miss for {ctx.state.current_phase}, making real LLM call")
+        
+        # Make the actual LLM call
+        response = await self._make_llm_call(ctx, model, system_prompt, user_prompt, params, output_schema)
+        
+        # Save to cache if caching is enabled
+        if self._should_use_cache():
+            self._save_cached_response(
+                cache_key, model, system_prompt, user_prompt, params,
+                response, ctx.state.current_phase, ctx.state.workflow_id
+            )
+        
+        return response
+    
+    async def _make_llm_call(
+        self,
+        ctx: GraphRunContext[WorkflowState, Any],
+        model: str,
+        system_prompt: str,
+        user_prompt: str,
+        params: ModelParameters,
+        output_schema: Optional[type] = None
+    ) -> Any:
+        """Make the actual LLM call without caching."""
         # In production, this would use the actual LLM client
         # For now, we'll use a mock or the injector pattern
         

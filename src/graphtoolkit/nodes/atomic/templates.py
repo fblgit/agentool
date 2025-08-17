@@ -76,6 +76,104 @@ class TemplateRenderNode(AtomicNode[WorkflowState, Any, Dict[str, str]]):
                 logger.error(f"[TemplateRenderNode] Could not render skeleton: {e}")
                 raise NonRetryableError(f"Could not render skeleton: {e}")
         
+        # For test_stubber phase, render the test skeleton if needed
+        elif ctx.state.current_phase == 'test_stubber' and '_tool_name_for_skeleton' in variables:
+            tool_name = variables.pop('_tool_name_for_skeleton')
+            try:
+                from agentool.core.injector import get_injector
+                injector = get_injector()
+                skeleton_result = await injector.run('templates', {
+                    'operation': 'render',
+                    'template_name': 'agentool/skeletons/test_comprehensive',
+                    'variables': {'tool_name': tool_name}
+                })
+                
+                if hasattr(skeleton_result, 'output'):
+                    # It's an AgentRunResult - parse the output
+                    import json
+                    try:
+                        output_data = json.loads(skeleton_result.output)
+                        if output_data.get('success'):
+                            skeleton_content = output_data.get('data', {}).get('rendered', '')
+                            variables['skeleton'] = skeleton_content
+                            # Log skeleton hash for debugging cache issues
+                            import hashlib
+                            skeleton_hash = hashlib.md5(skeleton_content.encode()).hexdigest()[:8]
+                            logger.info(f"[TemplateRenderNode] test_stubber skeleton hash: {skeleton_hash}, length: {len(skeleton_content)}")
+                        else:
+                            logger.warning(f"[TemplateRenderNode] Failed to render test skeleton: {output_data.get('message', 'unknown error')}")
+                            variables['skeleton'] = ''
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"[TemplateRenderNode] Failed to parse test skeleton result: {e}")
+                        variables['skeleton'] = ''
+                elif hasattr(skeleton_result, 'success') and skeleton_result.success:
+                    if skeleton_result.data and isinstance(skeleton_result.data, dict):
+                        skeleton_content = skeleton_result.data.get('rendered', '')
+                        variables['skeleton'] = skeleton_content
+                        # Log skeleton hash for debugging cache issues
+                        import hashlib
+                        skeleton_hash = hashlib.md5(skeleton_content.encode()).hexdigest()[:8]
+                        logger.info(f"[TemplateRenderNode] test_stubber skeleton hash: {skeleton_hash}, length: {len(skeleton_content)}")
+                    else:
+                        logger.warning(f"[TemplateRenderNode] No test skeleton content in result")
+                        variables['skeleton'] = ''
+                else:
+                    error_msg = skeleton_result.message if hasattr(skeleton_result, 'message') else 'unknown error'
+                    logger.error(f"[TemplateRenderNode] Failed to render test skeleton: {error_msg}")
+                    raise NonRetryableError(f"Failed to render test skeleton: {error_msg}")
+            except Exception as e:
+                logger.error(f"[TemplateRenderNode] Could not render test skeleton: {e}")
+                raise NonRetryableError(f"Could not render test skeleton: {e}")
+        
+        # For test_crafter phase, render the test skeleton if needed
+        elif ctx.state.current_phase == 'test_crafter' and '_tool_name_for_skeleton' in variables:
+            tool_name = variables.pop('_tool_name_for_skeleton')
+            try:
+                from agentool.core.injector import get_injector
+                injector = get_injector()
+                skeleton_result = await injector.run('templates', {
+                    'operation': 'render',
+                    'template_name': 'agentool/skeletons/test_comprehensive',
+                    'variables': {'tool_name': tool_name}
+                })
+                
+                if hasattr(skeleton_result, 'output'):
+                    # It's an AgentRunResult - parse the output
+                    import json
+                    try:
+                        output_data = json.loads(skeleton_result.output)
+                        if output_data.get('success'):
+                            skeleton_content = output_data.get('data', {}).get('rendered', '')
+                            variables['skeleton'] = skeleton_content
+                            # Log skeleton hash for debugging cache issues
+                            import hashlib
+                            skeleton_hash = hashlib.md5(skeleton_content.encode()).hexdigest()[:8]
+                            logger.info(f"[TemplateRenderNode] test_crafter skeleton hash: {skeleton_hash}, length: {len(skeleton_content)}")
+                        else:
+                            logger.warning(f"[TemplateRenderNode] Failed to render test skeleton: {output_data.get('message', 'unknown error')}")
+                            variables['skeleton'] = ''
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"[TemplateRenderNode] Failed to parse test skeleton result: {e}")
+                        variables['skeleton'] = ''
+                elif hasattr(skeleton_result, 'success') and skeleton_result.success:
+                    if skeleton_result.data and isinstance(skeleton_result.data, dict):
+                        skeleton_content = skeleton_result.data.get('rendered', '')
+                        variables['skeleton'] = skeleton_content
+                        # Log skeleton hash for debugging cache issues
+                        import hashlib
+                        skeleton_hash = hashlib.md5(skeleton_content.encode()).hexdigest()[:8]
+                        logger.info(f"[TemplateRenderNode] test_crafter skeleton hash: {skeleton_hash}, length: {len(skeleton_content)}")
+                    else:
+                        logger.warning(f"[TemplateRenderNode] No test skeleton content in result")
+                        variables['skeleton'] = ''
+                else:
+                    error_msg = skeleton_result.message if hasattr(skeleton_result, 'message') else 'unknown error'
+                    logger.error(f"[TemplateRenderNode] Failed to render test skeleton: {error_msg}")
+                    raise NonRetryableError(f"Failed to render test skeleton: {error_msg}")
+            except Exception as e:
+                logger.error(f"[TemplateRenderNode] Could not render test skeleton: {e}")
+                raise NonRetryableError(f"Could not render test skeleton: {e}")
+        
         # Use the existing template system through injector
         from ...core.initialization import ensure_graphtoolkit_initialized
         from agentool.core.injector import get_injector
@@ -451,6 +549,357 @@ class TemplateRenderNode(AtomicNode[WorkflowState, Any, Dict[str, str]]):
                 variables['existing_tools_schemas'] = make_serializable(existing_schemas)
                 
                 logger.debug(f"[TemplateRenderNode] Added refiner iteration variables for tool: {tool_name}")
+            
+            # For test_analyzer phase, add specific variables
+            elif phase_name == 'test_analyzer':
+                variables['agentool_to_test'] = make_serializable(current_item)
+                variables['analysis_output'] = make_serializable(ctx.state.domain_data.get('analyzer_output', {}))
+                
+                # Get the tool name
+                tool_name = current_item.name if hasattr(current_item, 'name') else current_item.get('name', 'unknown')
+                variables['tool_name'] = tool_name
+                
+                # Get the specification for this tool
+                spec_key = f"workflow/{ctx.state.workflow_id}/specification/{tool_name}"
+                storage_client = ctx.deps.get_storage_client()
+                spec_result = await storage_client.run('storage_kv', {
+                    'operation': 'get',
+                    'key': spec_key,
+                    'namespace': 'workflow'
+                })
+                
+                if spec_result.success:
+                    spec_output = spec_result.data.get('value', {})
+                    variables['specification'] = make_serializable(spec_output)
+                    logger.debug(f"[TemplateRenderNode] Loaded specification for {tool_name}")
+                else:
+                    logger.warning(f"[TemplateRenderNode] Could not load specification for {tool_name}")
+                    variables['specification'] = {}
+                
+                # Get the BEST implementation code - try refined first, then crafted
+                # First try refined version
+                refine_key = f"workflow/{ctx.state.workflow_id}/refine/{tool_name}"
+                refine_result = await storage_client.run('storage_kv', {
+                    'operation': 'get',
+                    'key': refine_key,
+                    'namespace': 'workflow'
+                })
+                
+                implementation_code = ""
+                code_source = "unknown"
+                
+                if refine_result.success:
+                    refine_output = refine_result.data.get('value', {})
+                    # Extract the code from CodeOutput if it's stored as such
+                    if isinstance(refine_output, dict) and 'code' in refine_output:
+                        implementation_code = refine_output['code']
+                    elif isinstance(refine_output, str):
+                        implementation_code = refine_output
+                    else:
+                        implementation_code = str(refine_output)
+                    code_source = "refined"
+                    logger.debug(f"[TemplateRenderNode] Using refined code for {tool_name} ({len(implementation_code)} chars)")
+                else:
+                    # Fallback to crafted version
+                    craft_key = f"workflow/{ctx.state.workflow_id}/crafter/{tool_name}"
+                    craft_result = await storage_client.run('storage_kv', {
+                        'operation': 'get',
+                        'key': craft_key,
+                        'namespace': 'workflow'
+                    })
+                    
+                    if craft_result.success:
+                        craft_output = craft_result.data.get('value', {})
+                        # Extract the code from CodeOutput if it's stored as such
+                        if isinstance(craft_output, dict) and 'code' in craft_output:
+                            implementation_code = craft_output['code']
+                        elif isinstance(craft_output, str):
+                            implementation_code = craft_output
+                        else:
+                            implementation_code = str(craft_output)
+                        code_source = "crafted"
+                        logger.debug(f"[TemplateRenderNode] Using crafted code for {tool_name} ({len(implementation_code)} chars)")
+                    else:
+                        logger.warning(f"[TemplateRenderNode] Could not load any implementation for {tool_name}")
+                        implementation_code = ""
+                
+                variables['implementation_code'] = implementation_code
+                variables['code_source'] = code_source  # For debugging
+                variables['analyzer_context'] = make_serializable(ctx.state.domain_data.get('analyzer_output', {}))
+                
+                logger.debug(f"[TemplateRenderNode] Added test_analyzer iteration variables for tool: {tool_name}")
+            
+            # For test_stubber phase, add specific variables
+            elif phase_name == 'test_stubber':
+                variables['agentool_to_stub'] = make_serializable(current_item)
+                variables['analysis_output'] = make_serializable(ctx.state.domain_data.get('analyzer_output', {}))
+                
+                # Get the tool name
+                tool_name = current_item.name if hasattr(current_item, 'name') else current_item.get('name', 'unknown')
+                variables['tool_name'] = tool_name
+                
+                # Get the test analysis for this tool from domain_data (created by test_analyzer phase)
+                # This ensures we get the data from the current workflow run
+                test_analysis = {}
+                test_analyzer_results = ctx.state.domain_data.get('test_analyzer_iteration_results', [])
+                for result in test_analyzer_results:
+                    item = result.get('item', {})
+                    item_name = item.get('name', '') if isinstance(item, dict) else getattr(item, 'name', '')
+                    if item_name == tool_name:
+                        test_analysis = result.get('output', {})
+                        logger.debug(f"[TemplateRenderNode] Found test analysis for {tool_name} in domain_data")
+                        break
+                
+                if not test_analysis:
+                    logger.warning(f"[TemplateRenderNode] Could not find test analysis for {tool_name} in domain_data")
+                
+                variables['test_analysis'] = make_serializable(test_analysis)
+                
+                # Get the specification for this tool from domain_data
+                specification = {}
+                specifier_results = ctx.state.domain_data.get('specifier_iteration_results', [])
+                for result in specifier_results:
+                    item = result.get('item', {})
+                    item_name = item.get('name', '') if isinstance(item, dict) else getattr(item, 'name', '')
+                    if item_name == tool_name:
+                        specification = result.get('output', {})
+                        logger.debug(f"[TemplateRenderNode] Found specification for {tool_name} in domain_data")
+                        break
+                
+                if not specification:
+                    logger.warning(f"[TemplateRenderNode] Could not find specification for {tool_name} in domain_data")
+                
+                variables['specification'] = make_serializable(specification)
+                
+                # Get all specifications from domain_data
+                all_specifications = []
+                specifier_output = ctx.state.domain_data.get('specifier_output', {})
+                if isinstance(specifier_output, dict) and 'specifications' in specifier_output:
+                    all_specifications = specifier_output['specifications']
+                else:
+                    # Try from iteration results
+                    all_specifications = [r.get('output', {}) for r in specifier_results]
+                
+                variables['all_specifications'] = make_serializable(all_specifications)
+                
+                # Get the BEST implementation code from domain_data - try refined first, then crafted
+                final_code = ""
+                code_source = "unknown"
+                
+                # First try refined version from domain_data
+                refiner_results = ctx.state.domain_data.get('refiner_iteration_results', [])
+                for result in refiner_results:
+                    item = result.get('item', {})
+                    item_name = item.get('name', '') if isinstance(item, dict) else getattr(item, 'name', '')
+                    if item_name == tool_name:
+                        refine_output = result.get('output', {})
+                        if isinstance(refine_output, dict) and 'code' in refine_output:
+                            final_code = refine_output['code']
+                        elif isinstance(refine_output, str):
+                            final_code = refine_output
+                        else:
+                            final_code = str(refine_output)
+                        code_source = "refined"
+                        logger.debug(f"[TemplateRenderNode] Using refined code for {tool_name} from domain_data")
+                        break
+                
+                # Fallback to crafted version from domain_data
+                if not final_code:
+                    crafter_results = ctx.state.domain_data.get('crafter_iteration_results', [])
+                    for result in crafter_results:
+                        item = result.get('item', {})
+                        item_name = item.get('name', '') if isinstance(item, dict) else getattr(item, 'name', '')
+                        if item_name == tool_name:
+                            craft_output = result.get('output', {})
+                            if isinstance(craft_output, dict) and 'code' in craft_output:
+                                final_code = craft_output['code']
+                            elif isinstance(craft_output, str):
+                                final_code = craft_output
+                            else:
+                                final_code = str(craft_output)
+                            code_source = "crafted"
+                            logger.debug(f"[TemplateRenderNode] Using crafted code for {tool_name} from domain_data")
+                            break
+                
+                if not final_code:
+                    logger.warning(f"[TemplateRenderNode] Could not find implementation for {tool_name} in domain_data")
+                
+                variables['final_code'] = final_code
+                variables['code_source'] = code_source  # For debugging
+                
+                # Get existing tools from domain_data (should be stable from initial input)
+                analyzer_output = ctx.state.domain_data.get('analyzer_output', {})
+                existing_tools = []
+                if isinstance(analyzer_output, dict):
+                    existing_tools = analyzer_output.get('existing_tools', [])
+                
+                variables['existing_tools'] = make_serializable(existing_tools)
+                
+                # Store tool name to render skeleton later (following crafter pattern)
+                variables['_tool_name_for_skeleton'] = tool_name
+                # Placeholder for skeleton - will be rendered in perform_operation
+                variables['skeleton'] = ''
+                
+                # Reference test is not needed with proper skeleton
+                variables['reference_test'] = ''
+                
+                logger.debug(f"[TemplateRenderNode] Added test_stubber iteration variables for tool: {tool_name}")
+            
+            # For test_crafter phase, add specific variables
+            elif phase_name == 'test_crafter':
+                variables['agentool_to_test'] = make_serializable(current_item)
+                variables['analysis_output'] = make_serializable(ctx.state.domain_data.get('analyzer_output', {}))
+                
+                # Get the tool name
+                tool_name = current_item.name if hasattr(current_item, 'name') else current_item.get('name', 'unknown')
+                variables['tool_name'] = tool_name
+                
+                # Get the test stub for this tool from domain_data (created by test_stubber phase)
+                # This ensures we get the data from the current workflow run
+                test_stub = ""
+                test_stubber_results = ctx.state.domain_data.get('test_stubber_iteration_results', [])
+                for result in test_stubber_results:
+                    item = result.get('item', {})
+                    # Get the item name, handling both dict and object types
+                    item_name = item.get('name', '') if isinstance(item, dict) else getattr(item, 'name', '')
+                    if item_name == tool_name:
+                        stub_output = result.get('output', {})
+                        # Extract the code from the stub output
+                        if isinstance(stub_output, dict) and 'code' in stub_output:
+                            test_stub = stub_output['code']
+                        elif isinstance(stub_output, str):
+                            test_stub = stub_output
+                        else:
+                            test_stub = str(stub_output)
+                        logger.debug(f"[TemplateRenderNode] Loaded test stub for {tool_name} from domain_data ({len(test_stub)} chars)")
+                        break
+                
+                if not test_stub:
+                    logger.warning(f"[TemplateRenderNode] Could not find test stub for {tool_name} in domain_data")
+                
+                variables['test_stub'] = test_stub
+                
+                # Get the test analysis for this tool from domain_data (created by test_analyzer phase)
+                # This ensures we get the data from the current workflow run
+                test_analysis = {}
+                test_analyzer_results = ctx.state.domain_data.get('test_analyzer_iteration_results', [])
+                for result in test_analyzer_results:
+                    item = result.get('item', {})
+                    # Get the item name, handling both dict and object types
+                    item_name = item.get('name', '') if isinstance(item, dict) else getattr(item, 'name', '')
+                    if item_name == tool_name:
+                        test_analysis = result.get('output', {})
+                        logger.debug(f"[TemplateRenderNode] Loaded test analysis for {tool_name} from domain_data")
+                        break
+                
+                if not test_analysis:
+                    logger.warning(f"[TemplateRenderNode] Could not find test analysis for {tool_name} in domain_data")
+                
+                variables['test_analysis'] = make_serializable(test_analysis)
+                
+                # Get the BEST implementation code - try refined first, then crafted
+                # First try refined version
+                refine_key = f"workflow/{ctx.state.workflow_id}/refine/{tool_name}"
+                refine_result = await storage_client.run('storage_kv', {
+                    'operation': 'get',
+                    'key': refine_key,
+                    'namespace': 'workflow'
+                })
+                
+                final_code = ""
+                code_source = "unknown"
+                
+                if refine_result.success:
+                    refine_output = refine_result.data.get('value', {})
+                    # Extract the code from CodeOutput if it's stored as such
+                    if isinstance(refine_output, dict) and 'code' in refine_output:
+                        final_code = refine_output['code']
+                    elif isinstance(refine_output, str):
+                        final_code = refine_output
+                    else:
+                        final_code = str(refine_output)
+                    code_source = "refined"
+                    logger.debug(f"[TemplateRenderNode] Using refined code for {tool_name} ({len(final_code)} chars)")
+                else:
+                    # Fallback to crafted version
+                    craft_key = f"workflow/{ctx.state.workflow_id}/crafter/{tool_name}"
+                    craft_result = await storage_client.run('storage_kv', {
+                        'operation': 'get',
+                        'key': craft_key,
+                        'namespace': 'workflow'
+                    })
+                    
+                    if craft_result.success:
+                        craft_output = craft_result.data.get('value', {})
+                        # Extract the code from CodeOutput if it's stored as such
+                        if isinstance(craft_output, dict) and 'code' in craft_output:
+                            final_code = craft_output['code']
+                        elif isinstance(craft_output, str):
+                            final_code = craft_output
+                        else:
+                            final_code = str(craft_output)
+                        code_source = "crafted"
+                        logger.debug(f"[TemplateRenderNode] Using crafted code for {tool_name} ({len(final_code)} chars)")
+                    else:
+                        logger.warning(f"[TemplateRenderNode] Could not load any implementation for {tool_name}")
+                        final_code = ""
+                
+                variables['final_code'] = final_code
+                variables['code_source'] = code_source  # For debugging
+                
+                # Get the specification for this tool
+                spec_key = f"workflow/{ctx.state.workflow_id}/specification/{tool_name}"
+                spec_result = await storage_client.run('storage_kv', {
+                    'operation': 'get',
+                    'key': spec_key,
+                    'namespace': 'workflow'
+                })
+                
+                if spec_result.success:
+                    spec_output = spec_result.data.get('value', {})
+                    variables['specification'] = make_serializable(spec_output)
+                    logger.debug(f"[TemplateRenderNode] Loaded specification for {tool_name}")
+                else:
+                    logger.warning(f"[TemplateRenderNode] Could not load specification for {tool_name}")
+                    variables['specification'] = {}
+                
+                # Get all specifications for reference
+                all_specs_key = f"workflow/{ctx.state.workflow_id}/output/specifier"
+                all_specs_result = await storage_client.run('storage_kv', {
+                    'operation': 'get',
+                    'key': all_specs_key,
+                    'namespace': 'workflow'
+                })
+                
+                if all_specs_result.success:
+                    all_specs = all_specs_result.data.get('value', {})
+                    if isinstance(all_specs, dict) and 'specifications' in all_specs:
+                        variables['all_specifications'] = make_serializable(all_specs['specifications'])
+                    else:
+                        variables['all_specifications'] = []
+                else:
+                    variables['all_specifications'] = []
+                
+                # Get existing tools from catalog
+                catalog_key = f"workflow/{ctx.state.workflow_id}/input/catalog"
+                catalog_result = await storage_client.run('storage_kv', {
+                    'operation': 'get',
+                    'key': catalog_key,
+                    'namespace': 'workflow'
+                })
+                
+                if catalog_result.success:
+                    catalog = catalog_result.data.get('value', [])
+                    variables['existing_tools'] = make_serializable(catalog)
+                else:
+                    variables['existing_tools'] = []
+                
+                # Store tool name to render skeleton later (following crafter pattern)
+                variables['_tool_name_for_skeleton'] = tool_name
+                # Placeholder for skeleton - will be rendered in perform_operation
+                variables['skeleton'] = ''
+                
+                logger.debug(f"[TemplateRenderNode] Added test_crafter iteration variables for tool: {tool_name}")
             
             # For documenter phase, add specific variables
             elif phase_name == 'documenter':

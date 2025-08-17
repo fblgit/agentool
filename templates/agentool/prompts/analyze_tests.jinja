@@ -1,0 +1,60 @@
+Analyze the test requirements for the AgenTool: {{ tool_name }}
+
+## Section: Tool Name
+{{ tool_name }}
+
+## Section: Final Code
+{{ final_code }}
+
+## Section: Code Structure
+{{ code_structure }}
+
+## Section: Specification
+{{ specification }}
+
+## Section: All Specifications
+{{ all_specifications }}
+
+## Section: Existing Tools
+{{ existing_tools }}
+
+Please analyze the code and create a comprehensive test plan that includes:
+
+1. **Test Cases** - Design test cases for:
+   - Each operation/function in the tool
+   - Success scenarios with valid inputs
+   - Error scenarios with invalid inputs
+   - Edge cases and boundary conditions
+   - Integration with dependent tools
+
+2. **No-Mocks Policy** - Following our testing strategy:
+   - We DO NOT use any mocks in tests
+   - Identify all real dependencies that need to be created
+   - Plan the order of agent creation (dependencies first)
+   - Identify global state that needs clearing in setup
+
+3. **Coverage Requirements** - Define coverage targets:
+   - Operation coverage percentage
+   - Error handling coverage
+   - Edge case coverage
+   - Integration test coverage
+
+4. **Test Data Samples** - Create realistic test data:
+   - Valid input examples matching actual schemas
+   - Invalid input examples for error testing
+   - Boundary value examples
+   - Complex scenario data
+
+5. **Setup Requirements** - Identify setup needs:
+   - Which agents need to be created
+   - What global state needs clearing
+   - Dependency creation order
+   - Any special initialization
+
+6. **Integration Points** - Identify:
+   - Which tools this depends on
+   - How to test real integrations
+   - What state needs verification
+   - Error propagation paths
+
+Ensure the test analysis follows the test_session.py pattern with real integrations and no mocks.

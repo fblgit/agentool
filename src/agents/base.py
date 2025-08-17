@@ -8,6 +8,7 @@ import json
 from typing import Optional, Type, TypeVar, Generic, Any
 from pydantic import BaseModel
 from pydantic_ai import Agent
+from pydantic_ai.settings import ModelSettings
 from agentool.core.injector import get_injector
 
 T = TypeVar('T', bound=BaseModel)
@@ -69,11 +70,18 @@ class BaseAgenToolAgent(Generic[T]):
             print(f"Warning: Failed to load template {self.system_template}: {e}")
             self.system_prompt = f"You are an expert {self.name} agent."
         
+        # Create model settings with max_output_tokens for Anthropic models
+        model_settings = None
+        if self.model and 'anthropic:' in self.model:
+            # Set max_output_tokens to 8192 for Anthropic models
+            model_settings = ModelSettings(max_tokens=8192)
+        
         # Create the pydantic-ai agent
         self.agent = Agent(
             self.model,
             output_type=self.output_type,
-            system_prompt=self.system_prompt
+            system_prompt=self.system_prompt,
+            model_settings=model_settings
         )
         
     async def generate(

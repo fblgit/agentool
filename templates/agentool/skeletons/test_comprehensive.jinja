@@ -1,0 +1,143 @@
+"""
+Tests for {{ tool_name }} toolkit.
+
+This module tests all functionality of the {{ tool_name }} toolkit
+including all operations, error handling, and integration with dependencies.
+"""
+
+import json
+import asyncio
+import time
+import pytest  # DO NOT REMOVE
+
+from agentool.core.injector import get_injector  # DO NOT REMOVE
+from agentool.core.registry import AgenToolRegistry  # DO NOT REMOVE
+
+
+class Test{{ tool_name.title().replace('_', '') }}:
+    """Test suite for {{ tool_name }} toolkit."""
+    
+    def setup_method(self):
+        """Clear registry and injector before each test."""
+        # Only registry and injector have .clear() methods
+        AgenToolRegistry.clear()
+        get_injector().clear()
+        
+        # Initialize base agents - DO NOT REMOVE
+        # These are required for logging, metrics, and storage operations
+        from agentoolkit.system.logging import create_logging_agent
+        from agentoolkit.observability.metrics import create_metrics_agent
+        from agentoolkit.system.config import create_config_agent
+        from agentoolkit.storage.kv import create_storage_kv_agent, clear_all_storage
+        from agentoolkit.storage.fs import create_storage_fs_agent
+        
+        # Clear global state for storage_kv
+        clear_all_storage()  # Clears all namespaces
+        
+        # Create base agents - DO NOT REMOVE
+        logging_agent = create_logging_agent()
+        metrics_agent = create_metrics_agent()
+        config_agent = create_config_agent()
+        storage_kv_agent = create_storage_kv_agent()
+        storage_fs_agent = create_storage_fs_agent()
+        
+        # Import and create the agent being tested
+        from agentoolkit.others.{{ tool_name }} import create_{{ tool_name }}_agent
+        
+        # TODO: Import global state if your agent has any
+        # from agentoolkit.others.{{ tool_name }} import _global_state_if_any
+        # _global_state_if_any.clear()
+        
+        # TODO: Create any additional dependency agents (not in base agents above)
+        # from agentoolkit.others.dependency_tool import create_dependency_tool_agent
+        # dependency_tool_agent = create_dependency_tool_agent()
+        
+        # Create the agent being tested
+        {{ tool_name }}_agent = create_{{ tool_name }}_agent()
+    
+    # TODO: Add test methods for each operation
+    # Follow the exact pattern from test_session.py:
+    
+    def test_operation_success(self):
+        """Test successful operation execution."""
+        
+        async def run_test():
+            injector = get_injector()
+            
+            # TODO: Execute the actual operation
+            # result = await injector.run('{{ tool_name }}', {
+            #     "operation": "operation_name",
+            #     # ... operation parameters
+            # })
+            
+            # Parse result with typed output
+            # assert result.success is True
+            # assert result.operation == "operation_name"
+            # assert result.data["field"] == expected_value
+            
+            pass  # TODO: Remove this when implementing
+        
+        asyncio.run(run_test())
+    
+    def test_operation_error_handling(self):
+        """Test error handling for invalid inputs."""
+        
+        async def run_test():
+            injector = get_injector()
+            
+            # TODO: Test with invalid input
+            # with pytest.raises(Exception) as exc_info:
+            #     await injector.run('{{ tool_name }}', {
+            #         "operation": "operation_name",
+            #         # ... invalid parameters with successful validation
+            #     })
+            
+            # assert "expected error message" in str(exc_info.value)
+            
+            pass  # TODO: Remove this when implementing
+        
+        asyncio.run(run_test())
+    
+    def test_field_validation(self):
+        """
+        Test Pydantic field validation.
+        
+        Note: Field validation is handled by Pydantic at the input schema level.
+        These validation errors are NOT considered tool errors - they happen
+        before the tool logic executes. The injector will raise exceptions
+        for validation failures.
+        """
+        
+        async def run_test():
+            injector = get_injector()
+            
+            # Test missing required field
+            # Pydantic will raise validation error before tool execution
+            with pytest.raises(Exception) as exc_info:
+                await injector.run('{{ tool_name }}', {
+                    "operation": "operation1",
+                    # Missing required 'key' field for operation1
+                })
+            
+            # The error comes from Pydantic validation, not the tool
+            assert "key is required" in str(exc_info.value) or "validation error" in str(exc_info.value).lower()
+            
+            # Test invalid field type
+            with pytest.raises(Exception) as exc_info:
+                await injector.run('{{ tool_name }}', {
+                    "operation": "operation2",
+                    "key": "valid_key",
+                    "value": None  # operation2 requires non-None value
+                })
+            
+            assert "value is required" in str(exc_info.value) or "validation error" in str(exc_info.value).lower()
+        
+        asyncio.run(run_test())
+    
+    # TODO: Add more test methods following the pattern above
+    # Each test should:
+    # - Use async def run_test() inner function
+    # - Call real operations with injector.run()
+    # - Parse results with typed output (result.success, result.data)
+    # - Test real integrations, no mocks
+    # - Clear/verify global state as needed
