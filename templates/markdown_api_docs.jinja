@@ -1,0 +1,34 @@
+# {{ title }}
+
+{% if author %}*By {{ author }}*{% endif %}
+{% if creation_date %}*Created: {{ creation_date }}*{% endif %}
+
+{% if include_toc %}
+## Table of Contents
+
+- [Overview](#overview)
+- [Authentication](#authentication)
+- [Endpoints](#endpoints)
+- [Examples](#examples)
+- [Error Handling](#error-handling)
+
+{% endif %}
+## Overview
+
+{{ description | default("API documentation overview.") }}
+
+## Authentication
+
+Authentication details here.
+
+## Endpoints
+
+API endpoints documentation.
+
+## Examples
+
+Code examples and usage.
+
+## Error Handling
+
+Error response documentation.

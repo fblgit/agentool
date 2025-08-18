@@ -679,6 +679,9 @@ async def metrics_observe(ctx: RunContext[Any], name: str, value: float,
                 })
                 
                 # storage_kv returns typed StorageKvOutput
+                # Check if the newly created metric was properly retrieved
+                if meta_result.data is None:
+                    raise RuntimeError(f"Failed to retrieve newly created metric '{name}'")
                 metric_meta = meta_result.data["value"]
             else:
                 raise KeyError(f"Metric '{name}' does not exist")

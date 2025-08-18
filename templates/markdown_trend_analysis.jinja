@@ -1,0 +1,42 @@
+# {{ title }}
+
+{% if author %}*By {{ author }}*{% endif %}
+{% if creation_date %}*Created: {{ creation_date }}*{% endif %}
+
+{% if include_toc %}
+## Table of Contents
+
+- [Executive Summary](#executive-summary)
+- [Key Trends](#key-trends)
+- [Analysis](#analysis)
+- [Recommendations](#recommendations)
+- [Data Sources](#data-sources)
+
+{% endif %}
+## Executive Summary
+
+Brief overview of key findings.
+
+## Key Trends
+
+1. **Trend 1**: Description
+2. **Trend 2**: Description
+3. **Trend 3**: Description
+
+## Analysis
+
+Detailed analysis of trends and data.
+
+## Recommendations
+
+Strategic recommendations based on analysis.
+
+## Data Sources
+
+{% if sources %}
+{% for source in sources %}
+- {{ source }}
+{% endfor %}
+{% else %}
+Data sources will be listed here.
+{% endif %}
