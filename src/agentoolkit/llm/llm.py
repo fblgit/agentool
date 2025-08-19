@@ -15,6 +15,29 @@ Features:
 - Sentiment: Analyze emotional tone and sentiment
 - Completion: Complete partial text or code
 
+IMPORTANT: Return Structure for Each Operation
+================================================
+All operations return an LLMOutput object with the following structure:
+{
+    "success": bool,
+    "operation": str,
+    "message": str,
+    "data": dict,  # Contains operation-specific results
+    "model_used": str,
+    "tokens_used": dict,
+    "cached": bool
+}
+
+The actual result is always in the 'data' field with these keys:
+- summary: data['summary'] - The summarized text
+- markdownify: data['markdown'] - The markdown formatted text  
+- classification: data['selected_class'] - The selected classification
+- generation: data['generated'] - The generated text
+- extraction: data['extracted'] - The extracted structured data (dict)
+- translation: data['translated'] - The translated text
+- sentiment: data['sentiment'] - The sentiment classification
+- completion: data['completed'] - The completed text
+
 Example Usage:
     >>> from agentoolkit.llm import create_llm_agent
     >>> from agentool.core.injector import get_injector
@@ -31,6 +54,15 @@ Example Usage:
     ...     "content": "Long article text here...",
     ...     "options": {"max_length": 100}
     ... })
+    >>> summary_text = result.data['summary']  # Access the actual summary
+    >>> 
+    >>> # Generate content
+    >>> result = await injector.run('llm', {
+    ...     "operation": "generation",
+    ...     "content": "Write about Python",
+    ...     "prompt": "Create a brief introduction"
+    ... })
+    >>> generated_text = result.data['generated']  # Access the generated text
     >>> 
     >>> # Extract structured data
     >>> result = await injector.run('llm', {
@@ -38,6 +70,7 @@ Example Usage:
     ...     "content": "John Doe, CEO of Acme Corp, announced...",
     ...     "extraction_schema": {"name": "str", "title": "str", "company": "str"}
     ... })
+    >>> extracted_data = result.data['extracted']  # Access the extracted dict
 """
 
 import json
@@ -162,15 +195,12 @@ async def _get_cached_result(cache_key: str) -> Optional[Dict[str, Any]]:
         return None
     
     injector = get_injector()
-    try:
-        result = await injector.run('storage_kv', {
-            'operation': 'get',
-            'key': f'llm_cache:{cache_key}'
-        })
-        if result.success and result.data:
-            return result.data.get('value')
-    except:
-        pass
+    result = await injector.run('storage_kv', {
+        'operation': 'get',
+        'key': f'llm_cache:{cache_key}'
+    })
+    if result.success and result.data:
+        return result.data.get('value')
     return None
 
 
@@ -180,15 +210,12 @@ async def _cache_result(cache_key: str, result: Dict[str, Any], ttl: int = 3600)
         return
     
     injector = get_injector()
-    try:
-        await injector.run('storage_kv', {
-            'operation': 'set',
-            'key': f'llm_cache:{cache_key}',
-            'value': result,
-            'ttl': ttl
-        })
-    except:
-        pass
+    await injector.run('storage_kv', {
+        'operation': 'set',
+        'key': f'llm_cache:{cache_key}',
+        'value': result,
+        'ttl': ttl
+    })
 
 
 async def _render_prompts(
@@ -495,7 +522,7 @@ async def llm_generation(
         ctx: Runtime context
         content: Context or seed text
         prompt: Generation instructions
-        options: Generation options (temperature, max_tokens)
+        options: Generation options (temperature, max_tokens, output_format)
         model: LLM model to use
         cache_key: Optional cache key
         
@@ -523,6 +550,9 @@ async def llm_generation(
         'style': options.get('style', 'creative') if options else 'creative'
     }
     
+    # Check if JSON output is requested
+    output_format = options.get('output_format', 'text') if options else 'text'
+    
     # Render prompts
     system_prompt, user_prompt = await _render_prompts(
         'system/llm/generation',
@@ -545,6 +575,12 @@ async def llm_generation(
     result = await agent.run(content)
     generated_text = result.output
     
+    # Handle JSON extraction if needed
+    extracted_json = None
+    if output_format == 'json' or 'json' in content.lower() or 'JSON' in content:
+        # Try to extract JSON from the response
+        extracted_json = _extract_json_from_text(generated_text)
+    
     # Prepare output data
     output_data = {
         'generated': generated_text,
@@ -555,6 +591,10 @@ async def llm_generation(
             'max_tokens': variables['max_tokens']
         }
     }
+    
+    # Add extracted JSON if available
+    if extracted_json is not None:
+        output_data['generated_json'] = extracted_json
     
     # Cache result
     if cache_key:
@@ -980,6 +1020,78 @@ async def llm_completion(
         model_used=model,
         tokens_used=tokens
     )
+
+
+def _extract_json_from_text(text: str) -> Optional[Dict[str, Any]]:
+    """
+    Extract JSON from text that may contain markdown code blocks.
+    
+    Handles:
+    - Plain JSON
+    - JSON wrapped in ```json ... ```
+    - JSON wrapped in ``` ... ```
+    - Nested code blocks (matches first ``` with last ```)
+    
+    Args:
+        text: Text that may contain JSON
+        
+    Returns:
+        Parsed JSON as dict or None if no valid JSON found
+    """
+    if not text:
+        return None
+    
+    # First try plain JSON
+    try:
+        return json.loads(text.strip())
+    except json.JSONDecodeError:
+        pass
+    
+    # Try extracting from markdown code blocks
+    import re
+    
+    # Pattern for ```json ... ``` or ```JSON ... ```
+    # This still uses non-greedy matching for json-specific blocks
+    json_block_pattern = r'```(?:json|JSON)\s*\n(.*?)\n```'
+    match = re.search(json_block_pattern, text, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group(1).strip())
+        except json.JSONDecodeError:
+            pass
+    
+    # Pattern for generic ``` ... ``` 
+    # Find first ``` and match with the LAST ``` to handle nested blocks
+    if '```' in text:
+        first_backticks = text.find('```')
+        last_backticks = text.rfind('```')
+        
+        if first_backticks != last_backticks and first_backticks >= 0:
+            # Extract content between first and last ```
+            start = first_backticks + 3
+            # Skip any language identifier on the first line
+            newline_after_first = text.find('\n', start)
+            if newline_after_first > start and newline_after_first < last_backticks:
+                content = text[newline_after_first + 1:last_backticks].strip()
+                # Remove trailing newline if present
+                if content.endswith('\n'):
+                    content = content[:-1]
+                try:
+                    return json.loads(content)
+                except json.JSONDecodeError:
+                    pass
+    
+    # Try to find JSON-like content (starts with { or [)
+    # Improved pattern to handle nested objects better
+    json_pattern = r'(\{(?:[^{}]|(?:\{[^{}]*\}))*\}|\[[^\[\]]*(?:\[[^\[\]]*\][^\[\]]*)*\])'
+    matches = re.findall(json_pattern, text, re.DOTALL)
+    for potential_json in matches:
+        try:
+            return json.loads(potential_json.strip())
+        except json.JSONDecodeError:
+            continue
+    
+    return None
 
 
 # Routing configuration

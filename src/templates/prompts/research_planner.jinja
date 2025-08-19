@@ -1,0 +1,35 @@
+Research Topic: {{ query }}
+Research Type: {{ research_type }}
+
+{% if sources %}
+Suggested Sources to Consider:
+{% for source in sources %}
+- {{ source }}
+{% endfor %}
+{% endif %}
+
+{% if search_terms %}
+Initial Search Terms:
+{% for term in search_terms %}
+- {{ term }}
+{% endfor %}
+{% endif %}
+
+{% if max_sources %}
+Maximum Sources to Process: {{ max_sources }}
+{% endif %}
+
+{% if content_filter %}
+Content Filtering Requirements:
+- Relevance Threshold: {{ content_filter.relevance_threshold | default(0.7) }}
+- Quality Threshold: {{ content_filter.quality_threshold | default(0.6) }}
+{% endif %}
+
+Create a comprehensive research plan for this topic that includes:
+1. A clear research strategy
+2. Specific search queries to execute
+3. Target source types to prioritize
+4. Logical research steps to follow
+5. Appropriate content filtering criteria
+
+Focus on finding authoritative, recent, and relevant information about {{ query }}.

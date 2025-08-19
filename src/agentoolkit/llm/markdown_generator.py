@@ -837,11 +837,12 @@ async def markdown_generator_format_content(
             }
         })
         
-        if llm_result.success and llm_result.data:
-            formatted_content = llm_result.data.get('markdown', content)
-        else:
-            # Fallback basic formatting
-            formatted_content = _basic_format_content(content, formatting_options)
+        if not llm_result.success:
+            raise RuntimeError(f"Failed to format content: {llm_result.message}")
+        
+        formatted_content = llm_result.data.get('markdown')
+        if not formatted_content:
+            raise ValueError("No formatted content returned from LLM")
         
         # Extract metrics
         word_count = len(formatted_content.split())
@@ -1341,27 +1342,6 @@ def _update_toc_in_markdown(markdown: str, toc: str) -> str:
     return markdown
 
 
-def _basic_format_content(content: str, options: Dict[str, Any]) -> str:
-    """Basic content formatting fallback."""
-    # Simple text to markdown conversion
-    lines = content.split('\n')
-    formatted_lines = []
-    
-    for line in lines:
-        line = line.strip()
-        if not line:
-            formatted_lines.append('')
-        elif line.isupper() and len(line) > 3:
-            # Likely a heading
-            formatted_lines.append(f"## {line.title()}")
-        elif line.endswith(':') and len(line.split()) <= 5:
-            # Likely a subheading
-            formatted_lines.append(f"### {line}")
-        else:
-            formatted_lines.append(line)
-    
-    return '\n'.join(formatted_lines)
-
 
 def _assess_completeness(doc: Dict[str, Any]) -> int:
     """Assess document completeness."""
@@ -1415,27 +1395,21 @@ async def _assess_readability(markdown: str, injector) -> int:
             'options': {'criteria': 'readability and clarity'}
         })
         
-        if llm_result.success and llm_result.data:
-            readability = llm_result.data.get('selected_class', 'fair')
-            scores = {'excellent': 95, 'good': 80, 'fair': 65, 'poor': 40}
-            return scores.get(readability, 65)
-    except:
-        pass
-    
-    # Fallback: simple readability assessment
-    word_count = len(markdown.split())
-    sentence_count = markdown.count('.') + markdown.count('!') + markdown.count('?')
-    
-    if sentence_count > 0:
-        avg_words_per_sentence = word_count / sentence_count
-        if avg_words_per_sentence <= 15:
-            return 85
-        elif avg_words_per_sentence <= 20:
-            return 75
-        else:
-            return 60
-    
-    return 70
+        if not llm_result.success:
+            raise RuntimeError(f"Failed to assess readability: {llm_result.message}")
+        
+        readability = llm_result.data.get('selected_class')
+        if not readability:
+            raise ValueError("No readability assessment returned from LLM")
+        
+        scores = {'excellent': 95, 'good': 80, 'fair': 65, 'poor': 40}
+        score = scores.get(readability)
+        if score is None:
+            raise ValueError(f"Invalid readability class returned: {readability}")
+        
+        return score
+    except Exception as e:
+        raise RuntimeError(f"Readability assessment failed: {str(e)}")
 
 
 def _assess_formatting(markdown: str) -> int:

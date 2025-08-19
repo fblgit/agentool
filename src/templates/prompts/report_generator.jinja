@@ -1,0 +1,27 @@
+Research Session: {{ session_id }}
+Original Query: {{ query }}
+Research Type: {{ research_type }}
+
+Research Plan:
+{{ plan }}
+
+Aggregated Findings:
+{{ findings }}
+
+{% if report_format %}
+Report Format: {{ report_format }}
+{% endif %}
+
+Generate a comprehensive research report that includes:
+1. An appropriate title for the research
+2. Executive summary (2-3 paragraphs)
+3. Key findings as bullet points
+4. Detailed sections with headers and content
+5. All sources cited with URLs and titles
+6. Description of research methodology
+7. Known limitations or gaps
+8. Actionable recommendations
+9. Confidence score (0.0 to 1.0) in the research
+10. Total source count
+
+Structure the report to be clear, informative, and actionable for someone seeking information about {{ query }}.

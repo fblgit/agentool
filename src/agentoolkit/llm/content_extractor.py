@@ -860,8 +860,8 @@ async def content_extractor_score_quality(
             'options': {'max_tokens': 500}
         })
         
-        if llm_result.success and llm_result.data.get('result'):
-            llm_scores = llm_result.data['result']
+        if llm_result.success and llm_result.data.get('extracted'):
+            llm_scores = llm_result.data['extracted']
             factors['readability'] = llm_scores.get('readability_score', 0.5)
             factors['coherence'] = llm_scores.get('coherence_score', 0.5)
             factors['informativeness'] = llm_scores.get('informativeness_score', 0.5)

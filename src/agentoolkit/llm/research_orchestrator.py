@@ -37,12 +37,51 @@ import asyncio
 from typing import Dict, Any, List, Optional, Literal, Union
 from pydantic import BaseModel, Field, field_validator
 
-from pydantic_ai import RunContext
+from pydantic_ai import RunContext, Agent
+from pydantic_ai.settings import ModelSettings
 
 from agentool import create_agentool
 from agentool.base import BaseOperationInput
 from agentool.core.registry import RoutingConfig
 from agentool.core.injector import get_injector
+
+# Import research models
+from .research_models import (
+    ResearchPlan, ResearchFindings, ContentAggregation,
+    QueryRefinement, ResearchProgress, ResearchReport, SessionData
+)
+
+# Model configuration for different operations
+_MODEL_CONFIG = {
+    '_default': {
+        'model': 'openai:gpt-4o',
+        'settings': ModelSettings(max_tokens=4096, temperature=0.7)
+    },
+    'plan_research': {
+        'model': 'openai:gpt-4o',
+        'settings': ModelSettings(max_tokens=2048, temperature=0.7)
+    },
+    'refine_query': {
+        'model': 'openai:gpt-4o',
+        'settings': ModelSettings(max_tokens=2048, temperature=0.7)
+    },
+    'aggregate_content': {
+        'model': 'openai:gpt-4o',
+        'settings': ModelSettings(max_tokens=3072, temperature=0.6)
+    },
+    'generate_report': {
+        'model': 'openai:gpt-4o',
+        'settings': ModelSettings(max_tokens=4096, temperature=0.6)
+    },
+    'extract_findings': {
+        'model': 'openai:gpt-4o-mini',
+        'settings': ModelSettings(max_tokens=1024, temperature=0.5)
+    }
+}
+
+def get_model_config(operation: str) -> Dict[str, Any]:
+    """Get model configuration for a specific operation."""
+    return _MODEL_CONFIG.get(operation, _MODEL_CONFIG['_default'])
 
 
 class ResearchOrchestratorInput(BaseOperationInput):
@@ -147,13 +186,12 @@ async def research_orchestrator_plan_research(
     content_filter: Optional[Dict[str, Any]] = None
 ) -> ResearchOrchestratorOutput:
     """
-    Plan research strategy for a given query.
+    Plan research strategy for a given query using structured output.
     
-    Analyzes the research query to determine optimal search strategies, target sources,
-    and research steps based on the research type and parameters.
+    Uses templates and Pydantic models for type-safe research planning.
     
     Args:
-        ctx: Runtime context provided by the framework
+        ctx: Runtime context with model access
         session_id: Research session identifier for tracking
         query: Research query or question to investigate
         research_type: Type of research pattern (documentation, trend_analysis, comparative, fact_finding)
@@ -164,11 +202,6 @@ async def research_orchestrator_plan_research(
         
     Returns:
         ResearchOrchestratorOutput with research plan containing strategy, queries, and steps
-        
-    Raises:
-        ValueError: If query is empty or research_type is invalid
-        LLMError: If LLM fails to generate research plan
-        StorageError: If session storage fails
     """
     injector = get_injector()
     
@@ -179,56 +212,73 @@ async def research_orchestrator_plan_research(
         if not research_type:
             raise ValueError("research_type is required for research planning")
             
-        # Generate research plan using LLM
-        plan_prompt = f"""
-        Create a research plan for the following query:
-        Query: {query}
-        Research Type: {research_type}
-        Max Sources: {max_sources}
-        
-        Generate a structured research plan including:
-        1. Research strategy
-        2. Search queries to use
-        3. Target sources and types
-        4. Research steps
-        5. Estimated duration
-        
-        Format as JSON with keys: strategy, search_queries, target_sources, steps, estimated_duration
-        """
-        
-        llm_result = await injector.run('llm', {
-            'operation': 'generation',
-            'content': plan_prompt,
-            'model': 'gpt-4o',
-            'cache_key': f'research_plan_{hash(query + research_type)}'
+        # Load system template with schema
+        template_result = await injector.run('templates', {
+            'operation': 'render',
+            'template_name': 'system/research_planner',
+            'variables': {
+                'schema_json': json.dumps(ResearchPlan.model_json_schema(), indent=2)
+            }
         })
         
-        if not llm_result.success:
-            raise RuntimeError(f"LLM planning failed: {llm_result.message}")
+        if not template_result.success:
+            raise RuntimeError(f"Failed to load system template: {template_result.message}")
+            
+        system_prompt = template_result.data.get('rendered', '')
         
-        # Parse LLM response
-        # The LLM agent returns generated content in 'generated' field
-        try:
-            llm_response_text = llm_result.data.get('generated', '{}')
-            plan_data = json.loads(llm_response_text)
-        except (json.JSONDecodeError, AttributeError):
-            # Fallback plan structure
-            plan_data = {
-                "strategy": f"{research_type}_focused",
-                "search_queries": [query] + (search_terms or []),
-                "target_sources": sources or ["search engines", "official documentation"],
-                "steps": ["search_content", "extract_data", "analyze_results"],
-                "estimated_duration": 300
+        # Load user prompt template
+        prompt_result = await injector.run('templates', {
+            'operation': 'render',
+            'template_name': 'prompts/research_planner',
+            'variables': {
+                'query': query,
+                'research_type': research_type,
+                'sources': sources or [],
+                'search_terms': search_terms or [],
+                'max_sources': max_sources,
+                'content_filter': content_filter or {}
             }
+        })
         
-        # Create session data
+        if not prompt_result.success:
+            raise RuntimeError(f"Failed to load prompt template: {prompt_result.message}")
+            
+        user_prompt = prompt_result.data.get('rendered', '')
+        
+        # Get model configuration for this operation
+        config = get_model_config('plan_research')
+        
+        # Create Agent with structured output
+        agent = Agent(
+            config['model'],
+            output_type=ResearchPlan,
+            system_prompt=system_prompt,
+            model_settings=config['settings']
+        )
+        
+        # Generate research plan
+        result = await agent.run(user_prompt)
+        plan = result.output  # This is a ResearchPlan instance
+        
+        # Capture token usage
+        usage = result.usage()
+        
+        # Track token metrics
+        await injector.run('metrics', {
+            'operation': 'increment',
+            'name': 'agentool.research_orchestrator.tokens.total',
+            'value': usage.total_tokens,
+            'labels': {'operation': 'plan_research', 'model': config['model']}
+        })
+        
+        # Create session data with the plan
         session_data = {
             'session_id': session_id,
             'query': query,
             'research_type': research_type,
             'max_sources': max_sources,
             'content_filter': content_filter or {},
-            'plan': plan_data,
+            'plan': plan.model_dump(),  # Convert to dict for storage
             'status': 'planned',
             'created_at': time.time(),
             'sources_processed': 0,
@@ -255,7 +305,12 @@ async def research_orchestrator_plan_research(
             'level': 'INFO',
             'logger_name': 'research_orchestrator',
             'message': f'Research plan created for session {session_id}',
-            'data': {'query': query, 'research_type': research_type, 'max_sources': max_sources}
+            'data': {
+                'query': query, 
+                'research_type': research_type, 
+                'max_sources': max_sources,
+                'queries_generated': len(plan.search_queries)
+            }
         })
         
         # Track planning metric
@@ -270,11 +325,11 @@ async def research_orchestrator_plan_research(
             message=f"Successfully created research plan for session '{session_id}'",
             data={
                 'plan_id': f'plan_{session_id}',
-                'strategy': plan_data.get('strategy') or f"{research_type}_focused",
-                'search_queries': plan_data.get('search_queries') or [query] + (search_terms or []),
-                'target_sources': plan_data.get('target_sources') or (sources or ["search engines", "official documentation"]),
-                'estimated_duration': plan_data.get('estimated_duration') or 300,
-                'steps': plan_data.get('steps') or ["search_content", "extract_data", "analyze_results"]
+                'strategy': plan.strategy,
+                'search_queries': plan.search_queries,
+                'target_sources': plan.target_sources,
+                'steps': plan.steps,
+                'max_sources': plan.max_sources
             }
         )
         
@@ -342,7 +397,7 @@ async def research_orchestrator_execute_research(
         browser_result = await injector.run('browser_manager', {
             'operation': 'start_browser',
             'browser_id': browser_id,
-            'options': {'headless': True}
+            'options': {'headless': False}
         })
         
         if not browser_result.success:
@@ -355,8 +410,8 @@ async def research_orchestrator_execute_research(
         # Execute search queries and collect content
         for query in search_queries[:max_sources]:
             try:
-                # Use search engine (simulate with direct navigation)
-                search_url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
+                # Use DuckDuckGo search engine (more automation-friendly than Google)
+                search_url = f"https://duckduckgo.com/?q={query.replace(' ', '+')}"
                 
                 # Navigate to search results (timeout in milliseconds)
                 nav_result = await injector.run('page_navigator', {
@@ -376,9 +431,11 @@ async def research_orchestrator_execute_research(
                     
                     if content_result.success:
                         raw_html = content_result.data.get('html', '')
+                        text_content = content_result.data.get('text_content', '')
                         
-                        # For Google search results, extract links and visit them
-                        if 'google.com/search' in search_url:
+                        # For DuckDuckGo search results, extract links and visit them
+                        # DuckDuckGo is more automation-friendly than Google
+                        if 'duckduckgo.com' in search_url:
                             # Extract links from search results
                             links_result = await injector.run('content_extractor', {
                                 'operation': 'extract_links',
@@ -388,17 +445,36 @@ async def research_orchestrator_execute_research(
                             
                             if links_result.success:
                                 links = links_result.data.get('links', [])
-                                # Filter out Google's own links and ads
-                                result_links = [
-                                    link for link in links[:3]  # Take first 3 results
-                                    if not any(domain in link for domain in [
-                                        'google.com', 'youtube.com', 'accounts.google',
-                                        'support.google', 'policies.google'
-                                    ])
-                                ]
+                                # Filter out DuckDuckGo's own links and ads
+                                # Links are dicts with 'url', 'text', 'title' etc.
+                                result_links = []
+                                for link in links[:20]:  # Check more links
+                                    if isinstance(link, dict):
+                                        url = link.get('url', '')
+                                        # Skip DuckDuckGo internal links and non-http links
+                                        if url and 'http' in url and not any(
+                                            domain in url for domain in [
+                                                'duckduckgo.com', 'duck.com', 'duckduckgo.co',
+                                                'javascript:', 'mailto:', '#'
+                                            ]
+                                        ):
+                                            result_links.append(url)
+                                    elif isinstance(link, str) and 'http' in link:
+                                        result_links.append(link)
+                                
+                                # Log found links
+                                await injector.run('logging', {
+                                    'operation': 'log',
+                                    'level': 'INFO',
+                                    'logger_name': 'research_orchestrator',
+                                    'message': f'Found {len(result_links)} external links from DuckDuckGo',
+                                    'data': {'first_3_links': result_links[:3]}
+                                })
                                 
                                 # Visit actual result pages
                                 for result_url in result_links[:2]:  # Visit top 2 results
+                                    if not result_url:  # Skip if URL is None or empty
+                                        continue
                                     try:
                                         # Navigate to actual content page
                                         actual_nav = await injector.run('page_navigator', {
@@ -435,9 +511,11 @@ async def research_orchestrator_execute_research(
                                                         'content_type': session_data.get('research_type', 'html')
                                                     })
                                                     
-                                                    quality_score = 0.7  # Default higher for actual content
-                                                    if quality_result.success:
-                                                        quality_score = quality_result.data.get('quality_score', 0.7)
+                                                    if not quality_result.success:
+                                                        raise RuntimeError(f"Failed to score content quality: {quality_result.message}")
+                                                    quality_score = quality_result.data.get('quality_score')
+                                                    if quality_score is None:
+                                                        raise ValueError("Quality score not returned")
                                                     
                                                     # Apply content filter
                                                     content_filter = session_data.get('content_filter', {})
@@ -482,9 +560,11 @@ async def research_orchestrator_execute_research(
                                     'content_type': session_data.get('research_type', 'html')
                                 })
                                 
-                                quality_score = 0.5  # Default
-                                if quality_result.success:
-                                    quality_score = quality_result.data.get('quality_score', 0.5)
+                                if not quality_result.success:
+                                    raise RuntimeError(f"Failed to score content quality: {quality_result.message}")
+                                quality_score = quality_result.data.get('quality_score')
+                                if quality_score is None:
+                                    raise ValueError("Quality score not returned")
                                 
                                 # Apply content filter
                                 content_filter = session_data.get('content_filter', {})
@@ -620,22 +700,17 @@ async def research_orchestrator_refine_query(
     follow_up_query: str
 ) -> ResearchOrchestratorOutput:
     """
-    Refine research query based on initial findings.
+    Refine research query based on initial findings using structured output.
     
-    Analyzes initial research results to generate refined search strategies
-    and follow-up queries for deeper investigation.
+    Uses templates and Pydantic models for type-safe query refinement.
     
     Args:
-        ctx: Runtime context provided by the framework
+        ctx: Runtime context with model access
         session_id: Research session identifier
         follow_up_query: Follow-up query based on initial findings
         
     Returns:
         ResearchOrchestratorOutput with refined research strategy
-        
-    Raises:
-        KeyError: If session not found
-        LLMError: If query refinement fails
     """
     injector = get_injector()
     
@@ -654,58 +729,82 @@ async def research_orchestrator_refine_query(
         original_query = session_data.get('query', '')
         content_collected = session_data.get('content_collected', [])
         
-        # Ensure follow_up_query is provided (defensive check)
+        # Ensure follow_up_query is provided
         if not follow_up_query:
             raise ValueError("follow_up_query is required for refine_query")
         
-        # Analyze existing content for context
-        content_summary = ""
+        # Prepare findings summary
+        findings_summary = ""
+        knowledge_gaps = []
         if content_collected:
             content_texts = [item.get('content', {}).get('content', '') for item in content_collected[:3]]
-            content_summary = '\n'.join(content_texts)[:1000]  # Limit size
+            findings_summary = '\n'.join(content_texts)[:1000]  # Limit size
+        else:
+            findings_summary = "No content collected yet."
+            knowledge_gaps = ["Initial research not yet executed"]
         
-        # Generate refined research strategy
-        refinement_prompt = f"""
-        Original query: {original_query}
-        Follow-up query: {follow_up_query}
-        
-        Existing research findings summary:
-        {content_summary}
-        
-        Based on the initial findings, refine the research strategy:
-        1. Generate new specific search queries
-        2. Identify knowledge gaps
-        3. Suggest additional sources
-        4. Recommend research direction
-        
-        Format as JSON with keys: refined_queries, knowledge_gaps, suggested_sources, research_direction
-        """
-        
-        llm_result = await injector.run('llm', {
-            'operation': 'generation',
-            'content': refinement_prompt,
-            'model': 'gpt-4o',
-            'cache_key': f'query_refinement_{hash(original_query + follow_up_query)}'
+        # Load system template with schema
+        template_result = await injector.run('templates', {
+            'operation': 'render',
+            'template_name': 'system/query_refiner',
+            'variables': {
+                'schema_json': json.dumps(QueryRefinement.model_json_schema(), indent=2)
+            }
         })
         
-        if not llm_result.success:
-            raise RuntimeError(f"LLM refinement failed: {llm_result.message}")
+        if not template_result.success:
+            raise RuntimeError(f"Failed to load system template: {template_result.message}")
+            
+        system_prompt = template_result.data.get('rendered', '')
         
-        # Parse refinement response
-        try:
-            refinement_data = json.loads(llm_result.data.get('generated', '{}'))
-        except json.JSONDecodeError:
-            refinement_data = {
-                "refined_queries": [follow_up_query],
-                "knowledge_gaps": ["More specific information needed"],
-                "suggested_sources": ["academic databases", "technical documentation"],
-                "research_direction": "deeper_analysis"
+        # Load user prompt template
+        prompt_result = await injector.run('templates', {
+            'operation': 'render',
+            'template_name': 'prompts/query_refiner',
+            'variables': {
+                'session_id': session_id,
+                'original_query': original_query,
+                'follow_up_query': follow_up_query,
+                'findings_summary': findings_summary,
+                'knowledge_gaps': knowledge_gaps
             }
+        })
+        
+        if not prompt_result.success:
+            raise RuntimeError(f"Failed to load prompt template: {prompt_result.message}")
+            
+        user_prompt = prompt_result.data.get('rendered', '')
+        
+        # Get model configuration for this operation
+        config = get_model_config('refine_query')
+        
+        # Create Agent with structured output
+        agent = Agent(
+            config['model'],
+            output_type=QueryRefinement,
+            system_prompt=system_prompt,
+            model_settings=config['settings']
+        )
+        
+        # Generate query refinement
+        result = await agent.run(user_prompt)
+        refinement = result.output  # This is a QueryRefinement instance
+        
+        # Capture token usage
+        usage = result.usage()
+        
+        # Track token metrics
+        await injector.run('metrics', {
+            'operation': 'increment',
+            'name': 'agentool.research_orchestrator.tokens.total',
+            'value': usage.total_tokens,
+            'labels': {'operation': 'refine_query', 'model': config['model']}
+        })
         
         # Update session with refinement
         session_data.update({
             'follow_up_query': follow_up_query,
-            'refinement': refinement_data,
+            'refinement': refinement.model_dump(),  # Convert to dict for storage
             'refined_at': time.time(),
             'status': 'refined'
         })
@@ -724,7 +823,11 @@ async def research_orchestrator_refine_query(
             'level': 'INFO',
             'logger_name': 'research_orchestrator',
             'message': f'Query refined for session {session_id}',
-            'data': {'follow_up_query': follow_up_query}
+            'data': {
+                'follow_up_query': follow_up_query,
+                'refined_queries_count': len(refinement.refined_queries),
+                'gaps_identified': len(refinement.knowledge_gaps)
+            }
         })
         
         # Track refinement metric
@@ -737,10 +840,11 @@ async def research_orchestrator_refine_query(
             success=True,
             message=f"Successfully refined research query for session '{session_id}'",
             data={
-                'refined_queries': refinement_data.get('refined_queries', []),
-                'knowledge_gaps': refinement_data.get('knowledge_gaps', []),
-                'suggested_sources': refinement_data.get('suggested_sources', []),
-                'research_direction': refinement_data.get('research_direction', 'continue')
+                'refined_queries': refinement.refined_queries,
+                'knowledge_gaps': refinement.knowledge_gaps,
+                'suggested_sources': refinement.suggested_sources,
+                'refinement_rationale': refinement.refinement_rationale,
+                'priority_topics': refinement.priority_topics
             }
         )
         
@@ -975,85 +1079,119 @@ async def research_orchestrator_generate_report(
         # Calculate confidence score
         confidence_score = sum(quality_scores) / len(quality_scores) if quality_scores else 0.5
         
-        # Extract key findings using LLM generation instead of extraction
-        findings_content = '\n\n'.join([
-            item.get('content', {}).get('content', '')[:300] 
-            for item in content_items[:3]
-        ])
-        
-        findings_prompt = f"""Based on this research content about: {query}
-
-Content:
-{findings_content}
-
-Generate 3-5 key findings as a simple list. Focus on the most important and actionable insights.
-Format each finding on a new line starting with "- "."""
-        
-        findings_result = await injector.run('llm', {
-            'operation': 'generation',
-            'content': findings_prompt,
-            'options': {'max_tokens': 200},
-            'model': 'gpt-4o'
+        # Load system template with schema for report generation
+        template_result = await injector.run('templates', {
+            'operation': 'render',
+            'template_name': 'system/report_generator',
+            'variables': {
+                'schema_json': json.dumps(ResearchReport.model_json_schema(), indent=2)
+            }
         })
         
-        key_findings = ["Research completed successfully"]
-        if findings_result.success:
-            try:
-                # Parse the generated text to extract findings
-                generated_text = findings_result.data.get('generated', '')
-                if generated_text:
-                    # Split by lines and extract items starting with "-"
-                    lines = generated_text.strip().split('\n')
-                    findings_list = []
-                    for line in lines:
-                        line = line.strip()
-                        if line.startswith('- '):
-                            findings_list.append(line[2:])  # Remove "- " prefix
-                        elif line.startswith('•'):
-                            findings_list.append(line[1:].strip())  # Remove bullet
-                        elif line and not line.startswith('#'):  # Any non-empty, non-header line
-                            findings_list.append(line)
-                    
-                    if findings_list:
-                        key_findings = findings_list[:5]  # Limit to 5 findings
-            except:
-                pass
+        if not template_result.success:
+            raise RuntimeError(f"Failed to load system template: {template_result.message}")
+            
+        system_prompt = template_result.data.get('rendered', '')
+        
+        # Prepare findings for template
+        plan_summary = session_data.get('plan', {})
+        findings_summary = {
+            'content_items': content_items[:10],  # Limit to top 10 items
+            'summary': summary,
+            'quality_scores': quality_scores,
+            'aggregated_data': aggregated_content
+        }
+        
+        # Load user prompt template
+        prompt_result = await injector.run('templates', {
+            'operation': 'render',
+            'template_name': 'prompts/report_generator',
+            'variables': {
+                'session_id': session_id,
+                'query': query,
+                'research_type': research_type,
+                'plan': json.dumps(plan_summary, indent=2),
+                'findings': json.dumps(findings_summary, indent=2),
+                'report_format': report_format
+            }
+        })
+        
+        if not prompt_result.success:
+            raise RuntimeError(f"Failed to load prompt template: {prompt_result.message}")
+            
+        user_prompt = prompt_result.data.get('rendered', '')
+        
+        # Get model configuration for this operation
+        config = get_model_config('generate_report')
+        
+        # Create Agent with structured output
+        agent = Agent(
+            config['model'],
+            output_type=ResearchReport,
+            system_prompt=system_prompt,
+            model_settings=config['settings']
+        )
+        
+        # Generate research report
+        result = await agent.run(user_prompt)
+        report = result.output  # This is a ResearchReport instance
+        
+        # Capture token usage
+        usage = result.usage()
+        
+        # Track token metrics
+        await injector.run('metrics', {
+            'operation': 'increment',
+            'name': 'agentool.research_orchestrator.tokens.total',
+            'value': usage.total_tokens,
+            'labels': {'operation': 'generate_report', 'model': config['model']}
+        })
+        
+        # Calculate confidence if not provided
+        if report.confidence_score == 0:
+            report.confidence_score = sum(quality_scores) / len(quality_scores) if quality_scores else 0.5
+        
+        key_findings = report.key_findings
         
         # Generate report based on format
         if report_format == 'markdown':
-            # Generate markdown report
-            markdown_content = f"""# Research Report: {query}
+            # Build markdown from structured report
+            markdown_content = f"""# {report.title}
 
 ## Executive Summary
-{summary}
+{report.executive_summary}
 
 ## Key Findings
-{chr(10).join(['- ' + finding for finding in key_findings])}
+{chr(10).join(['- ' + finding for finding in report.key_findings])}
 
-## Research Details
-- **Research Type**: {research_type}
-- **Sources Analyzed**: {len(content_items)}
-- **Confidence Score**: {confidence_score:.2f}
-- **Generated**: {time.strftime('%Y-%m-%d %H:%M:%S')}
+## Detailed Sections
+"""
+            # Add detailed sections
+            for section in report.detailed_sections:
+                markdown_content += f"\n### {section.get('header', 'Section')}\n"
+                markdown_content += f"{section.get('content', '')}\n"
+            
+            markdown_content += f"""
+## Methodology
+{report.methodology}
 
 ## Sources
-{chr(10).join(['- ' + item.get('url', 'Unknown source') for item in content_items[:10]])}
+{chr(10).join([f"- [{source.get('title', 'Source')}]({source.get('url', '#')})" for source in report.sources])}
 
-## Methodology
-This research was conducted using automated web research with content extraction and analysis.
-Sources were evaluated for relevance and quality, with duplicate content removed.
+## Limitations
+{chr(10).join(['- ' + limitation for limitation in report.limitations])}
+
+## Recommendations
+{chr(10).join(['- ' + rec for rec in report.recommendations])}
+
+## Metadata
+- **Research Type**: {research_type}
+- **Sources Analyzed**: {report.source_count}
+- **Confidence Score**: {report.confidence_score:.2f}
+- **Generated**: {time.strftime('%Y-%m-%d %H:%M:%S')}
 """
             
-            # Convert to final markdown using LLM
-            markdown_result = await injector.run('llm', {
-                'operation': 'markdownify',
-                'content': markdown_content,
-                'model': 'gpt-4o'
-            })
-            
             final_content = markdown_content
-            if markdown_result.success:
-                final_content = markdown_result.data.get('markdown', markdown_content)
             
             # Save report to filesystem (use relative path for testing compatibility)
             report_path = f'research/reports/{session_id}_report.md'
@@ -1067,34 +1205,32 @@ Sources were evaluated for relevance and quality, with duplicate content removed
             if not save_result.success:
                 raise RuntimeError(f"Failed to save report: {save_result.message}")
             
+            # Update report with saved path
+            report.report_path = report_path
+            
             report_data = {
                 'report_path': report_path,
-                'summary': summary,
-                'source_count': len(content_items),
-                'confidence_score': confidence_score,
-                'key_findings': key_findings
+                'title': report.title,
+                'summary': report.executive_summary,
+                'source_count': report.source_count,
+                'confidence_score': report.confidence_score,
+                'key_findings': report.key_findings
             }
             
         elif report_format == 'structured_data':
-            report_data = {
-                'session_id': session_id,
-                'query': query,
-                'research_type': research_type,
-                'summary': summary,
-                'key_findings': key_findings,
-                'sources': [item.get('url') for item in content_items],
-                'confidence_score': confidence_score,
-                'source_count': len(content_items),
-                'quality_scores': quality_scores,
-                'generated_at': time.time()
-            }
+            # Return full structured report data
+            report_data = report.model_dump()
+            report_data['session_id'] = session_id
+            report_data['generated_at'] = time.time()
             
         else:  # summary format
             report_data = {
-                'summary': summary,
-                'key_findings': key_findings[:3],  # Top 3 findings
-                'confidence_score': confidence_score,
-                'source_count': len(content_items)
+                'title': report.title,
+                'summary': report.executive_summary,
+                'key_findings': report.key_findings[:3],  # Top 3 findings
+                'confidence_score': report.confidence_score,
+                'source_count': report.source_count,
+                'recommendations': report.recommendations[:2] if report.recommendations else []
             }
         
         # Update session status

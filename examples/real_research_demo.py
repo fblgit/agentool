@@ -77,7 +77,8 @@ async def perform_real_research():
     injector = get_injector()
     
     # Real research topic - current and relevant
-    topic = "OpenAI o1 model capabilities and usage"
+    #topic = "OpenAI o1 model capabilities and usage"
+    topic = "OpenAI gpt-5 new models names for their API"
     research_type = "documentation"
     session_id = f"real_research_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     
@@ -119,8 +120,25 @@ async def perform_real_research():
             print(f"   Search queries generated:")
             for i, query in enumerate(plan_data.get('search_queries', [])[:5], 1):
                 print(f"     {i}. {query}")
-            print(f"   Target sources: {', '.join(plan_data.get('target_sources', [])[:3])}")
-            print(f"   Research steps: {', '.join(plan_data.get('steps', []))}")
+            
+            # Handle target_sources which might be dicts or strings
+            target_sources = plan_data.get('target_sources', [])[:3]
+            if target_sources and isinstance(target_sources[0], dict):
+                # If dicts, extract type or description
+                source_strs = [s.get('type', s.get('description', str(s))) for s in target_sources]
+            else:
+                # If already strings
+                source_strs = target_sources
+            print(f"   Target sources: {', '.join(source_strs)}")
+            
+            # Handle steps which should be strings
+            steps = plan_data.get('steps', [])
+            if steps:
+                # Show only first 2 steps for brevity
+                if len(steps) > 2:
+                    print(f"   Research steps: {steps[0]}, {steps[1]}, ... ({len(steps)} total steps)")
+                else:
+                    print(f"   Research steps: {', '.join(steps)}")
         else:
             print(f"❌ Planning failed: {plan_result.message}")
             return
