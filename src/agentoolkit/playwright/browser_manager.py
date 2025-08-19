@@ -296,11 +296,24 @@ async def browser_manager_start_browser(
             os.makedirs(user_data_dir, exist_ok=True)
             launch_options['user_data_dir'] = user_data_dir
         
-        # Add custom args if specified
+        # Prepare browser args with better defaults for web scraping
+        default_args = [
+            '--disable-blink-features=AutomationControlled',  # Hide automation
+            '--disable-dev-shm-usage',  # Overcome limited resource problems
+            '--no-sandbox',  # Required for some environments
+            '--disable-setuid-sandbox',
+            '--disable-web-security',  # Allow cross-origin requests
+            '--disable-features=IsolateOrigins,site-per-process',
+        ]
+        
+        # Add custom args if specified, otherwise use defaults
         if 'args' in browser_options and browser_options['args']:
             if not isinstance(browser_options['args'], list):
                 raise InvalidOptionsError("Browser args must be a list of strings")
-            launch_options['args'] = browser_options['args']
+            # Merge custom args with defaults (custom args override)
+            launch_options['args'] = default_args + browser_options['args']
+        else:
+            launch_options['args'] = default_args
         
         # Get playwright instance and launch browser
         playwright = await _get_playwright()
@@ -312,8 +325,18 @@ async def browser_manager_start_browser(
         pid = 0
         
         try:
-            # Create a context to get process info
-            context = await browser.new_context()
+            # Create a context with a real Chrome user agent
+            context_options = {
+                'user_agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'locale': 'en-US',
+                'timezone_id': 'America/New_York',
+            }
+            
+            # Add viewport to context if specified
+            if 'viewport' in browser_options and browser_options['viewport']:
+                context_options['viewport'] = browser_options['viewport']
+            
+            context = await browser.new_context(**context_options)
             pages_list = context.pages  # This is a property, not a method
             if not pages_list:
                 page = await context.new_page()

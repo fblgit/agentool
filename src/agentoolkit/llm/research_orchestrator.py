@@ -84,6 +84,149 @@ def get_model_config(operation: str) -> Dict[str, Any]:
     return _MODEL_CONFIG.get(operation, _MODEL_CONFIG['_default'])
 
 
+class DomainTracker:
+    """Track domain access patterns and failures."""
+    
+    def __init__(self):
+        self.domain_stats = {}  # domain -> {'attempts': n, 'failures': n, 'blocked': bool}
+        self.blocked_domains = set()
+        self.failure_threshold = 2  # Block domain after 2 failures
+        
+    def record_attempt(self, url: str, success: bool, content_size: int = 0, link_count: int = 0):
+        """Record an access attempt for a domain."""
+        domain = self.extract_domain(url)
+        
+        if domain not in self.domain_stats:
+            self.domain_stats[domain] = {
+                'attempts': 0,
+                'failures': 0,
+                'blocked': False,
+                'avg_size': 0,
+                'avg_links': 0
+            }
+        
+        stats = self.domain_stats[domain]
+        stats['attempts'] += 1
+        
+        if not success:
+            stats['failures'] += 1
+            
+            # Block domain if too many failures
+            if stats['failures'] >= self.failure_threshold:
+                self.blocked_domains.add(domain)
+                stats['blocked'] = True
+        else:
+            # Update averages for successful attempts
+            if content_size > 0:
+                stats['avg_size'] = (stats['avg_size'] * (stats['attempts'] - 1) + content_size) / stats['attempts']
+            if link_count > 0:
+                stats['avg_links'] = (stats['avg_links'] * (stats['attempts'] - 1) + link_count) / stats['attempts']
+    
+    def is_domain_blocked(self, url: str) -> bool:
+        """Check if domain is blocked."""
+        domain = self.extract_domain(url)
+        return domain in self.blocked_domains
+    
+    def should_skip_domain(self, url: str) -> bool:
+        """Check if we should skip this domain."""
+        return self.is_domain_blocked(url)
+    
+    @staticmethod
+    def extract_domain(url: str) -> str:
+        """Extract domain from URL for tracking."""
+        from urllib.parse import urlparse
+        try:
+            parsed = urlparse(url)
+            # Get domain without subdomain for better blocking
+            # e.g., "docs.openai.com" -> "openai.com"
+            domain_parts = parsed.netloc.split('.')
+            if len(domain_parts) > 2:
+                # Keep last two parts (domain.tld)
+                return '.'.join(domain_parts[-2:])
+            return parsed.netloc
+        except:
+            return url
+
+
+def analyze_page_structure(html: str, url: str) -> Dict[str, Any]:
+    """
+    Analyze page structure to detect if it's a blocked/captcha page.
+    
+    Returns dict with:
+        - is_blocked: bool
+        - reason: str
+        - content_size: int
+        - link_count: int
+        - has_main_content: bool
+    """
+    if not html:
+        return {
+            'is_blocked': True,
+            'reason': 'Empty content',
+            'content_size': 0,
+            'link_count': 0,
+            'has_main_content': False
+        }
+    
+    html_lower = html.lower()
+    content_size = len(html.strip())
+    
+    # Count links (rough estimate)
+    link_count = html_lower.count('<a ') + html_lower.count('<a>')
+    
+    # Check for main content indicators
+    has_article = '<article' in html_lower
+    has_main = '<main' in html_lower
+    has_sections = html_lower.count('<section') > 1
+    has_paragraphs = html_lower.count('<p>') > 3
+    has_headers = html_lower.count('<h1') > 0 or html_lower.count('<h2') > 0
+    
+    has_main_content = any([has_article, has_main, has_sections, has_paragraphs, has_headers])
+    
+    # Structural patterns of blocked pages:
+    # 1. Very small size (< 5KB) with few links
+    # 2. Medium size (5-20KB) but no real content structure
+    # 3. Specific blocking patterns in title/meta
+    
+    is_blocked = False
+    reason = ''
+    
+    # Check page title for blocks
+    title_match = html_lower.find('<title>')
+    if title_match > -1:
+        title_end = html_lower.find('</title>', title_match)
+        if title_end > -1:
+            title = html_lower[title_match+7:title_end]
+            if any(x in title for x in ['just a moment', 'please wait', 'checking', 'attention required', '403', 'denied', 'blocked']):
+                is_blocked = True
+                reason = 'Blocking title detected'
+    
+    # Small page with very few links (typical of block pages)
+    if not is_blocked and content_size < 5000 and link_count < 5:
+        is_blocked = True
+        reason = f'Small page ({content_size} bytes) with few links ({link_count})'
+    
+    # Medium page but no content structure
+    if not is_blocked and content_size < 20000 and not has_main_content:
+        is_blocked = True
+        reason = f'No main content structure found ({content_size} bytes)'
+    
+    # Check for challenge/verification forms
+    if not is_blocked and ('challenge-form' in html_lower or 'verification' in html_lower or 'cf-wrapper' in html_lower):
+        # But only if it lacks main content
+        if not has_main_content:
+            is_blocked = True
+            reason = 'Challenge/verification form without main content'
+    
+    return {
+        'is_blocked': is_blocked,
+        'reason': reason,
+        'content_size': content_size,
+        'link_count': link_count,
+        'has_main_content': has_main_content
+    }
+
+
 class ResearchOrchestratorInput(BaseOperationInput):
     """Input schema for research_orchestrator operations.
     
@@ -407,6 +550,9 @@ async def research_orchestrator_execute_research(
         content_collected = []
         relevance_scores = []
         
+        # Initialize domain tracker for this session
+        domain_tracker = DomainTracker()
+        
         # Execute search queries and collect content
         for query in search_queries[:max_sources]:
             try:
@@ -472,9 +618,21 @@ async def research_orchestrator_execute_research(
                                 })
                                 
                                 # Visit actual result pages
-                                for result_url in result_links[:2]:  # Visit top 2 results
+                                for result_url in result_links[:5]:  # Check up to 5 results
                                     if not result_url:  # Skip if URL is None or empty
                                         continue
+                                    
+                                    # Check if domain is already blocked
+                                    if domain_tracker.should_skip_domain(result_url):
+                                        await injector.run('logging', {
+                                            'operation': 'log',
+                                            'level': 'INFO',
+                                            'logger_name': 'research_orchestrator',
+                                            'message': f'Skipping blocked domain: {domain_tracker.extract_domain(result_url)}',
+                                            'data': {'url': result_url}
+                                        })
+                                        continue
+                                    
                                     try:
                                         # Navigate to actual content page
                                         actual_nav = await injector.run('page_navigator', {
@@ -495,6 +653,32 @@ async def research_orchestrator_execute_research(
                                             if actual_content.success:
                                                 actual_html = actual_content.data.get('html', '')
                                                 
+                                                # Analyze page structure to detect blocks
+                                                page_analysis = analyze_page_structure(actual_html, result_url)
+                                                
+                                                if page_analysis['is_blocked']:
+                                                    # Record failure for this domain
+                                                    domain_tracker.record_attempt(
+                                                        result_url, 
+                                                        success=False,
+                                                        content_size=page_analysis['content_size'],
+                                                        link_count=page_analysis['link_count']
+                                                    )
+                                                    
+                                                    await injector.run('logging', {
+                                                        'operation': 'log',
+                                                        'level': 'WARN',
+                                                        'logger_name': 'research_orchestrator',
+                                                        'message': f'Page blocked/captcha detected: {page_analysis["reason"]}',
+                                                        'data': {
+                                                            'url': result_url,
+                                                            'domain': domain_tracker.extract_domain(result_url),
+                                                            'content_size': page_analysis['content_size'],
+                                                            'link_count': page_analysis['link_count']
+                                                        }
+                                                    })
+                                                    continue
+                                                
                                                 # Extract content from actual page
                                                 extract_result = await injector.run('content_extractor', {
                                                     'operation': 'extract_content',
@@ -504,6 +688,14 @@ async def research_orchestrator_execute_research(
                                                 })
                                                 
                                                 if extract_result.success:
+                                                    # Record successful domain access
+                                                    domain_tracker.record_attempt(
+                                                        result_url,
+                                                        success=True,
+                                                        content_size=page_analysis['content_size'],
+                                                        link_count=page_analysis['link_count']
+                                                    )
+                                                    
                                                     # Score actual content quality
                                                     quality_result = await injector.run('content_extractor', {
                                                         'operation': 'score_quality',
@@ -530,6 +722,10 @@ async def research_orchestrator_execute_research(
                                                         })
                                                         relevance_scores.append(quality_score)
                                                         sources_processed += 1
+                                                        
+                                                        # Stop if we have enough good sources
+                                                        if sources_processed >= 2:
+                                                            break
                                                     
                                                     # Rate limiting between actual page visits
                                                     await asyncio.sleep(1)
@@ -631,6 +827,19 @@ async def research_orchestrator_execute_research(
                 'path': f'research/cache/{session_id}_content.json',
                 'content': json.dumps(content_cache, indent=2),
                 'create_parents': True
+            })
+        
+        # Log domain statistics
+        if domain_tracker.domain_stats:
+            await injector.run('logging', {
+                'operation': 'log',
+                'level': 'INFO',
+                'logger_name': 'research_orchestrator',
+                'message': f'Domain access statistics for session {session_id}',
+                'data': {
+                    'blocked_domains': list(domain_tracker.blocked_domains),
+                    'domain_stats': domain_tracker.domain_stats
+                }
             })
         
         # Log successful execution

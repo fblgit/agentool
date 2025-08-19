@@ -77,8 +77,7 @@ async def perform_real_research():
     injector = get_injector()
     
     # Real research topic - current and relevant
-    #topic = "OpenAI o1 model capabilities and usage"
-    topic = "OpenAI gpt-5 new models names for their API"
+    topic = "OpenAI o1 model capabilities and usage"
     research_type = "documentation"
     session_id = f"real_research_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     
@@ -397,7 +396,7 @@ async def main():
     
     # Research one more topic as demonstration
     print(f"\n🔬 Researching: {other_topics[0]}")
-    await research_custom_topic(other_topics[0], "documentation")
+    #await research_custom_topic(other_topics[0], "documentation")
     
     print("\n✨ Demo complete! Modify the code to research your own topics.")
 
