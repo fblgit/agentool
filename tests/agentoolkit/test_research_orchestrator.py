@@ -630,11 +630,20 @@ class TestResearchOrchestratorAgent:
             except Exception as e:
                 assert "research_type is required" in str(e)
             
-            # Test missing follow_up_query for refine_query
+            # Test missing follow_up_query for refine_query - but first create a session
+            # Create a minimal session for testing validation
+            await injector.run('research_orchestrator', {
+                "operation": "plan_research",
+                "session_id": "test_validation_session",
+                "query": "Test validation query",
+                "research_type": "documentation"
+            })
+            
+            # Now test missing follow_up_query
             try:
                 await injector.run('research_orchestrator', {
                     "operation": "refine_query",
-                    "session_id": "test_session"
+                    "session_id": "test_validation_session"
                 })
                 assert False, "Should have raised validation error"
             except Exception as e:

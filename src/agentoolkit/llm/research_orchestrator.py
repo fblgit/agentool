@@ -358,12 +358,12 @@ async def research_orchestrator_execute_research(
                 # Use search engine (simulate with direct navigation)
                 search_url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
                 
-                # Navigate to search results
+                # Navigate to search results (timeout in milliseconds)
                 nav_result = await injector.run('page_navigator', {
                     'operation': 'navigate',
                     'browser_id': browser_id,
                     'url': search_url,
-                    'timeout': 30.0
+                    'timeout': 30000  # 30 seconds in milliseconds
                 })
                 
                 if nav_result.success:
@@ -377,41 +377,128 @@ async def research_orchestrator_execute_research(
                     if content_result.success:
                         raw_html = content_result.data.get('html', '')
                         
-                        # Extract structured content
-                        extract_result = await injector.run('content_extractor', {
-                            'operation': 'extract_content',
-                            'content': raw_html,
-                            'url': search_url,
-                            'content_type': session_data.get('research_type', 'html')
-                        })
-                        
-                        if extract_result.success:
-                            extracted_content = extract_result.data
-                            
-                            # Score content quality
-                            quality_result = await injector.run('content_extractor', {
-                                'operation': 'score_quality',
+                        # For Google search results, extract links and visit them
+                        if 'google.com/search' in search_url:
+                            # Extract links from search results
+                            links_result = await injector.run('content_extractor', {
+                                'operation': 'extract_links',
                                 'content': raw_html,
+                                'url': search_url
+                            })
+                            
+                            if links_result.success:
+                                links = links_result.data.get('links', [])
+                                # Filter out Google's own links and ads
+                                result_links = [
+                                    link for link in links[:3]  # Take first 3 results
+                                    if not any(domain in link for domain in [
+                                        'google.com', 'youtube.com', 'accounts.google',
+                                        'support.google', 'policies.google'
+                                    ])
+                                ]
+                                
+                                # Visit actual result pages
+                                for result_url in result_links[:2]:  # Visit top 2 results
+                                    try:
+                                        # Navigate to actual content page
+                                        actual_nav = await injector.run('page_navigator', {
+                                            'operation': 'navigate',
+                                            'browser_id': browser_id,
+                                            'url': result_url,
+                                            'timeout': 20000  # 20 seconds
+                                        })
+                                        
+                                        if actual_nav.success:
+                                            # Get actual page content
+                                            actual_content = await injector.run('page_navigator', {
+                                                'operation': 'get_content',
+                                                'browser_id': browser_id,
+                                                'extract_content': True
+                                            })
+                                            
+                                            if actual_content.success:
+                                                actual_html = actual_content.data.get('html', '')
+                                                
+                                                # Extract content from actual page
+                                                extract_result = await injector.run('content_extractor', {
+                                                    'operation': 'extract_content',
+                                                    'content': actual_html,
+                                                    'url': result_url,
+                                                    'content_type': session_data.get('research_type', 'html')
+                                                })
+                                                
+                                                if extract_result.success:
+                                                    # Score actual content quality
+                                                    quality_result = await injector.run('content_extractor', {
+                                                        'operation': 'score_quality',
+                                                        'content': actual_html,
+                                                        'content_type': session_data.get('research_type', 'html')
+                                                    })
+                                                    
+                                                    quality_score = 0.7  # Default higher for actual content
+                                                    if quality_result.success:
+                                                        quality_score = quality_result.data.get('quality_score', 0.7)
+                                                    
+                                                    # Apply content filter
+                                                    content_filter = session_data.get('content_filter', {})
+                                                    relevance_threshold = content_filter.get('relevance_threshold', 0.3)
+                                                    
+                                                    if quality_score >= relevance_threshold:
+                                                        content_collected.append({
+                                                            'url': result_url,
+                                                            'content': extract_result.data,
+                                                            'quality_score': quality_score,
+                                                            'extracted_at': time.time()
+                                                        })
+                                                        relevance_scores.append(quality_score)
+                                                        sources_processed += 1
+                                                    
+                                                    # Rate limiting between actual page visits
+                                                    await asyncio.sleep(1)
+                                    except Exception as link_error:
+                                        await injector.run('logging', {
+                                            'operation': 'log',
+                                            'level': 'WARN',
+                                            'logger_name': 'research_orchestrator',
+                                            'message': f'Failed to process result link in session {session_id}',
+                                            'data': {'error': str(link_error), 'url': result_url}
+                                        })
+                        else:
+                            # For direct URLs, extract content normally
+                            extract_result = await injector.run('content_extractor', {
+                                'operation': 'extract_content',
+                                'content': raw_html,
+                                'url': search_url,
                                 'content_type': session_data.get('research_type', 'html')
                             })
                             
-                            quality_score = 0.5  # Default
-                            if quality_result.success:
-                                quality_score = quality_result.data.get('quality_score', 0.5)
-                            
-                            # Apply content filter
-                            content_filter = session_data.get('content_filter', {})
-                            relevance_threshold = content_filter.get('relevance_threshold', 0.3)
-                            
-                            if quality_score >= relevance_threshold:
-                                content_collected.append({
-                                    'url': search_url,
-                                    'content': extracted_content,
-                                    'quality_score': quality_score,
-                                    'extracted_at': time.time()
+                            if extract_result.success:
+                                extracted_content = extract_result.data
+                                
+                                # Score content quality
+                                quality_result = await injector.run('content_extractor', {
+                                    'operation': 'score_quality',
+                                    'content': raw_html,
+                                    'content_type': session_data.get('research_type', 'html')
                                 })
-                                relevance_scores.append(quality_score)
-                                sources_processed += 1
+                                
+                                quality_score = 0.5  # Default
+                                if quality_result.success:
+                                    quality_score = quality_result.data.get('quality_score', 0.5)
+                                
+                                # Apply content filter
+                                content_filter = session_data.get('content_filter', {})
+                                relevance_threshold = content_filter.get('relevance_threshold', 0.3)
+                                
+                                if quality_score >= relevance_threshold:
+                                    content_collected.append({
+                                        'url': search_url,
+                                        'content': extracted_content,
+                                        'quality_score': quality_score,
+                                        'extracted_at': time.time()
+                                    })
+                                    relevance_scores.append(quality_score)
+                                    sources_processed += 1
                 
                 # Rate limiting
                 await asyncio.sleep(1)
@@ -566,6 +653,10 @@ async def research_orchestrator_refine_query(
         session_data = session_result.data.get('value', {})
         original_query = session_data.get('query', '')
         content_collected = session_data.get('content_collected', [])
+        
+        # Ensure follow_up_query is provided (defensive check)
+        if not follow_up_query:
+            raise ValueError("follow_up_query is required for refine_query")
         
         # Analyze existing content for context
         content_summary = ""
