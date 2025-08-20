@@ -268,3 +268,134 @@ class SessionData(BaseModel):
         default=None,
         description="Error message if session failed"
     )
+
+
+# Documentation-specific models for deep extraction
+
+class DocumentationSection(BaseModel):
+    """A section of extracted documentation.
+    
+    Represents a structured piece of documentation with heading,
+    content, and associated metadata like code examples.
+    """
+    heading: str = Field(
+        description="Section heading/title"
+    )
+    content: str = Field(
+        description="Markdown-formatted content of the section"
+    )
+    has_code: bool = Field(
+        default=False,
+        description="Whether this section contains code examples"
+    )
+    code_blocks: List[str] = Field(
+        default_factory=list,
+        description="List of code blocks in this section (with language markers)"
+    )
+    relevance: float = Field(
+        ge=0.0, le=1.0,
+        description="Relevance score to the research query (0-1)"
+    )
+    concepts_covered: List[str] = Field(
+        default_factory=list,
+        description="Key concepts covered in this section"
+    )
+
+
+class DocumentationExtractLLM(BaseModel):
+    """Documentation extraction model for LLM output.
+    
+    This model is used when the LLM generates documentation extraction.
+    It excludes system-generated fields like extracted_at and url.
+    """
+    title: str = Field(
+        description="Title of the documentation page"
+    )
+    relevance_score: float = Field(
+        ge=0.0, le=1.0,
+        description="Overall relevance to the research query"
+    )
+    completeness_score: float = Field(
+        ge=0.0, le=1.0,
+        description="How completely this source answers the query"
+    )
+    sections: List[DocumentationSection] = Field(
+        description="Extracted documentation sections"
+    )
+    key_concepts: List[str] = Field(
+        default_factory=list,
+        description="Main concepts covered in this documentation"
+    )
+    missing_information: List[str] = Field(
+        default_factory=list,
+        description="Information still needed that wasn't found here"
+    )
+    related_links: List[str] = Field(
+        default_factory=list,
+        description="Related documentation links for follow-up"
+    )
+    
+    @field_validator('sections')
+    def validate_sections_not_empty(cls, v: List[DocumentationSection]) -> List[DocumentationSection]:
+        """Ensure at least one section is extracted."""
+        if not v:
+            raise ValueError("At least one documentation section must be extracted")
+        return v
+
+
+class DocumentationExtract(BaseModel):
+    """Complete documentation extraction from a single source.
+    
+    Contains structured documentation extracted from a web page,
+    with sections, relevance scoring, and completeness assessment.
+    """
+    url: str = Field(
+        description="Source URL of the documentation"
+    )
+    title: str = Field(
+        description="Title of the documentation page"
+    )
+    relevance_score: float = Field(
+        ge=0.0, le=1.0,
+        description="Overall relevance to the research query"
+    )
+    completeness_score: float = Field(
+        ge=0.0, le=1.0,
+        description="How completely this source answers the query"
+    )
+    sections: List[DocumentationSection] = Field(
+        description="Extracted documentation sections"
+    )
+    key_concepts: List[str] = Field(
+        default_factory=list,
+        description="Main concepts covered in this documentation"
+    )
+    missing_information: List[str] = Field(
+        default_factory=list,
+        description="Information still needed that wasn't found here"
+    )
+    related_links: List[str] = Field(
+        default_factory=list,
+        description="Related documentation links for follow-up"
+    )
+    extracted_at: float = Field(
+        description="Timestamp when extraction was performed"
+    )
+    
+    @field_validator('sections')
+    def validate_sections_not_empty(cls, v: List[DocumentationSection]) -> List[DocumentationSection]:
+        """Ensure at least one section is extracted."""
+        if not v:
+            raise ValueError("At least one documentation section must be extracted")
+        return v
+    
+    def get_all_code_blocks(self) -> List[str]:
+        """Get all code blocks from all sections."""
+        code_blocks = []
+        for section in self.sections:
+            code_blocks.extend(section.code_blocks)
+        return code_blocks
+    
+    def get_total_content_length(self) -> int:
+        """Calculate total content length across all sections."""
+        return sum(len(section.content) for section in self.sections)

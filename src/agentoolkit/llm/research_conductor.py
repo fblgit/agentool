@@ -382,10 +382,7 @@ async def filter_urls(
             url_index += 1
     
     if not all_urls:
-        return {
-            'success': False,
-            'message': "No URLs to filter after applying exclusions"
-        }
+        raise ValueError("No URLs to filter after applying exclusions")
     
     # Load templates
     with open('src/templates/system/url_filter.jinja', 'r') as f:

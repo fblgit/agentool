@@ -44,6 +44,9 @@ from agentool.base import BaseOperationInput
 from agentool.core.registry import RoutingConfig
 from agentool.core.injector import get_injector
 
+# Import documentation models for deep extraction
+from .research_models import DocumentationExtract, DocumentationExtractLLM, DocumentationSection
+
 
 class ContentExtractorInput(BaseOperationInput):
     """Input schema for content_extractor operations."""
@@ -55,7 +58,8 @@ class ContentExtractorInput(BaseOperationInput):
         'extract_links', 
         'extract_code', 
         'score_quality', 
-        'clean_content'
+        'clean_content',
+        'extract_documentation'
     ] = Field(description="Content extraction operation to perform")
     
     content: str = Field(description="Raw HTML or text content to process")
@@ -1043,6 +1047,159 @@ async def content_extractor_clean_content(
         raise ValueError(f"Failed to clean content: {str(e)}") from e
 
 
+async def content_extractor_extract_documentation(
+    ctx: RunContext[Any],
+    content: str,
+    url: Optional[str] = None,
+    content_type: str = "documentation",
+    options: Optional[Dict[str, Any]] = None
+) -> ContentExtractorOutput:
+    """
+    Extract structured documentation from HTML content.
+    
+    Uses LLM to extract documentation sections with code examples,
+    concepts, and relevance scoring for comprehensive documentation.
+    
+    Args:
+        ctx: Runtime context
+        content: Raw HTML content to extract documentation from
+        url: Source URL for context
+        content_type: Type of content (documentation, api_reference, etc.)
+        options: Additional options including:
+            - query: Research query for relevance scoring
+            - focus: Specific focus areas (e.g., "code examples", "configuration")
+            - max_sections: Maximum number of sections to extract
+            
+    Returns:
+        ContentExtractorOutput with DocumentationExtract data
+    """
+    import time
+    from pydantic_ai import Agent
+    from pydantic_ai.settings import ModelSettings
+    
+    injector = get_injector()
+    options = options or {}
+    query = options.get('query', '')
+    focus = options.get('focus', 'general documentation')
+    max_sections = options.get('max_sections', 10)
+    
+    try:
+        # First, extract the main content using existing extraction
+        extraction_result = await content_extractor_extract_content(
+            ctx, content, url, content_type, options
+        )
+        
+        if not extraction_result.success:
+            raise RuntimeError(f"Failed to extract base content for documentation: {extraction_result.message}")
+        
+        extracted_text = extraction_result.data.get('content', '')
+        
+        # Load documentation extraction templates
+        system_template_result = await injector.run('templates', {
+            'operation': 'render',
+            'template_name': 'system/documentation_extractor',
+            'variables': {
+                'schema_json': json.dumps(DocumentationExtract.model_json_schema(), indent=2)
+            }
+        })
+        
+        system_prompt = system_template_result.data.get('rendered', '')
+        
+        prompt_template_result = await injector.run('templates', {
+            'operation': 'render',
+            'template_name': 'prompts/extract_documentation',
+            'variables': {
+                'url': url or 'Unknown',
+                'content': extracted_text[:100000],  # Limit content size
+                'query': query,
+                'research_type': content_type,
+                'options': options
+            }
+        })
+        
+        user_prompt = prompt_template_result.data.get('rendered', '')
+        
+        # Use LLM to extract structured documentation
+        agent = Agent(
+            'openai:gpt-4o-mini',
+            output_type=DocumentationExtractLLM,
+            system_prompt=system_prompt,
+            model_settings=ModelSettings(
+                temperature=0.3,
+                max_tokens=8192
+            )
+        )
+        
+        result = await agent.run(user_prompt)
+        
+        # Debug logging
+        await injector.run('logging', {
+            'operation': 'log',
+            'level': 'INFO',
+            'logger_name': 'content_extractor',
+            'message': f'LLM result type: {type(result)}, has output: {hasattr(result, "output")}',
+            'data': {'result_str': str(result)[:200] if result else 'None'}
+        })
+        
+        doc_extract_raw = result.output
+        
+        # Create properly initialized DocumentationExtract with URL and timestamp
+        doc_extract = DocumentationExtract(
+            url=url or '',
+            title=doc_extract_raw.title,
+            relevance_score=doc_extract_raw.relevance_score,
+            completeness_score=doc_extract_raw.completeness_score,
+            sections=doc_extract_raw.sections,
+            key_concepts=doc_extract_raw.key_concepts,
+            missing_information=doc_extract_raw.missing_information,
+            related_links=doc_extract_raw.related_links,
+            extracted_at=time.time()
+        )
+        
+        # Log extraction
+        await injector.run('logging', {
+            'operation': 'log',
+            'level': 'INFO',
+            'logger_name': 'content_extractor',
+            'message': f'Documentation extracted from {url}',
+            'data': {
+                'sections_extracted': len(doc_extract.sections),
+                'relevance_score': doc_extract.relevance_score,
+                'completeness_score': doc_extract.completeness_score,
+                'code_blocks_found': len(doc_extract.get_all_code_blocks())
+            }
+        })
+        
+        # Track metrics
+        await injector.run('metrics', {
+            'operation': 'increment',
+            'name': 'agentool.content_extractor.documentation_extracted.count'
+        })
+        
+        return ContentExtractorOutput(
+            success=True,
+            message=f"Successfully extracted {len(doc_extract.sections)} documentation sections",
+            data=doc_extract.model_dump()
+        )
+        
+    except Exception as e:
+        await injector.run('logging', {
+            'operation': 'log',
+            'level': 'ERROR',
+            'logger_name': 'content_extractor',
+            'message': f'Documentation extraction failed for {url}',
+            'data': {'error': str(e), 'traceback': str(e.__traceback__)}
+        })
+        
+        await injector.run('metrics', {
+            'operation': 'increment',
+            'name': 'agentool.content_extractor.documentation_extracted.errors'
+        })
+        
+        # Re-raise the exception with context
+        raise RuntimeError(f"Documentation extraction failed for {url}: {str(e)}") from e
+
+
 # Routing configuration
 content_extractor_routing = RoutingConfig(
     operation_field='operation',
@@ -1088,6 +1245,12 @@ content_extractor_routing = RoutingConfig(
             'url': x.url,
             'content_type': x.content_type,
             'options': x.options
+        }),
+        'extract_documentation': ('content_extractor_extract_documentation', lambda x: {
+            'content': x.content,
+            'url': x.url,
+            'content_type': x.content_type,
+            'options': x.options
         })
     }
 )
@@ -1111,9 +1274,11 @@ def create_content_extractor_agent():
             content_extractor_extract_links,
             content_extractor_extract_code,
             content_extractor_score_quality,
-            content_extractor_clean_content
+            content_extractor_clean_content,
+            content_extractor_extract_documentation
         ],
         output_type=ContentExtractorOutput,
+        use_typed_output=True,
         system_prompt="You are a specialized content extraction agent that parses HTML and text content to extract structured information. You intelligently remove boilerplate content, identify main content sections, extract metadata and links, parse code blocks, and assess content quality. You handle various content types including documentation, blogs, news articles, and API references with appropriate extraction strategies for each type.",
         description="Extracts and structures content from raw HTML, text, and web pages with intelligent parsing using operations: parse_html, extract_content, extract_metadata, extract_links, extract_code, score_quality, clean_content",
         version="1.0.0",

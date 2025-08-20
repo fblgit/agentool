@@ -21,6 +21,10 @@ import sys
 from agentool.core.injector import get_injector
 from agentool.core.registry import AgenToolRegistry
 from pydantic_ai import models
+import logfire
+logfire.configure()
+logfire.instrument_pydantic_ai()
+logfire.instrument_httpx(capture_all=True)
 
 # Enable model requests for LLM operations
 models.ALLOW_MODEL_REQUESTS = True

@@ -55,7 +55,7 @@ from .research_models import (
 _MODEL_CONFIG = {
     '_default': {
         'model': 'openai:gpt-4o',
-        'settings': ModelSettings(max_tokens=4096, temperature=0.7)
+        'settings': ModelSettings(max_tokens=8192, temperature=0.7)
     },
     'plan_research': {
         'model': 'openai:gpt-4o',
@@ -580,12 +580,26 @@ async def research_orchestrator_execute_research(
                             raw_html = content_result.data.get('html', '')
                             
                             # Extract content from the page
-                            extract_result = await injector.run('content_extractor', {
-                                'operation': 'extract_content',
-                                'content': raw_html,
-                                'url': source_url,
-                                'content_type': session_data.get('research_type', 'html')
-                            })
+                            # Use extract_documentation for documentation research type
+                            research_type = session_data.get('research_type', 'html')
+                            if research_type == 'documentation':
+                                extract_result = await injector.run('content_extractor', {
+                                    'operation': 'extract_documentation',
+                                    'content': raw_html,
+                                    'url': source_url,
+                                    'content_type': 'documentation',
+                                    'options': {
+                                        'query': session_data.get('query', ''),
+                                        'research_type': research_type
+                                    }
+                                })
+                            else:
+                                extract_result = await injector.run('content_extractor', {
+                                    'operation': 'extract_content',
+                                    'content': raw_html,
+                                    'url': source_url,
+                                    'content_type': research_type
+                                })
                             
                             if extract_result.success:
                                 # Score content quality
@@ -751,12 +765,26 @@ async def research_orchestrator_execute_research(
                                                         continue
                                                     
                                                     # Extract content from actual page
-                                                    extract_result = await injector.run('content_extractor', {
-                                                        'operation': 'extract_content',
-                                                        'content': actual_html,
-                                                        'url': result_url,
-                                                        'content_type': session_data.get('research_type', 'html')
-                                                    })
+                                                    # Use extract_documentation for documentation research type
+                                                    research_type = session_data.get('research_type', 'html')
+                                                    if research_type == 'documentation':
+                                                        extract_result = await injector.run('content_extractor', {
+                                                            'operation': 'extract_documentation',
+                                                            'content': actual_html,
+                                                            'url': result_url,
+                                                            'content_type': 'documentation',
+                                                            'options': {
+                                                                'query': session_data.get('query', ''),
+                                                                'research_type': research_type
+                                                            }
+                                                        })
+                                                    else:
+                                                        extract_result = await injector.run('content_extractor', {
+                                                            'operation': 'extract_content',
+                                                            'content': actual_html,
+                                                            'url': result_url,
+                                                            'content_type': research_type
+                                                        })
                                                     
                                                     if extract_result.success:
                                                         # Record successful domain access
@@ -810,15 +838,29 @@ async def research_orchestrator_execute_research(
                                             })
                             else:
                                 # For direct URLs, extract content normally
-                                extract_result = await injector.run('content_extractor', {
-                                    'operation': 'extract_content',
-                                    'content': raw_html,
-                                    'url': search_url,
-                                    'content_type': session_data.get('research_type', 'html')
-                                })
+                                # Use extract_documentation for documentation research type
+                                research_type = session_data.get('research_type', 'html')
+                                if research_type == 'documentation':
+                                    extract_result = await injector.run('content_extractor', {
+                                        'operation': 'extract_documentation',
+                                        'content': raw_html,
+                                        'url': search_url,
+                                        'content_type': 'documentation',
+                                        'options': {
+                                            'query': session_data.get('query', ''),
+                                            'research_type': research_type
+                                        }
+                                    })
+                                else:
+                                    extract_result = await injector.run('content_extractor', {
+                                        'operation': 'extract_content',
+                                        'content': raw_html,
+                                        'url': search_url,
+                                        'content_type': research_type
+                                    })
                                 
-                                if extract_result.success:
-                                    extracted_content = extract_result.data
+                                if is_success:
+                                    extracted_content = extract_data.get('data') if isinstance(extract_data, dict) else extract_data.data
                                     
                                     # Score content quality
                                     quality_result = await injector.run('content_extractor', {
@@ -1345,16 +1387,25 @@ async def research_orchestrator_generate_report(
         research_type = session_data.get('research_type', 'general')
         
         if not aggregated_content:
-            return ResearchOrchestratorOutput(
-                success=False,
-                message=f"No aggregated content available for session '{session_id}'. Run aggregate_content first.",
-                data=None
-            )
+            raise RuntimeError(f"No aggregated content available for session '{session_id}'. Run aggregate_content first.")
         
         # Prepare report data
         content_items = aggregated_content.get('content_items', [])
         summary = aggregated_content.get('summary', '')
         quality_scores = aggregated_content.get('quality_scores', [])
+        
+        # For documentation type, check if we have extracted documentation
+        if research_type == 'documentation':
+            # Get the raw content collected during execution
+            content_collected = session_data.get('content_collected', [])
+            # Check if we have documentation extracts
+            has_documentation = any(
+                'sections' in item.get('content', {}).get('data', {})
+                for item in content_collected
+            )
+            if has_documentation:
+                # Use documentation extracts directly
+                content_items = content_collected
         
         # Calculate confidence score
         confidence_score = sum(quality_scores) / len(quality_scores) if quality_scores else 0.5
@@ -1446,7 +1497,34 @@ async def research_orchestrator_generate_report(
 
 ## Detailed Sections
 """
-            # Add detailed sections
+            # For documentation type, also include extracted documentation sections
+            if research_type == 'documentation' and content_items:
+                markdown_content += "\n## Extracted Documentation\n"
+                for item_idx, item in enumerate(content_items):
+                    if isinstance(item, dict) and 'content' in item:
+                        content_data = item['content']
+                        if isinstance(content_data, dict) and 'data' in content_data:
+                            extract_data = content_data['data']
+                            if isinstance(extract_data, dict) and 'sections' in extract_data:
+                                # We have documentation sections
+                                url = item.get('url', 'Unknown Source')
+                                markdown_content += f"\n### Source: {url}\n"
+                                
+                                for section in extract_data.get('sections', []):
+                                    if isinstance(section, dict):
+                                        heading = section.get('heading', 'Section')
+                                        content = section.get('content', '')
+                                        markdown_content += f"\n#### {heading}\n"
+                                        markdown_content += f"{content}\n"
+                                        
+                                        # Add code blocks if present
+                                        code_blocks = section.get('code_blocks', [])
+                                        if code_blocks:
+                                            for code in code_blocks:
+                                                markdown_content += f"\n{code}\n"
+                markdown_content += "\n## Analysis\n"
+            
+            # Add detailed sections from LLM analysis
             for section in report.detailed_sections:
                 markdown_content += f"\n### {section.get('header', 'Section')}\n"
                 markdown_content += f"{section.get('content', '')}\n"
@@ -1701,11 +1779,7 @@ async def research_orchestrator_get_session(
         })
         
         if not session_result.success:
-            return ResearchOrchestratorOutput(
-                success=False,
-                message=f"Research session '{session_id}' not found",
-                data=None
-            )
+            raise KeyError(f"Research session '{session_id}' not found")
         
         session_data = session_result.data.get('value', {})
         
