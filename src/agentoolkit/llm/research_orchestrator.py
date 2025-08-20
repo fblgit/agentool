@@ -422,6 +422,7 @@ async def research_orchestrator_plan_research(
             'max_sources': max_sources,
             'content_filter': content_filter or {},
             'plan': plan.model_dump(),  # Convert to dict for storage
+            'sources': sources or [],  # Store the actual source URLs provided
             'status': 'planned',
             'created_at': time.time(),
             'sources_processed': 0,
@@ -534,6 +535,7 @@ async def research_orchestrator_execute_research(
         plan = session_data.get('plan', {})
         search_queries = plan.get('search_queries', [])
         max_sources = session_data.get('max_sources', 10)
+        provided_sources = session_data.get('sources', [])  # Get the actual URLs if provided
         
         # Start browser for dynamic content
         browser_id = f"research_{session_id}"
@@ -553,202 +555,39 @@ async def research_orchestrator_execute_research(
         # Initialize domain tracker for this session
         domain_tracker = DomainTracker()
         
-        # Execute search queries and collect content
-        for query in search_queries[:max_sources]:
-            try:
-                # Use DuckDuckGo search engine (more automation-friendly than Google)
-                search_url = f"https://duckduckgo.com/?q={query.replace(' ', '+')}"
-                
-                # Navigate to search results (timeout in milliseconds)
-                nav_result = await injector.run('page_navigator', {
-                    'operation': 'navigate',
-                    'browser_id': browser_id,
-                    'url': search_url,
-                    'timeout': 30000  # 30 seconds in milliseconds
-                })
-                
-                if nav_result.success:
-                    # Get page content
-                    content_result = await injector.run('page_navigator', {
-                        'operation': 'get_content',
+        # If we have provided sources, use them directly instead of searching
+        if provided_sources:
+            # Process the provided URLs directly
+            for source_url in provided_sources[:max_sources]:
+                try:
+                    # Navigate directly to the provided URL
+                    nav_result = await injector.run('page_navigator', {
+                        'operation': 'navigate',
                         'browser_id': browser_id,
-                        'extract_content': True
+                        'url': source_url,
+                        'timeout': 30000  # 30 seconds in milliseconds
                     })
                     
-                    if content_result.success:
-                        raw_html = content_result.data.get('html', '')
-                        text_content = content_result.data.get('text_content', '')
+                    if nav_result.success:
+                        # Get page content
+                        content_result = await injector.run('page_navigator', {
+                            'operation': 'get_content',
+                            'browser_id': browser_id,
+                            'extract_content': True
+                        })
                         
-                        # For DuckDuckGo search results, extract links and visit them
-                        # DuckDuckGo is more automation-friendly than Google
-                        if 'duckduckgo.com' in search_url:
-                            # Extract links from search results
-                            links_result = await injector.run('content_extractor', {
-                                'operation': 'extract_links',
-                                'content': raw_html,
-                                'url': search_url
-                            })
+                        if content_result.success:
+                            raw_html = content_result.data.get('html', '')
                             
-                            if links_result.success:
-                                links = links_result.data.get('links', [])
-                                # Filter out DuckDuckGo's own links and ads
-                                # Links are dicts with 'url', 'text', 'title' etc.
-                                result_links = []
-                                for link in links[:20]:  # Check more links
-                                    if isinstance(link, dict):
-                                        url = link.get('url', '')
-                                        # Skip DuckDuckGo internal links and non-http links
-                                        if url and 'http' in url and not any(
-                                            domain in url for domain in [
-                                                'duckduckgo.com', 'duck.com', 'duckduckgo.co',
-                                                'javascript:', 'mailto:', '#'
-                                            ]
-                                        ):
-                                            result_links.append(url)
-                                    elif isinstance(link, str) and 'http' in link:
-                                        result_links.append(link)
-                                
-                                # Log found links
-                                await injector.run('logging', {
-                                    'operation': 'log',
-                                    'level': 'INFO',
-                                    'logger_name': 'research_orchestrator',
-                                    'message': f'Found {len(result_links)} external links from DuckDuckGo',
-                                    'data': {'first_3_links': result_links[:3]}
-                                })
-                                
-                                # Visit actual result pages
-                                for result_url in result_links[:5]:  # Check up to 5 results
-                                    if not result_url:  # Skip if URL is None or empty
-                                        continue
-                                    
-                                    # Check if domain is already blocked
-                                    if domain_tracker.should_skip_domain(result_url):
-                                        await injector.run('logging', {
-                                            'operation': 'log',
-                                            'level': 'INFO',
-                                            'logger_name': 'research_orchestrator',
-                                            'message': f'Skipping blocked domain: {domain_tracker.extract_domain(result_url)}',
-                                            'data': {'url': result_url}
-                                        })
-                                        continue
-                                    
-                                    try:
-                                        # Navigate to actual content page
-                                        actual_nav = await injector.run('page_navigator', {
-                                            'operation': 'navigate',
-                                            'browser_id': browser_id,
-                                            'url': result_url,
-                                            'timeout': 20000  # 20 seconds
-                                        })
-                                        
-                                        if actual_nav.success:
-                                            # Get actual page content
-                                            actual_content = await injector.run('page_navigator', {
-                                                'operation': 'get_content',
-                                                'browser_id': browser_id,
-                                                'extract_content': True
-                                            })
-                                            
-                                            if actual_content.success:
-                                                actual_html = actual_content.data.get('html', '')
-                                                
-                                                # Analyze page structure to detect blocks
-                                                page_analysis = analyze_page_structure(actual_html, result_url)
-                                                
-                                                if page_analysis['is_blocked']:
-                                                    # Record failure for this domain
-                                                    domain_tracker.record_attempt(
-                                                        result_url, 
-                                                        success=False,
-                                                        content_size=page_analysis['content_size'],
-                                                        link_count=page_analysis['link_count']
-                                                    )
-                                                    
-                                                    await injector.run('logging', {
-                                                        'operation': 'log',
-                                                        'level': 'WARN',
-                                                        'logger_name': 'research_orchestrator',
-                                                        'message': f'Page blocked/captcha detected: {page_analysis["reason"]}',
-                                                        'data': {
-                                                            'url': result_url,
-                                                            'domain': domain_tracker.extract_domain(result_url),
-                                                            'content_size': page_analysis['content_size'],
-                                                            'link_count': page_analysis['link_count']
-                                                        }
-                                                    })
-                                                    continue
-                                                
-                                                # Extract content from actual page
-                                                extract_result = await injector.run('content_extractor', {
-                                                    'operation': 'extract_content',
-                                                    'content': actual_html,
-                                                    'url': result_url,
-                                                    'content_type': session_data.get('research_type', 'html')
-                                                })
-                                                
-                                                if extract_result.success:
-                                                    # Record successful domain access
-                                                    domain_tracker.record_attempt(
-                                                        result_url,
-                                                        success=True,
-                                                        content_size=page_analysis['content_size'],
-                                                        link_count=page_analysis['link_count']
-                                                    )
-                                                    
-                                                    # Score actual content quality
-                                                    quality_result = await injector.run('content_extractor', {
-                                                        'operation': 'score_quality',
-                                                        'content': actual_html,
-                                                        'content_type': session_data.get('research_type', 'html')
-                                                    })
-                                                    
-                                                    if not quality_result.success:
-                                                        raise RuntimeError(f"Failed to score content quality: {quality_result.message}")
-                                                    quality_score = quality_result.data.get('quality_score')
-                                                    if quality_score is None:
-                                                        raise ValueError("Quality score not returned")
-                                                    
-                                                    # Apply content filter
-                                                    content_filter = session_data.get('content_filter', {})
-                                                    relevance_threshold = content_filter.get('relevance_threshold', 0.3)
-                                                    
-                                                    if quality_score >= relevance_threshold:
-                                                        content_collected.append({
-                                                            'url': result_url,
-                                                            'content': extract_result.data,
-                                                            'quality_score': quality_score,
-                                                            'extracted_at': time.time()
-                                                        })
-                                                        relevance_scores.append(quality_score)
-                                                        sources_processed += 1
-                                                        
-                                                        # Stop if we have enough good sources
-                                                        if sources_processed >= 2:
-                                                            break
-                                                    
-                                                    # Rate limiting between actual page visits
-                                                    await asyncio.sleep(1)
-                                    except Exception as link_error:
-                                        await injector.run('logging', {
-                                            'operation': 'log',
-                                            'level': 'WARN',
-                                            'logger_name': 'research_orchestrator',
-                                            'message': f'Failed to process result link in session {session_id}',
-                                            'data': {'error': str(link_error), 'url': result_url}
-                                        })
-                        else:
-                            # For direct URLs, extract content normally
+                            # Extract content from the page
                             extract_result = await injector.run('content_extractor', {
                                 'operation': 'extract_content',
                                 'content': raw_html,
-                                'url': search_url,
+                                'url': source_url,
                                 'content_type': session_data.get('research_type', 'html')
                             })
                             
                             if extract_result.success:
-                                extracted_content = extract_result.data
-                                
                                 # Score content quality
                                 quality_result = await injector.run('content_extractor', {
                                     'operation': 'score_quality',
@@ -756,37 +595,269 @@ async def research_orchestrator_execute_research(
                                     'content_type': session_data.get('research_type', 'html')
                                 })
                                 
-                                if not quality_result.success:
-                                    raise RuntimeError(f"Failed to score content quality: {quality_result.message}")
-                                quality_score = quality_result.data.get('quality_score')
-                                if quality_score is None:
-                                    raise ValueError("Quality score not returned")
+                                if quality_result.success:
+                                    quality_score = quality_result.data.get('quality_score', 0)
+                                    
+                                    # Apply content filter
+                                    content_filter = session_data.get('content_filter', {})
+                                    relevance_threshold = content_filter.get('relevance_threshold', 0.3)
+                                    
+                                    if quality_score >= relevance_threshold:
+                                        content_collected.append({
+                                            'url': source_url,
+                                            'content': extract_result.data,
+                                            'quality_score': quality_score,
+                                            'extracted_at': time.time()
+                                        })
+                                        relevance_scores.append(quality_score)
+                                        sources_processed += 1
+                    
+                    # Rate limiting between page visits
+                    await asyncio.sleep(1)
+                    
+                except Exception as e:
+                    await injector.run('logging', {
+                        'operation': 'log',
+                        'level': 'WARN',
+                        'logger_name': 'research_orchestrator',
+                        'message': f'Failed to process provided source {source_url}',
+                        'data': {'error': str(e)}
+                    })
+        else:
+            # No provided sources, use search queries
+            for query in search_queries[:max_sources]:
+                try:
+                    # Use DuckDuckGo search engine (more automation-friendly than Google)
+                    search_url = f"https://duckduckgo.com/?q={query.replace(' ', '+')}"
+                    
+                    # Navigate to search results (timeout in milliseconds)
+                    nav_result = await injector.run('page_navigator', {
+                        'operation': 'navigate',
+                        'browser_id': browser_id,
+                        'url': search_url,
+                        'timeout': 30000  # 30 seconds in milliseconds
+                    })
+                    
+                    if nav_result.success:
+                        # Get page content
+                        content_result = await injector.run('page_navigator', {
+                            'operation': 'get_content',
+                            'browser_id': browser_id,
+                            'extract_content': True
+                        })
+                        
+                        if content_result.success:
+                            raw_html = content_result.data.get('html', '')
+                            text_content = content_result.data.get('text_content', '')
+                            
+                            # For DuckDuckGo search results, extract links and visit them
+                            # DuckDuckGo is more automation-friendly than Google
+                            if 'duckduckgo.com' in search_url:
+                                # Extract links from search results
+                                links_result = await injector.run('content_extractor', {
+                                    'operation': 'extract_links',
+                                    'content': raw_html,
+                                    'url': search_url
+                                })
                                 
-                                # Apply content filter
-                                content_filter = session_data.get('content_filter', {})
-                                relevance_threshold = content_filter.get('relevance_threshold', 0.3)
-                                
-                                if quality_score >= relevance_threshold:
-                                    content_collected.append({
-                                        'url': search_url,
-                                        'content': extracted_content,
-                                        'quality_score': quality_score,
-                                        'extracted_at': time.time()
+                                if links_result.success:
+                                    links = links_result.data.get('links', [])
+                                    # Filter out DuckDuckGo's own links and ads
+                                    # Links are dicts with 'url', 'text', 'title' etc.
+                                    result_links = []
+                                    for link in links[:20]:  # Check more links
+                                        if isinstance(link, dict):
+                                            url = link.get('url', '')
+                                            # Skip DuckDuckGo internal links and non-http links
+                                            if url and 'http' in url and not any(
+                                                domain in url for domain in [
+                                                    'duckduckgo.com', 'duck.com', 'duckduckgo.co',
+                                                    'javascript:', 'mailto:', '#'
+                                                ]
+                                            ):
+                                                result_links.append(url)
+                                        elif isinstance(link, str) and 'http' in link:
+                                            result_links.append(link)
+                                    
+                                    # Log found links
+                                    await injector.run('logging', {
+                                        'operation': 'log',
+                                        'level': 'INFO',
+                                        'logger_name': 'research_orchestrator',
+                                        'message': f'Found {len(result_links)} external links from DuckDuckGo',
+                                        'data': {'first_3_links': result_links[:3]}
                                     })
-                                    relevance_scores.append(quality_score)
-                                    sources_processed += 1
-                
-                # Rate limiting
-                await asyncio.sleep(1)
-                
-            except Exception as source_error:
-                await injector.run('logging', {
-                    'operation': 'log',
-                    'level': 'WARN',
-                    'logger_name': 'research_orchestrator',
-                    'message': f'Failed to process source in session {session_id}',
-                    'data': {'error': str(source_error), 'query': query}
-                })
+                                    
+                                    # Visit actual result pages
+                                    for result_url in result_links[:5]:  # Check up to 5 results
+                                        if not result_url:  # Skip if URL is None or empty
+                                            continue
+                                        
+                                        # Check if domain is already blocked
+                                        if domain_tracker.should_skip_domain(result_url):
+                                            await injector.run('logging', {
+                                                'operation': 'log',
+                                                'level': 'INFO',
+                                                'logger_name': 'research_orchestrator',
+                                                'message': f'Skipping blocked domain: {domain_tracker.extract_domain(result_url)}',
+                                                'data': {'url': result_url}
+                                            })
+                                            continue
+                                        
+                                        try:
+                                            # Navigate to actual content page
+                                            actual_nav = await injector.run('page_navigator', {
+                                                'operation': 'navigate',
+                                                'browser_id': browser_id,
+                                                'url': result_url,
+                                                'timeout': 20000  # 20 seconds
+                                            })
+                                            
+                                            if actual_nav.success:
+                                                # Get actual page content
+                                                actual_content = await injector.run('page_navigator', {
+                                                    'operation': 'get_content',
+                                                    'browser_id': browser_id,
+                                                    'extract_content': True
+                                                })
+                                                
+                                                if actual_content.success:
+                                                    actual_html = actual_content.data.get('html', '')
+                                                    
+                                                    # Analyze page structure to detect blocks
+                                                    page_analysis = analyze_page_structure(actual_html, result_url)
+                                                    
+                                                    if page_analysis['is_blocked']:
+                                                        # Record failure for this domain
+                                                        domain_tracker.record_attempt(
+                                                            result_url, 
+                                                            success=False,
+                                                            content_size=page_analysis['content_size'],
+                                                            link_count=page_analysis['link_count']
+                                                        )
+                                                        
+                                                        await injector.run('logging', {
+                                                            'operation': 'log',
+                                                            'level': 'WARN',
+                                                            'logger_name': 'research_orchestrator',
+                                                            'message': f'Page blocked/captcha detected: {page_analysis["reason"]}',
+                                                            'data': {
+                                                                'url': result_url,
+                                                                'domain': domain_tracker.extract_domain(result_url),
+                                                                'content_size': page_analysis['content_size'],
+                                                                'link_count': page_analysis['link_count']
+                                                            }
+                                                        })
+                                                        continue
+                                                    
+                                                    # Extract content from actual page
+                                                    extract_result = await injector.run('content_extractor', {
+                                                        'operation': 'extract_content',
+                                                        'content': actual_html,
+                                                        'url': result_url,
+                                                        'content_type': session_data.get('research_type', 'html')
+                                                    })
+                                                    
+                                                    if extract_result.success:
+                                                        # Record successful domain access
+                                                        domain_tracker.record_attempt(
+                                                            result_url,
+                                                            success=True,
+                                                            content_size=page_analysis['content_size'],
+                                                            link_count=page_analysis['link_count']
+                                                        )
+                                                        
+                                                        # Score actual content quality
+                                                        quality_result = await injector.run('content_extractor', {
+                                                            'operation': 'score_quality',
+                                                            'content': actual_html,
+                                                            'content_type': session_data.get('research_type', 'html')
+                                                        })
+                                                        
+                                                        if not quality_result.success:
+                                                            raise RuntimeError(f"Failed to score content quality: {quality_result.message}")
+                                                        quality_score = quality_result.data.get('quality_score')
+                                                        if quality_score is None:
+                                                            raise ValueError("Quality score not returned")
+                                                        
+                                                        # Apply content filter
+                                                        content_filter = session_data.get('content_filter', {})
+                                                        relevance_threshold = content_filter.get('relevance_threshold', 0.3)
+                                                        
+                                                        if quality_score >= relevance_threshold:
+                                                            content_collected.append({
+                                                                'url': result_url,
+                                                                'content': extract_result.data,
+                                                                'quality_score': quality_score,
+                                                                'extracted_at': time.time()
+                                                            })
+                                                            relevance_scores.append(quality_score)
+                                                            sources_processed += 1
+                                                            
+                                                            # Stop if we have enough good sources
+                                                            if sources_processed >= 2:
+                                                                break
+                                                        
+                                                        # Rate limiting between actual page visits
+                                                        await asyncio.sleep(1)
+                                        except Exception as link_error:
+                                            await injector.run('logging', {
+                                                'operation': 'log',
+                                                'level': 'WARN',
+                                                'logger_name': 'research_orchestrator',
+                                                'message': f'Failed to process result link in session {session_id}',
+                                                'data': {'error': str(link_error), 'url': result_url}
+                                            })
+                            else:
+                                # For direct URLs, extract content normally
+                                extract_result = await injector.run('content_extractor', {
+                                    'operation': 'extract_content',
+                                    'content': raw_html,
+                                    'url': search_url,
+                                    'content_type': session_data.get('research_type', 'html')
+                                })
+                                
+                                if extract_result.success:
+                                    extracted_content = extract_result.data
+                                    
+                                    # Score content quality
+                                    quality_result = await injector.run('content_extractor', {
+                                        'operation': 'score_quality',
+                                        'content': raw_html,
+                                        'content_type': session_data.get('research_type', 'html')
+                                    })
+                                    
+                                    if not quality_result.success:
+                                        raise RuntimeError(f"Failed to score content quality: {quality_result.message}")
+                                    quality_score = quality_result.data.get('quality_score')
+                                    if quality_score is None:
+                                        raise ValueError("Quality score not returned")
+                                    
+                                    # Apply content filter
+                                    content_filter = session_data.get('content_filter', {})
+                                    relevance_threshold = content_filter.get('relevance_threshold', 0.3)
+                                    
+                                    if quality_score >= relevance_threshold:
+                                        content_collected.append({
+                                            'url': search_url,
+                                            'content': extracted_content,
+                                            'quality_score': quality_score,
+                                            'extracted_at': time.time()
+                                        })
+                                        relevance_scores.append(quality_score)
+                                        sources_processed += 1
+                    
+                    # Rate limiting
+                    await asyncio.sleep(1)
+                    
+                except Exception as source_error:
+                    await injector.run('logging', {
+                        'operation': 'log',
+                        'level': 'WARN',
+                        'logger_name': 'research_orchestrator',
+                        'message': f'Failed to process source in session {session_id}',
+                        'data': {'error': str(source_error), 'query': query}
+                    })
         
         # Clean up browser
         await injector.run('browser_manager', {
@@ -1418,6 +1489,7 @@ async def research_orchestrator_generate_report(
             report.report_path = report_path
             
             report_data = {
+                'report': final_content,  # Include the actual report content
                 'report_path': report_path,
                 'title': report.title,
                 'summary': report.executive_summary,
@@ -1431,9 +1503,11 @@ async def research_orchestrator_generate_report(
             report_data = report.model_dump()
             report_data['session_id'] = session_id
             report_data['generated_at'] = time.time()
+            report_data['report'] = report_data.get('executive_summary', '')  # Include summary as report
             
         else:  # summary format
             report_data = {
+                'report': report.executive_summary,  # Include summary as report
                 'title': report.title,
                 'summary': report.executive_summary,
                 'key_findings': report.key_findings[:3],  # Top 3 findings

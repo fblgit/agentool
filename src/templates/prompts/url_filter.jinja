@@ -1,0 +1,41 @@
+Research Topic: {{ topic }}
+Research Type: {{ research_type }}
+
+Search Results to Evaluate:
+{% for result in search_results %}
+{{ loop.index }}. URL: {{ result.url }}
+   Title: {{ result.title }}
+   {% if result.snippet %}Snippet: {{ result.snippet }}{% endif %}
+   Domain: {{ result.domain }}
+{% endfor %}
+
+{% if preferred_domains %}
+Preferred Domains (prioritize if found):
+{% for domain in preferred_domains %}
+- {{ domain }}
+{% endfor %}
+{% endif %}
+
+{% if exclude_domains %}
+Excluded Domains (skip these):
+{% for domain in exclude_domains %}
+- {{ domain }}
+{% endfor %}
+{% endif %}
+
+Analyze these search results and categorize them by priority for researching "{{ topic }}".
+
+For each URL, determine if it should be:
+- **High Priority**: Directly relevant, authoritative, essential for the research
+- **Medium Priority**: Useful supporting information, secondary sources
+- **Low Priority**: Potentially useful but not critical
+- **Excluded**: Skip this URL (explain why)
+
+Provide clear reasoning for each categorization based on:
+- Relevance to {{ topic }}
+- Source authority and credibility
+- Content type and quality indicators
+- Recency and maintenance status
+- Accessibility without barriers
+
+Focus on identifying the best sources for {{ research_type }} research.
