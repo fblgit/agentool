@@ -32,6 +32,8 @@
 
 AgenTools is a comprehensive meta-framework built on [pydantic-ai](https://github.com/pydantic/pydantic-ai) that provides a three-layer architecture for building AI-powered applications:
 
+**01 October 2025 - Becomes a public project**
+
 ### 🎯 Three-Layer Architecture
 
 1. **AgenTool Framework** - Core layer for creating type-safe, schema-driven tools with deterministic routing
