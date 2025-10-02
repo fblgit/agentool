@@ -1,0 +1,36 @@
+Research Topic: {{ topic }}
+Research Type: {{ research_type }}
+
+{% if preferred_domains %}
+Preferred Domains to Consider:
+{% for domain in preferred_domains %}
+- {{ domain }}
+{% endfor %}
+{% endif %}
+
+Generate optimized search terms for researching this topic. Consider:
+
+1. **Primary Terms**: Direct queries about the main topic
+   - Include the exact topic phrase
+   - Break down into component concepts
+   - Add relevant context keywords
+
+2. **Refinement Terms**: Deeper investigation queries
+   - Specific aspects or features
+   - Comparisons with alternatives
+   - Use cases and applications
+   - Technical specifications
+
+3. **Boolean Queries**: Advanced search patterns
+   - Combine related terms with OR
+   - Exclude irrelevant content with -
+   - Use quotes for exact matches
+   - Create focused queries
+
+4. **Domain Hints**: Suggest authoritative sources
+   - Official websites
+   - Documentation sites
+   - Academic sources
+   - Community forums
+
+Focus on generating queries that will return high-quality, relevant results for {{ research_type }} research about {{ topic }}.

@@ -1,0 +1,25 @@
+Research Session: {{ session_id }}
+Original Query: {{ original_query }}
+
+{% if follow_up_query %}
+Follow-up Question: {{ follow_up_query }}
+{% endif %}
+
+Current Findings Summary:
+{{ findings_summary }}
+
+{% if knowledge_gaps %}
+Identified Gaps:
+{% for gap in knowledge_gaps %}
+- {{ gap }}
+{% endfor %}
+{% endif %}
+
+Based on current research findings, provide:
+1. Refined search queries to explore further
+2. Specific knowledge gaps that need filling
+3. New sources to investigate
+4. Clear rationale for the refinements
+5. Priority topics requiring more research
+
+Focus on generating queries that will uncover missing information and deepen understanding of {{ original_query }}.

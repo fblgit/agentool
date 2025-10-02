@@ -56,6 +56,9 @@ from .management.agentool import create_agentool_management_agent
 
 # LLM agents
 from .llm.llm import create_llm_agent
+from .llm.markdown_generator import create_markdown_generator_agent
+from .llm.research_orchestrator import create_research_orchestrator_agent
+from .llm.content_extractor import create_content_extractor_agent
 
 # Playwright agents
 from .playwright import create_browser_manager_agent, create_page_navigator_agent, create_element_interactor_agent
@@ -84,6 +87,9 @@ __all__ = [
     'create_agentool_management_agent',
     # LLM
     'create_llm_agent',
+    'create_markdown_generator_agent',
+    'create_research_orchestrator_agent',
+    'create_content_extractor_agent',
     # Playwright
     'create_browser_manager_agent',
     'create_page_navigator_agent',

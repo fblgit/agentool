@@ -1,0 +1,20 @@
+Research Session: {{ session_id }}
+Original Query: {{ query }}
+
+Search Results Found:
+{{ search_results }}
+
+{% if extracted_content %}
+Extracted Content:
+{{ extracted_content }}
+{% endif %}
+
+Analyze the search results and any extracted content to provide:
+1. Count of sources successfully processed
+2. Confirmation of content extraction
+3. Links extracted from search results that should be visited
+4. Relevance scores for each piece of content (0.0 to 1.0)
+5. Content summaries with source attribution
+6. List of any failed sources
+
+Focus on identifying high-quality, relevant content that addresses the research query.

@@ -1,0 +1,46 @@
+Extract comprehensive technical documentation from the following web content.
+
+Research Query: {{ query }}
+Research Type: {{ research_type }}
+Source URL: {{ url }}
+
+{% if options %}
+Additional Context:
+{% for key, value in options.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+{% endif %}
+
+Web Content to Extract From:
+---
+{{ content }}
+---
+
+Instructions:
+1. Extract ALL relevant documentation sections that answer or relate to the research query
+2. Preserve the complete content including:
+   - Code examples with proper language markers
+   - Configuration details
+   - API specifications
+   - Method signatures and parameters
+   - Installation and setup instructions
+   - Prerequisites and dependencies
+   
+3. Structure the extraction with:
+   - Clear section headings maintaining hierarchy
+   - Full markdown-formatted content for each section
+   - All code blocks preserved with language identifiers
+   - Tables, lists, and formatting intact
+   
+4. Assess quality:
+   - Rate overall relevance to "{{ query }}" (0.0-1.0)
+   - Rate completeness of information provided (0.0-1.0)
+   - List what information is still missing
+   - Note related links for further exploration
+
+5. Identify key concepts:
+   - Main topics and concepts covered
+   - APIs, methods, or features documented
+   - Technologies and frameworks referenced
+
+Extract the documentation following the provided schema structure.
