@@ -39,6 +39,9 @@ But what can you do with it?
 3. Create Agents/Workflows dynamically
 and some more...
 
+Originally I had this idea https://github.com/fblgit/bhanus late 2024's, the motivation has always been **the meta**, models creating their tools ecosystem. 
+I built few versions of this, ultimately arriving to the simplicity achieved by integrating agentool's with [pydantic-ai](https://github.com/pydantic/pydantic-ai)
+
 ### 🎯 Three-Layer Architecture
 
 1. **AgenTool Framework** - Core layer for creating type-safe, schema-driven tools with deterministic routing
